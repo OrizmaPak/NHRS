@@ -37,8 +37,7 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../../.env
-    environment:
-      - PORT=${GATEWAY_PORT}
+      - ../../services/core-platform/api-gateway/.env
     networks:
       - nhrs_net
     healthcheck:
@@ -53,8 +52,7 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../../.env
-    environment:
-      - PORT=${AUTH_API_PORT}
+      - ../../services/core-platform/authentication/auth-api/.env
     networks:
       - nhrs_net
     healthcheck:
@@ -69,8 +67,7 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../../.env
-    environment:
-      - PORT=${OTP_PORT}
+      - ../../services/core-platform/authentication/otp-service/.env
     networks:
       - nhrs_net
     healthcheck:
@@ -85,8 +82,7 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../../.env
-    environment:
-      - PORT=${SESSION_PORT}
+      - ../../services/core-platform/authentication/session-service/.env
     networks:
       - nhrs_net
     healthcheck:
@@ -101,8 +97,7 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../../.env
-    environment:
-      - PORT=${TOKEN_PORT}
+      - ../../services/core-platform/authentication/token-service/.env
     networks:
       - nhrs_net
     healthcheck:
@@ -117,8 +112,7 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../../.env
-    environment:
-      - PORT=${NIN_LINK_PORT}
+      - ../../services/core-platform/authentication/nin-linking-service/.env
     networks:
       - nhrs_net
     healthcheck:
@@ -130,3 +124,4 @@ services:
 networks:
   nhrs_net:
     driver: bridge
+

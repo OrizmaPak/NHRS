@@ -21,8 +21,12 @@ This keeps internal communication decoupled from host machine ports.
 ## Atlas Connectivity
 
 MongoDB is Atlas-only.
-Every service reads the connection string from the shared environment variable:
-- MONGODB_URI=<mongodb atlas connection string>
+Services read domain-specific cluster URI variables and service-specific DB names:
+- IDENTITY_MONGODB_URI
+- GOVERNANCE_MONGODB_URI
+- HEALTHDATA_MONGODB_URI
+- SUPPORT_MONGODB_URI
+- <SERVICE>_DB_NAME
 
 No local MongoDB container is defined in Docker Compose.
 
@@ -34,3 +38,19 @@ Examples:
 - docker compose -f docker/compose/docker-compose.dev.yml up -d --scale otp-service=2
 
 This lets high-traffic services scale without scaling all services.
+
+## Database Isolation Strategy
+
+Use grouped cluster URIs plus one database per service.
+
+- IDENTITY_MONGODB_URI: auth-api, otp-service, session-service, token-service, nin-linking-service
+- GOVERNANCE_MONGODB_URI: rbac-service, audit-log-service
+- HEALTHDATA_MONGODB_URI: health-records-service, encounter-notes-service, laboratory-service, pharmacy-dispensing-service
+- SUPPORT_MONGODB_URI: notification-service, file-document-service, catalog-service, emergency-requests-service
+
+Each service still gets its own DB name (for example AUTH_DB_NAME, LAB_DB_NAME, AUDIT_DB_NAME).
+
+This supports:
+- Option 2 now: all four URI variables can point to the same Atlas cluster URI
+- Option 3 later: point each URI variable to a different Atlas cluster without changing service code
+
