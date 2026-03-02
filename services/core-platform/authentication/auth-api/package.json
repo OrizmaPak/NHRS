@@ -1,0 +1,13 @@
+{
+  "name": "auth-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NHRS auth-api placeholder",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.29.0"
+  }
+}

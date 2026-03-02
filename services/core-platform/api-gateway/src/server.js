@@ -1,23 +1,19 @@
-# api-gateway
-Placeholder service for NHRS.
-## Default Port
-8080
-## Health Check
-- GET /health
-"@ | Set-Content -Path "services/core-platform/api-gateway/README.md"
-  @"
-const http = require('http');
+const fastify = require('fastify')({ logger: true });
+
 const serviceName = 'api-gateway';
 const port = Number(process.env.PORT) || 8080;
-const server = http.createServer((req, res) => {
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', service: serviceName }));
-    return;
+
+fastify.get('/health', async () => {
+  return { status: 'ok', service: serviceName };
+});
+
+const start = async () => {
+  try {
+    await fastify.listen({ port, host: '0.0.0.0' });
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
   }
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ status: 'not_found', service: serviceName }));
-});
-server.listen(port, '0.0.0.0', () => {
-  console.log(${serviceName} listening on );
-});
+};
+
+start();

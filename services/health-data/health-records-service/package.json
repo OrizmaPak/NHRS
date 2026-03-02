@@ -1,0 +1,13 @@
+{
+  "name": "health-records-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NHRS health-records-service placeholder",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.29.0"
+  }
+}

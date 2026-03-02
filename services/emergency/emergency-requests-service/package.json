@@ -1,0 +1,13 @@
+{
+  "name": "emergency-requests-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NHRS emergency-requests-service placeholder",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.29.0"
+  }
+}
