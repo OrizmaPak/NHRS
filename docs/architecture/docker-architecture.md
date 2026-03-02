@@ -39,6 +39,17 @@ Examples:
 
 This lets high-traffic services scale without scaling all services.
 
+## Monitoring Stack
+
+Local monitoring is available through:
+- Grafana: http://localhost:3000
+- Prometheus: http://localhost:9090
+- cAdvisor (container metrics): http://localhost:8088
+- Node Exporter metrics: http://localhost:9100/metrics
+
+Grafana is pre-provisioned with a Prometheus datasource and an "NHRS Service Monitoring" dashboard.
+As new NHRS services are added to Compose, container metrics appear automatically in the dashboard via cAdvisor labels.
+
 ## Database Isolation Strategy
 
 Use grouped cluster URIs plus one database per service.

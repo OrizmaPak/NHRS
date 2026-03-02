@@ -5,7 +5,7 @@ services:
       - "80:80"
     volumes:
       - ../../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ../../docker/nginx/conf.d/gateway.conf:/etc/nginx/conf.d/gateway.conf:ro
+      - ../../docker/nginx/conf.d/gateway.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       api-gateway:
         condition: service_healthy
@@ -21,9 +21,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
     networks:
       - nhrs_net
     healthcheck:
@@ -31,6 +34,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
   api-gateway:
     build:
       context: ../../services/core-platform/api-gateway
@@ -38,14 +42,17 @@ services:
     env_file:
       - ../../.env
       - ../../services/core-platform/api-gateway/.env
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
     networks:
       - nhrs_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${GATEWAY_PORT}/health || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
+
   auth-api:
     build:
       context: ../../services/core-platform/authentication/auth-api
@@ -53,14 +60,17 @@ services:
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/auth-api/.env
+    ports:
+      - "${AUTH_API_PORT}:${AUTH_API_PORT}"
     networks:
       - nhrs_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${AUTH_API_PORT}/health || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
+
   otp-service:
     build:
       context: ../../services/core-platform/authentication/otp-service
@@ -68,14 +78,17 @@ services:
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/otp-service/.env
+    ports:
+      - "${OTP_PORT}:${OTP_PORT}"
     networks:
       - nhrs_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${OTP_PORT}/health || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
+
   session-service:
     build:
       context: ../../services/core-platform/authentication/session-service
@@ -83,14 +96,17 @@ services:
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/session-service/.env
+    ports:
+      - "${SESSION_PORT}:${SESSION_PORT}"
     networks:
       - nhrs_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${SESSION_PORT}/health || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
+
   token-service:
     build:
       context: ../../services/core-platform/authentication/token-service
@@ -98,14 +114,17 @@ services:
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/token-service/.env
+    ports:
+      - "${TOKEN_PORT}:${TOKEN_PORT}"
     networks:
       - nhrs_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${TOKEN_PORT}/health || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
+
   nin-linking-service:
     build:
       context: ../../services/core-platform/authentication/nin-linking-service
@@ -113,14 +132,326 @@ services:
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/nin-linking-service/.env
+    ports:
+      - "${NIN_LINK_PORT}:${NIN_LINK_PORT}"
     networks:
       - nhrs_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${NIN_LINK_PORT}/health || exit 1"]
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  rbac-service:
+    build:
+      context: ../../services/governance/rbac-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/governance/rbac-service/.env
+    ports:
+      - "${RBAC_PORT}:${RBAC_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  audit-log-service:
+    build:
+      context: ../../services/governance/audit-log-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/governance/audit-log-service/.env
+    ports:
+      - "${AUDIT_LOG_PORT}:${AUDIT_LOG_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  user-profile-service:
+    build:
+      context: ../../services/profiles/user-profile-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/profiles/user-profile-service/.env
+    ports:
+      - "${USER_PROFILE_PORT}:${USER_PROFILE_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  organization-service:
+    build:
+      context: ../../services/providers/organization-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/providers/organization-service/.env
+    ports:
+      - "${ORGANIZATION_PORT}:${ORGANIZATION_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  doctor-registry-service:
+    build:
+      context: ../../services/providers/doctor-registry-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/providers/doctor-registry-service/.env
+    ports:
+      - "${DOCTOR_REGISTRY_PORT}:${DOCTOR_REGISTRY_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  health-records-service:
+    build:
+      context: ../../services/health-data/health-records-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/health-data/health-records-service/.env
+    ports:
+      - "${HEALTH_RECORDS_PORT}:${HEALTH_RECORDS_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  encounter-notes-service:
+    build:
+      context: ../../services/health-data/encounter-notes-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/health-data/encounter-notes-service/.env
+    ports:
+      - "${ENCOUNTER_NOTES_PORT}:${ENCOUNTER_NOTES_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  laboratory-service:
+    build:
+      context: ../../services/health-data/laboratory-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/health-data/laboratory-service/.env
+    ports:
+      - "${LAB_PORT}:${LAB_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  pharmacy-dispensing-service:
+    build:
+      context: ../../services/health-data/pharmacy-dispensing-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/health-data/pharmacy-dispensing-service/.env
+    ports:
+      - "${PHARMACY_PORT}:${PHARMACY_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  emergency-requests-service:
+    build:
+      context: ../../services/emergency/emergency-requests-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/emergency/emergency-requests-service/.env
+    ports:
+      - "${EMERGENCY_REQUESTS_PORT}:${EMERGENCY_REQUESTS_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  catalog-service:
+    build:
+      context: ../../services/emergency/catalog-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/emergency/catalog-service/.env
+    ports:
+      - "${CATALOG_PORT}:${CATALOG_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  notification-service:
+    build:
+      context: ../../services/platform-support/notification-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/platform-support/notification-service/.env
+    ports:
+      - "${NOTIFICATION_PORT}:${NOTIFICATION_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  file-document-service:
+    build:
+      context: ../../services/platform-support/file-document-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/platform-support/file-document-service/.env
+    ports:
+      - "${FILE_DOCUMENT_PORT}:${FILE_DOCUMENT_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ../../docker/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    networks:
+      - nhrs_net
+    depends_on:
+      cadvisor:
+        condition: service_started
+      node-exporter:
+        condition: service_started
+      blackbox-exporter:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ../../docker/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ../../docker/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../../docker/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - nhrs_net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    ports:
+      - "8088:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - nhrs_net
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    ports:
+      - "9100:9100"
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro
+    networks:
+      - nhrs_net
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    ports:
+      - "9115:9115"
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+    volumes:
+      - ../../docker/monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    networks:
+      - nhrs_net
+
 networks:
   nhrs_net:
     driver: bridge
