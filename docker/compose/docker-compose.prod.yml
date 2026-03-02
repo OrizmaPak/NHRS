@@ -1,0 +1,28 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ../../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../docker/nginx/conf.d/gateway.conf:/etc/nginx/conf.d/gateway.conf:ro
+    depends_on:
+      - api-gateway
+      - auth-api
+    networks:
+      - nhrs_net
+  api-gateway:
+    image: nhrs/api-gateway:latest
+    env_file:
+      - ../../.env
+    networks:
+      - nhrs_net
+  auth-api:
+    image: nhrs/auth-api:latest
+    env_file:
+      - ../../.env
+    networks:
+      - nhrs_net
+networks:
+  nhrs_net:
+    driver: bridge
