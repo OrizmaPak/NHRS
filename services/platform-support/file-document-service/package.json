@@ -8,6 +8,8 @@
     "start": "node src/server.js"
   },
   "dependencies": {
+    "@fastify/multipart": "^8.3.1",
+    "cloudinary": "^2.6.0",
     "fastify": "^4.29.0",
     "mongodb": "^6.15.0"
   }

@@ -161,56 +161,76 @@ async function requireAdmin(req, reply) {
 
 async function connect() {
   if (!mongoUri) {
-    throw new Error('Missing MONGODB_URI');
+    fastify.log.warn('Missing MONGODB_URI; starting without database connection');
+    return;
   }
 
-  mongoClient = new MongoClient(mongoUri, {
-    serverApi: {
-      version: ServerApiVersion.v1,
-      strict: true,
-      deprecationErrors: true,
-    },
-  });
-
-  await mongoClient.connect();
-  db = mongoClient.db(dbName);
-  await db.command({ ping: 1 });
-
-  redisClient = createClient({ url: redisUrl });
-  redisClient.on('error', (err) => fastify.log.error({ err }, 'Redis client error'));
-  await redisClient.connect();
-
-  await Promise.all([
-    collections.ninCache().createIndex({ nin: 1 }, { unique: true }),
-    collections.users().createIndex({ nin: 1 }, { unique: true }),
-    collections.users().createIndex({ email: 1 }, { sparse: true }),
-    collections.users().createIndex({ phone: 1 }, { sparse: true }),
-    collections.roles().createIndex({ name: 1 }, { unique: true }),
-    collections.otp().createIndex({ destination: 1, channel: 1, status: 1 }),
-    collections.sessions().createIndex({ jti: 1 }, { unique: true }),
-  ]);
-
-  await collections.roles().updateOne(
-    { name: 'citizen' },
-    { $setOnInsert: { name: 'citizen', permissions: ['profile:read:self'] } },
-    { upsert: true }
-  );
-
-  await collections.roles().updateOne(
-    { name: 'admin' },
-    {
-      $setOnInsert: {
-        name: 'admin',
-        permissions: ['rbac:manage', 'rbac:assign', 'rbac:read', 'nin:read', 'nin:refresh'],
+  try {
+    mongoClient = new MongoClient(mongoUri, {
+      serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
       },
-    },
-    { upsert: true }
-  );
+    });
 
-  dbReady = true;
-  redisReady = true;
-  fastify.log.info({ dbName, redisUrl }, 'auth-api dependencies connected');
+    await mongoClient.connect();
+    db = mongoClient.db(dbName);
+    await db.command({ ping: 1 });
+    dbReady = true;
+  } catch (err) {
+    fastify.log.warn({ err }, 'MongoDB connection failed; auth-api running in degraded mode');
+  }
+
+  try {
+    redisClient = createClient({ url: redisUrl });
+    redisClient.on('error', (err) => fastify.log.error({ err }, 'Redis client error'));
+    await redisClient.connect();
+    redisReady = true;
+  } catch (err) {
+    fastify.log.warn({ err }, 'Redis connection failed; auth-api running in degraded mode');
+  }
+
+  if (dbReady) {
+    await Promise.all([
+      collections.ninCache().createIndex({ nin: 1 }, { unique: true }),
+      collections.users().createIndex({ nin: 1 }, { unique: true }),
+      collections.users().createIndex({ email: 1 }, { sparse: true }),
+      collections.users().createIndex({ phone: 1 }, { sparse: true }),
+      collections.roles().createIndex({ name: 1 }, { unique: true }),
+      collections.otp().createIndex({ destination: 1, channel: 1, status: 1 }),
+      collections.sessions().createIndex({ jti: 1 }, { unique: true }),
+    ]);
+
+    await collections.roles().updateOne(
+      { name: 'citizen' },
+      { $setOnInsert: { name: 'citizen', permissions: ['profile:read:self'] } },
+      { upsert: true }
+    );
+
+    await collections.roles().updateOne(
+      { name: 'admin' },
+      {
+        $setOnInsert: {
+          name: 'admin',
+          permissions: ['rbac:manage', 'rbac:assign', 'rbac:read', 'nin:read', 'nin:refresh'],
+        },
+      },
+      { upsert: true }
+    );
+  }
+
+  fastify.log.info({ dbName, redisUrl, dbReady, redisReady }, 'auth-api dependency status');
 }
+
+fastify.addHook('onRequest', async (req, reply) => {
+  if (req.url === '/health') {
+    return;
+  }
+  if (!dbReady || !redisReady) {
+    return reply.code(503).send({ message: 'Service dependencies unavailable' });
+  }
+});
 
 fastify.get('/health', async () => ({
   status: 'ok',

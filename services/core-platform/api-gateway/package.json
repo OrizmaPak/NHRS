@@ -8,6 +8,8 @@
     "start": "node src/server.js"
   },
   "dependencies": {
+    "@fastify/swagger": "^8.15.0",
+    "@fastify/swagger-ui": "^2.1.0",
     "fastify": "^4.29.0",
     "mongodb": "^6.15.0"
   }

@@ -23,10 +23,14 @@ const connectToMongo = async () => {
     },
   });
 
-  await mongoClient.connect();
-  await mongoClient.db('admin').command({ ping: 1 });
-  dbReady = true;
-  fastify.log.info({ dbName }, 'MongoDB connection established');
+  try {
+    await mongoClient.connect();
+    await mongoClient.db('admin').command({ ping: 1 });
+    dbReady = true;
+    fastify.log.info({ dbName }, 'MongoDB connection established');
+  } catch (err) {
+    fastify.log.warn({ err }, 'MongoDB connection failed; continuing without database connection');
+  }
 };
 
 fastify.get('/health', async () => {
@@ -57,3 +61,4 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 start();
+

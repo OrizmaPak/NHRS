@@ -4,7 +4,8 @@
   "private": true,
   "description": "Tooling scripts for NHRS monorepo",
   "scripts": {
-    "seed:nin-cache": "node scripts/seed-nin-cache.js"
+    "seed:nin-cache": "node scripts/seed-nin-cache.js",
+    "generate:openapi": "node scripts/generate-openapi.js docs/openapi.json"
   },
   "dependencies": {
     "mongodb": "^6.15.0"
