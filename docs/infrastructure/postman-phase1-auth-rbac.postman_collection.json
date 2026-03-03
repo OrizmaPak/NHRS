@@ -1,0 +1,249 @@
+{
+  "info": {
+    "name": "NHRS Phase 1 Auth RBAC",
+    "_postman_id": "1d9f7ab7-24df-4d8b-8cd7-51b8df8f0a52",
+    "description": "Authentication + RBAC foundation endpoints for NHRS Phase 1.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "userId", "value": "" },
+    { "key": "nin", "value": "90000000001" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Auth Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/auth/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (NIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"method\":\"nin\",\"nin\":\"{{nin}}\",\"password\":\"01011985\"}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "Set Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"newPassword\":\"Str0ngPass!234\"}" },
+            "url": "{{baseUrl}}/auth/password/set"
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"currentPassword\":\"Str0ngPass!234\",\"newPassword\":\"N3wPass!456\"}"
+            },
+            "url": "{{baseUrl}}/auth/password/change"
+          }
+        },
+        {
+          "name": "Forgot Password (Phone)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"channel\":\"phone\",\"destination\":\"08000000001\"}"
+            },
+            "url": "{{baseUrl}}/auth/password/forgot"
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"channel\":\"phone\",\"destination\":\"08000000001\",\"code\":\"000000\",\"newPassword\":\"Str0ngPass!234\"}"
+            },
+            "url": "{{baseUrl}}/auth/password/reset"
+          }
+        },
+        {
+          "name": "Token Refresh",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"refreshToken\":\"{{refreshToken}}\"}" },
+            "url": "{{baseUrl}}/auth/token/refresh"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"refreshToken\":\"{{refreshToken}}\"}" },
+            "url": "{{baseUrl}}/auth/logout"
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contact Setup",
+      "item": [
+        {
+          "name": "Set Phone",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"phone\":\"08000000001\"}" },
+            "url": "{{baseUrl}}/auth/contact/phone"
+          }
+        },
+        {
+          "name": "Verify Phone",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"phone\":\"08000000001\",\"code\":\"000000\"}" },
+            "url": "{{baseUrl}}/auth/contact/phone/verify"
+          }
+        },
+        {
+          "name": "Set Email",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"email\":\"citizen001@example.com\"}" },
+            "url": "{{baseUrl}}/auth/contact/email"
+          }
+        },
+        {
+          "name": "Verify Email",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"citizen001@example.com\",\"code\":\"000000\"}"
+            },
+            "url": "{{baseUrl}}/auth/contact/email/verify"
+          }
+        }
+      ]
+    },
+    {
+      "name": "NIN Cache",
+      "item": [
+        {
+          "name": "Get NIN",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/nin/{{nin}}"
+          }
+        },
+        {
+          "name": "Refresh NIN",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/nin/refresh/{{nin}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "RBAC",
+      "item": [
+        {
+          "name": "List Roles",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/rbac/roles"
+          }
+        },
+        {
+          "name": "Create Role (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"support_agent\",\"permissions\":[\"ticket:read\",\"ticket:update\"]}"
+            },
+            "url": "{{baseUrl}}/rbac/roles"
+          }
+        },
+        {
+          "name": "Assign Role (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"userId\":\"{{userId}}\",\"roleName\":\"support_agent\"}" },
+            "url": "{{baseUrl}}/rbac/assign-role"
+          }
+        },
+        {
+          "name": "User Scope",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/rbac/user/{{userId}}/scope"
+          }
+        }
+      ]
+    }
+  ]
+}

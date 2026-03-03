@@ -62,6 +62,9 @@ services:
       - ../../services/core-platform/authentication/auth-api/.env
     ports:
       - "${AUTH_API_PORT}:${AUTH_API_PORT}"
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - nhrs_net
     healthcheck:
