@@ -1,0 +1,115 @@
+const ALLOWED_NOTIFICATION_CHANNELS = new Set(['sms', 'email', 'whatsapp']);
+
+function computeOnboarding(profile) {
+  const completedSteps = [];
+  if (profile?.onboarding?.hasSetPassword) completedSteps.push('password_set');
+  if (profile?.onboarding?.hasVerifiedPhone) completedSteps.push('phone_verified');
+  if (profile?.onboarding?.hasVerifiedEmail) completedSteps.push('email_verified');
+  if (profile?.address?.line1) completedSteps.push('address_added');
+  if (profile?.displayName) completedSteps.push('display_name_set');
+
+  const totalWeight = 5;
+  const completenessScore = Math.min(100, Math.round((completedSteps.length / totalWeight) * 100));
+
+  return { completedSteps, completenessScore };
+}
+
+function sanitizeNotificationChannels(input) {
+  if (!Array.isArray(input)) return [];
+  return Array.from(new Set(input.map((v) => String(v).toLowerCase()).filter((v) => ALLOWED_NOTIFICATION_CHANNELS.has(v))));
+}
+
+function pickEditableProfileFields(payload) {
+  const out = {};
+  if (typeof payload?.displayName === 'string') {
+    out.displayName = payload.displayName.trim();
+  }
+  if (payload?.address && typeof payload.address === 'object') {
+    out.address = {
+      country: payload.address.country || null,
+      state: payload.address.state || null,
+      lga: payload.address.lga || null,
+      city: payload.address.city || null,
+      line1: payload.address.line1 || null,
+      line2: payload.address.line2 || null,
+      postalCode: payload.address.postalCode || null,
+    };
+  }
+  if (payload?.preferences && typeof payload.preferences === 'object') {
+    out.preferences = {
+      notificationChannels: sanitizeNotificationChannels(payload.preferences.notificationChannels),
+      language: payload.preferences.language || null,
+    };
+  }
+  return out;
+}
+
+function buildProfileUpsertFromEnsure(input, existing) {
+  const now = new Date();
+  const onboarding = {
+    hasSetPassword: !!input?.hasSetPassword,
+    hasVerifiedPhone: !!input?.phoneVerified,
+    hasVerifiedEmail: !!input?.emailVerified,
+    completedSteps: [],
+    completenessScore: 0,
+  };
+
+  const base = {
+    userId: String(input.userId),
+    nin: input.nin || null,
+    email: input.email || null,
+    phone: input.phone || null,
+    emailVerified: !!input.emailVerified,
+    phoneVerified: !!input.phoneVerified,
+    displayName: existing?.displayName || null,
+    firstName: existing?.firstName || null,
+    lastName: existing?.lastName || null,
+    otherName: existing?.otherName || null,
+    dob: existing?.dob || null,
+    gender: existing?.gender || null,
+    address: existing?.address || null,
+    professionTypes: Array.isArray(existing?.professionTypes) ? existing.professionTypes : ['citizen'],
+    profileStatus: existing?.profileStatus || 'incomplete',
+    onboarding,
+    preferences: existing?.preferences || { notificationChannels: ['sms'], language: 'en' },
+    metadata: {
+      createdAt: existing?.metadata?.createdAt || now,
+      updatedAt: now,
+      createdFrom: existing?.metadata?.createdFrom || (input.createdFrom || 'nin_login'),
+    },
+  };
+
+  const computed = computeOnboarding(base);
+  base.onboarding.completedSteps = computed.completedSteps;
+  base.onboarding.completenessScore = computed.completenessScore;
+  if (computed.completenessScore >= 80) {
+    base.profileStatus = 'active';
+  } else if (computed.completenessScore >= 40) {
+    base.profileStatus = 'pending';
+  }
+  return base;
+}
+
+function mergeProfileView({ profile, ninSummary, rolesSummary, membershipSummary }) {
+  const onboardingComputed = computeOnboarding(profile || {});
+  return {
+    profile: {
+      ...(profile || {}),
+      onboarding: {
+        ...(profile?.onboarding || {}),
+        completedSteps: onboardingComputed.completedSteps,
+        completenessScore: onboardingComputed.completenessScore,
+      },
+    },
+    ninSummary: ninSummary || null,
+    rolesSummary: rolesSummary || null,
+    membershipSummary: membershipSummary || null,
+  };
+}
+
+module.exports = {
+  computeOnboarding,
+  pickEditableProfileFields,
+  buildProfileUpsertFromEnsure,
+  mergeProfileView,
+};

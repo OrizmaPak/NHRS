@@ -12,6 +12,8 @@ const dbName = process.env.DB_NAME || 'nhrs_auth_db';
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
+const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
+const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 
 const accessTtlSec = 15 * 60;
 const refreshTtlSec = 7 * 24 * 60 * 60;
@@ -98,6 +100,23 @@ function emitAuditEvent(event) {
       });
     } catch (err) {
       fastify.log.warn({ err, eventType: event?.eventType }, 'Audit emit failed');
+    }
+  });
+}
+
+function syncProfileInternal(path, payload) {
+  setImmediate(async () => {
+    try {
+      await fetch(`${profileApiBaseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': internalServiceToken,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      fastify.log.warn({ err, path }, 'Profile internal sync failed');
     }
   });
 }
@@ -597,6 +616,16 @@ fastify.post('/login', async (req, reply) => {
         outcome: 'success',
         metadata: { method: 'nin', bootstrap: true },
       });
+      syncProfileInternal('/internal/profile/ensure', {
+        userId: String(user._id),
+        nin: user.nin,
+        phone: user.phone,
+        email: user.email,
+        phoneVerified: !!user.phoneVerified,
+        emailVerified: !!user.emailVerified,
+        hasSetPassword: false,
+        createdFrom: 'nin_login',
+      });
 
       return reply.send({
         ...tokenBundle,
@@ -628,6 +657,16 @@ fastify.post('/login', async (req, reply) => {
       userAgent,
       outcome: 'success',
       metadata: { method: 'nin', bootstrap: false },
+    });
+    syncProfileInternal('/internal/profile/ensure', {
+      userId: String(user._id),
+      nin: user.nin,
+      phone: user.phone,
+      email: user.email,
+      phoneVerified: !!user.phoneVerified,
+      emailVerified: !!user.emailVerified,
+      hasSetPassword: !!user.passwordSetAt && !user.requiresPasswordChange,
+      createdFrom: 'nin_login',
     });
 
     return reply.send({
@@ -709,6 +748,16 @@ fastify.post('/login', async (req, reply) => {
       userAgent,
       outcome: 'success',
       metadata: { method: 'phone' },
+    });
+    syncProfileInternal('/internal/profile/ensure', {
+      userId: String(user._id),
+      nin: user.nin,
+      phone: user.phone,
+      email: user.email,
+      phoneVerified: !!user.phoneVerified,
+      emailVerified: !!user.emailVerified,
+      hasSetPassword: !!user.passwordSetAt && !user.requiresPasswordChange,
+      createdFrom: 'nin_login',
     });
 
     return reply.send({
@@ -792,6 +841,16 @@ fastify.post('/login', async (req, reply) => {
       outcome: 'success',
       metadata: { method: 'email' },
     });
+    syncProfileInternal('/internal/profile/ensure', {
+      userId: String(user._id),
+      nin: user.nin,
+      phone: user.phone,
+      email: user.email,
+      phoneVerified: !!user.phoneVerified,
+      emailVerified: !!user.emailVerified,
+      hasSetPassword: !!user.passwordSetAt && !user.requiresPasswordChange,
+      createdFrom: 'nin_login',
+    });
 
     return reply.send({
       ...tokenBundle,
@@ -838,6 +897,16 @@ fastify.post('/password/set', { preHandler: requireAuth }, async (req, reply) =>
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
   });
+  syncProfileInternal('/internal/profile/ensure', {
+    userId: String(req.user._id),
+    nin: req.user.nin,
+    phone: req.user.phone,
+    email: req.user.email,
+    phoneVerified: !!req.user.phoneVerified,
+    emailVerified: !!req.user.emailVerified,
+    hasSetPassword: true,
+    createdFrom: 'nin_login',
+  });
 
   return reply.send({ message: 'Password set successfully' });
 });
@@ -877,6 +946,16 @@ fastify.post('/password/change', { preHandler: requireAuth }, async (req, reply)
     ipAddress: getClientIp(req),
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
+  });
+  syncProfileInternal('/internal/profile/ensure', {
+    userId: String(req.user._id),
+    nin: req.user.nin,
+    phone: req.user.phone,
+    email: req.user.email,
+    phoneVerified: !!req.user.phoneVerified,
+    emailVerified: !!req.user.emailVerified,
+    hasSetPassword: true,
+    createdFrom: 'nin_login',
   });
 
   return reply.send({ message: 'Password changed successfully' });
@@ -998,6 +1077,16 @@ fastify.post('/password/reset', async (req, reply) => {
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
     metadata: { channel, destination },
+  });
+  syncProfileInternal('/internal/profile/ensure', {
+    userId: String(otpDoc.userId),
+    nin: null,
+    phone: channel === 'phone' ? destination : undefined,
+    email: channel === 'email' ? destination : undefined,
+    phoneVerified: channel === 'phone' ? true : undefined,
+    emailVerified: channel === 'email' ? true : undefined,
+    hasSetPassword: true,
+    createdFrom: 'nin_login',
   });
 
   return reply.send({ message: 'Password reset successful' });
@@ -1160,6 +1249,11 @@ fastify.post('/contact/phone/verify', { preHandler: requireAuth }, async (req, r
     outcome: 'success',
     metadata: { phone },
   });
+  syncProfileInternal('/internal/profile/sync-contact', {
+    userId: String(req.user._id),
+    phone,
+    phoneVerified: true,
+  });
 
   return reply.send({ message: 'Phone verified successfully' });
 });
@@ -1248,6 +1342,11 @@ fastify.post('/contact/email/verify', { preHandler: requireAuth }, async (req, r
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
     metadata: { email: normalizedEmail },
+  });
+  syncProfileInternal('/internal/profile/sync-contact', {
+    userId: String(req.user._id),
+    email: normalizedEmail,
+    emailVerified: true,
   });
 
   return reply.send({ message: 'Email verified successfully' });

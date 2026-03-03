@@ -12,6 +12,7 @@ MongoDB is Atlas-only via MONGODB_URI. No local MongoDB container is included.
 ## Phase 1 (Auth + RBAC)
 - Service: `services/core-platform/authentication/auth-api`
 - Service: `services/governance/rbac-service`
+- Service: `services/core-platform/user-profile/profile-service`
 - Seed NIN cache: `npm run seed:nin-cache` (uses Atlas URI from `.env`)
 - Seed RBAC defaults: `npm run seed:rbac`
 - Test plan: `docs/infrastructure/phase1-auth-rbac-tests.md`

@@ -189,11 +189,11 @@ services:
 
   user-profile-service:
     build:
-      context: ../../services/profiles/user-profile-service
+      context: ../../services/core-platform/user-profile/profile-service
       dockerfile: Dockerfile
     env_file:
       - ../../.env
-      - ../../services/profiles/user-profile-service/.env
+      - ../../services/core-platform/user-profile/profile-service/.env
     ports:
       - "${USER_PROFILE_PORT}:${USER_PROFILE_PORT}"
     networks:

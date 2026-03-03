@@ -17,6 +17,11 @@ test('org admin route resolves org-scoped permission', () => {
   assert.equal(rule.permissionKey, 'rbac.org.manage');
 });
 
+test('profile search route resolves permission', () => {
+  const rule = findPermissionRule('GET', '/profile/search');
+  assert.equal(rule.permissionKey, 'profile.search');
+});
+
 test('unknown route has no permission mapping', () => {
   const rule = findPermissionRule('GET', '/unknown/path');
   assert.equal(rule, undefined);

@@ -37,6 +37,12 @@ const systemPermissions = [
   { key: 'lab.results.write', name: 'Write lab results', scope: 'org', module: 'lab', actions: ['create', 'update'], isSystem: true },
   { key: 'audit.read', name: 'Read audit logs', scope: 'app', module: 'audit', actions: ['read'], isSystem: true },
   { key: 'auth.me.read', name: 'Read own profile', scope: 'app', module: 'auth', actions: ['read'], isSystem: true },
+  { key: 'profile.me.read', name: 'Read own profile record', scope: 'app', module: 'profile', actions: ['read'], isSystem: true },
+  { key: 'profile.me.update', name: 'Update own profile record', scope: 'app', module: 'profile', actions: ['update'], isSystem: true },
+  { key: 'profile.search', name: 'Search profiles', scope: 'org', module: 'profile', actions: ['read'], isSystem: true },
+  { key: 'profile.user.read', name: 'Read user profile', scope: 'org', module: 'profile', actions: ['read'], isSystem: true },
+  { key: 'profile.placeholder.create', name: 'Create profile placeholder', scope: 'org', module: 'profile', actions: ['create'], isSystem: true },
+  { key: 'profile.nin.refresh.request', name: 'Request NIN refresh for profile', scope: 'app', module: 'profile', actions: ['create'], isSystem: true },
 ];
 
 const systemRoles = [
@@ -52,6 +58,9 @@ const systemRoles = [
       { permissionKey: 'auth.contact.phone.write', effect: 'allow' },
       { permissionKey: 'auth.contact.email.write', effect: 'allow' },
       { permissionKey: 'nin.profile.read', effect: 'allow' },
+      { permissionKey: 'profile.me.read', effect: 'allow' },
+      { permissionKey: 'profile.me.update', effect: 'allow' },
+      { permissionKey: 'profile.nin.refresh.request', effect: 'allow' },
     ],
   },
   {
@@ -84,6 +93,9 @@ const systemRoles = [
       { permissionKey: 'org.manage', effect: 'allow' },
       { permissionKey: 'nin.profile.read', effect: 'allow' },
       { permissionKey: 'lab.results.write', effect: 'allow' },
+      { permissionKey: 'profile.search', effect: 'allow' },
+      { permissionKey: 'profile.user.read', effect: 'allow' },
+      { permissionKey: 'profile.placeholder.create', effect: 'allow' },
     ],
   },
   {
@@ -95,6 +107,9 @@ const systemRoles = [
     permissions: [
       { permissionKey: 'nin.profile.read', effect: 'allow' },
       { permissionKey: 'lab.results.write', effect: 'deny' },
+      { permissionKey: 'profile.search', effect: 'allow' },
+      { permissionKey: 'profile.user.read', effect: 'allow' },
+      { permissionKey: 'profile.placeholder.create', effect: 'allow' },
     ],
   },
   {
@@ -106,6 +121,8 @@ const systemRoles = [
     permissions: [
       { permissionKey: 'nin.profile.read', effect: 'allow' },
       { permissionKey: 'lab.results.write', effect: 'deny' },
+      { permissionKey: 'profile.search', effect: 'allow' },
+      { permissionKey: 'profile.user.read', effect: 'allow' },
     ],
   },
 ];

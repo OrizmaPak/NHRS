@@ -100,6 +100,18 @@
 | GET | `/audit/events` | Bearer | Admin/auditor only; supports `userId,eventType,organizationId,from,to,page,limit` |
 | GET | `/audit/events/:eventId` | Bearer | Admin/auditor only |
 
+### User Profile
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| GET | `/profile/me` | Bearer | Merged profile view (profile + NIN summary + RBAC scope + optional memberships) |
+| PATCH | `/profile/me` | Bearer | Editable fields only: `displayName`, `address`, `preferences` |
+| POST | `/profile/me/request-nin-refresh` | Bearer | Triggers NIN refresh request through NIN cache service |
+| GET | `/profile/me/status` | Bearer | Onboarding score and next steps |
+| GET | `/profile/search` | Bearer | Staff/admin search with rate limiting |
+| GET | `/profile/:userId` | Bearer | Staff/admin profile lookup |
+| GET | `/profile/by-nin/:nin` | Bearer | Registered check + NIN summary (authorized only) |
+| POST | `/profile/create-placeholder` | Bearer | Create non-auth placeholder reference by NIN |
+
 ### Tokens
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|

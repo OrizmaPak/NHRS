@@ -39,6 +39,14 @@ const permissionRegistry = [
   { method: 'GET', path: '/rbac/org/:organizationId/users/:userId/access', permissionKey: 'rbac.org.manage', orgFrom: 'params.organizationId' },
   { method: 'GET', path: '/audit/events', permissionKey: 'audit.read' },
   { method: 'GET', path: '/audit/events/:eventId', permissionKey: 'audit.read' },
+  { method: 'GET', path: '/profile/me', permissionKey: 'profile.me.read' },
+  { method: 'PATCH', path: '/profile/me', permissionKey: 'profile.me.update' },
+  { method: 'POST', path: '/profile/me/request-nin-refresh', permissionKey: 'profile.nin.refresh.request' },
+  { method: 'GET', path: '/profile/me/status', permissionKey: 'profile.me.read' },
+  { method: 'GET', path: '/profile/search', permissionKey: 'profile.search' },
+  { method: 'GET', path: '/profile/:userId', permissionKey: 'profile.user.read' },
+  { method: 'GET', path: '/profile/by-nin/:nin', permissionKey: 'profile.user.read' },
+  { method: 'POST', path: '/profile/create-placeholder', permissionKey: 'profile.placeholder.create' },
 ];
 
 function pathMatches(pattern, actualPath) {

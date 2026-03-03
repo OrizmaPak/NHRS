@@ -1,0 +1,17 @@
+{
+  "name": "profile-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NHRS user profile service",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "fastify": "^4.29.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.15.0",
+    "redis": "^4.7.0"
+  }
+}

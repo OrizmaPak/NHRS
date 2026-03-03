@@ -15,6 +15,7 @@ const dbName = process.env.DB_NAME;
 const authApiBaseUrl = process.env.AUTH_API_BASE_URL || 'http://auth-api:8081';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
+const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
 const docsExportPath = process.env.DOCS_EXPORT_PATH;
 
 let dbReady = false;
@@ -115,7 +116,8 @@ async function connectToMongo() {
 }
 
 async function forwardRequest(baseUrl, req, reply, targetPath) {
-  const url = `${baseUrl}${targetPath}`;
+  const queryPart = req.raw?.url && req.raw.url.includes('?') ? req.raw.url.slice(req.raw.url.indexOf('?')) : '';
+  const url = `${baseUrl}${targetPath}${queryPart}`;
   const headers = { 'content-type': 'application/json' };
   if (req.headers.authorization) {
     headers.authorization = req.headers.authorization;
@@ -458,6 +460,132 @@ function registerAuditRoutes() {
   });
 }
 
+function registerProfileRoutes() {
+  registerProxyRoute({
+    method: 'GET',
+    url: '/profile/me',
+    targetBase: profileApiBaseUrl,
+    targetPath: '/profile/me',
+    schema: {
+      tags: ['Profile'],
+      summary: 'Get merged self profile',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'PATCH',
+    url: '/profile/me',
+    targetBase: profileApiBaseUrl,
+    targetPath: '/profile/me',
+    schema: {
+      tags: ['Profile'],
+      summary: 'Update editable self profile fields',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      body: { type: 'object', additionalProperties: true },
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'POST',
+    url: '/profile/me/request-nin-refresh',
+    targetBase: profileApiBaseUrl,
+    targetPath: '/profile/me/request-nin-refresh',
+    schema: {
+      tags: ['Profile'],
+      summary: 'Request NIN refresh for self profile',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'GET',
+    url: '/profile/me/status',
+    targetBase: profileApiBaseUrl,
+    targetPath: '/profile/me/status',
+    schema: {
+      tags: ['Profile'],
+      summary: 'Get onboarding status and completeness',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'GET',
+    url: '/profile/search',
+    targetBase: profileApiBaseUrl,
+    targetPath: '/profile/search',
+    schema: {
+      tags: ['Profile'],
+      summary: 'Search profiles (staff/admin)',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      querystring: { type: 'object', additionalProperties: true },
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'GET',
+    url: '/profile/:userId',
+    targetBase: profileApiBaseUrl,
+    targetPath: (req) => `/profile/${req.params.userId}`,
+    schema: {
+      tags: ['Profile'],
+      summary: 'Get profile by userId (staff/admin)',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      params: { type: 'object', required: ['userId'], properties: { userId: { type: 'string' } } },
+      response: standardResponses({ 200: { type: 'object' }, 404: errorMessageSchema }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'GET',
+    url: '/profile/by-nin/:nin',
+    targetBase: profileApiBaseUrl,
+    targetPath: (req) => `/profile/by-nin/${req.params.nin}`,
+    schema: {
+      tags: ['Profile'],
+      summary: 'Get profile or registration status by NIN',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      params: { type: 'object', required: ['nin'], properties: { nin: { type: 'string', pattern: '^\\d{11}$' } } },
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'POST',
+    url: '/profile/create-placeholder',
+    targetBase: profileApiBaseUrl,
+    targetPath: '/profile/create-placeholder',
+    schema: {
+      tags: ['Profile'],
+      summary: 'Create placeholder reference by NIN',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      body: {
+        type: 'object',
+        required: ['nin'],
+        properties: {
+          nin: { type: 'string', pattern: '^\\d{11}$' },
+          note: { type: 'string' },
+        },
+      },
+      response: standardResponses({ 201: { type: 'object' } }),
+    },
+  });
+}
+
 async function registerDocs() {
   await fastify.register(swagger, {
     openapi: {
@@ -478,6 +606,7 @@ async function registerDocs() {
         { name: 'NIN Cache', description: 'Local NIN cache endpoints' },
         { name: 'RBAC', description: 'Role/permission/override endpoints' },
         { name: 'Audit', description: 'Audit event query endpoints' },
+        { name: 'Profile', description: 'User profile and onboarding endpoints' },
       ],
       components: {
         securitySchemes: {
@@ -525,6 +654,7 @@ const start = async () => {
     registerNinRoutes();
     registerRbacRoutes();
     registerAuditRoutes();
+    registerProfileRoutes();
 
     if (docsExportPath) {
       await fastify.ready();
