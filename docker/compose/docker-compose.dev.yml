@@ -44,6 +44,11 @@ services:
       - ../../services/core-platform/api-gateway/.env
     ports:
       - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    depends_on:
+      auth-api:
+        condition: service_healthy
+      rbac-service:
+        condition: service_healthy
     networks:
       - nhrs_net
     healthcheck:

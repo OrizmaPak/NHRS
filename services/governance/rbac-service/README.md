@@ -1,11 +1,18 @@
 # rbac-service
 
-Placeholder service for NHRS.
+Dedicated RBAC + per-user override authorization service for NHRS.
 
 ## Default Port
 
-8090
+`8090`
 
-## Health Check
+## Health
 
-- GET /health
+- `GET /health`
+
+## Core Endpoints
+
+- `GET /rbac/me/scope`
+- `POST /rbac/check`
+- App RBAC admin endpoints under `/rbac/app/*`
+- Org RBAC admin endpoints under `/rbac/org/:organizationId/*`

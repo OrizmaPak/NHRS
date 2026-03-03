@@ -1,208 +1,172 @@
-# NHRS API Documentation (Phase 1)
+# NHRS API Documentation
 
-## Overview
-This document indexes the currently implemented NHRS Phase 1 endpoints:
-- Authentication
-- NIN Cache
-- RBAC
-
-Source of truth:
+## Source of Truth
 - Swagger UI: `GET /docs`
 - Raw OpenAPI: `GET /openapi.json`
-- Versioned file: `docs/openapi.json`
+- Exported spec: `docs/openapi.json` (`npm run docs:openapi`)
 
 ## Run Locally
-1. `cp .env.example .env` (or create `.env` on Windows from `.env.example`)
-2. `./scripts/dev-up.sh`
-3. `npm run generate:openapi`
+1. `./scripts/dev-up.sh`
+2. Seed auth/NIN data: `npm run seed:nin-cache`
+3. Seed RBAC defaults: `npm run seed:rbac`
+4. Export OpenAPI JSON: `npm run docs:openapi`
 
-## Auth Rules (Important)
+## Authentication Rules
 - Login methods: `nin`, `phone`, `email`.
-- NIN bootstrap:
-  - Requires `nin` (11 digits) + `password`.
-  - If user has no password set, password must match cached DOB (`DDMMYYYY`).
-  - On success, `requiresPasswordChange=true`.
-- Phone login is disabled until:
-  - phone is set and verified, and
-  - password is set.
-- Email login is disabled until:
-  - email is set and verified, and
-  - password is set.
-- If NIN is missing in local cache, login returns:
-  - `503 Fetching from NIN is currently not available.`
+- NIN bootstrap accepts `nin + password` where first password is DOB (`DDMMYYYY`) only before password is set.
+- After first NIN bootstrap login, password change is mandatory.
+- Phone login disabled until phone is set + verified and password is set.
+- Email login disabled until email is set + verified and password is set.
+- If NIN is not in local cache, login returns `503` (`Fetching from NIN is currently not available.`).
 
-## Error Codes
-- `400`: Validation / bad payload
-- `401`: Invalid credentials / unauthorized
-- `403`: Method disabled or forbidden
-- `429`: Rate limit (reserved for enforcement layer)
-- `503`: NIN unavailable in cache flow
+## RBAC + Override Rules
+- Multi-scope: `app` and `org`.
+- Candidate permissions = app roles + org roles (for provided org).
+- Role permissions evaluated first.
+- User overrides applied last.
+- Precedence: user override > role rule.
+- Both `allow` and `deny` overrides are supported.
+- Decision cache uses Redis with short TTL and invalidates via version bump on updates.
 
-## Endpoints
+## Common Errors
+- `400` validation/body/params errors
+- `401` unauthorized/invalid token
+- `403` forbidden/permission denied
+- `423` account temporarily locked due to repeated failures
+- `429` rate-limit exceeded (IP or OTP cooldown)
+- `503` dependent service unavailable
+
+## Security Controls
+- Login IP rate limit: max `10` attempts per `5` minutes (`429` on exceed).
+- Identifier lockout: max `5` failed attempts per NIN/email/phone in `10` minutes, then lock for `15` minutes (`423`).
+- OTP verification backoff: exponential cooldown on failures; OTP invalidates at 5 failed attempts.
+- Progressive delay: failed logins add 100-500ms jitter.
+- Audit logging is async and non-blocking. Passwords and raw OTP values are never logged.
+- Tracked event types:
+  `AUTH_LOGIN_SUCCESS`, `AUTH_LOGIN_FAILURE`, `AUTH_PASSWORD_SET`, `AUTH_PASSWORD_CHANGE`, `AUTH_PASSWORD_RESET_REQUEST`, `AUTH_PASSWORD_RESET_COMPLETE`, `AUTH_LOGOUT`, `AUTH_PHONE_ADDED`, `AUTH_PHONE_VERIFIED`, `AUTH_EMAIL_ADDED`, `AUTH_EMAIL_VERIFIED`, `RBAC_ROLE_CREATED`, `RBAC_ROLE_UPDATED`, `RBAC_ROLE_DELETED`, `RBAC_PERMISSION_CREATED`, `RBAC_PERMISSION_ASSIGNED`, `RBAC_USER_OVERRIDE_APPLIED`, `RBAC_ACCESS_GRANTED`, `RBAC_ACCESS_DENIED`, `NIN_LOOKUP_SUCCESS`, `NIN_LOOKUP_FAILURE`, `NIN_REFRESH_REQUESTED`.
+
+## Endpoint Tables
 
 ### Auth
-| Method | Endpoint | Auth | Description |
+| Method | Endpoint | Auth | Notes |
 |---|---|---|---|
-| POST | `/auth/login` | No | Login with `nin`, `phone`, or `email` |
-| POST | `/auth/password/set` | Bearer | Mandatory first-time password set |
-| POST | `/auth/password/change` | Bearer | Change current password |
-| POST | `/auth/password/forgot` | No | Request OTP for reset |
-| POST | `/auth/password/reset` | No | Reset password with OTP |
-| POST | `/auth/token/refresh` | No | Rotate refresh/access token |
-| POST | `/auth/logout` | No | Revoke refresh session |
-| GET | `/auth/me` | Bearer | Current user + roles + scope |
-| POST | `/auth/contact/phone` | Bearer | Set phone and send OTP |
+| POST | `/auth/login` | No | NIN bootstrap + email/phone login |
+| POST | `/auth/password/set` | Bearer | Mandatory first set |
+| POST | `/auth/password/change` | Bearer | Change password |
+| POST | `/auth/password/forgot` | No | Send reset OTP |
+| POST | `/auth/password/reset` | No | Reset with OTP |
+| POST | `/auth/token/refresh` | No | Refresh tokens |
+| POST | `/auth/logout` | No | Revoke refresh |
+| GET | `/auth/me` | Bearer | Current user |
+| POST | `/auth/contact/phone` | Bearer | Set phone + send OTP |
 | POST | `/auth/contact/phone/verify` | Bearer | Verify phone OTP |
-| POST | `/auth/contact/email` | Bearer | Set email and send OTP |
+| POST | `/auth/contact/email` | Bearer | Set email + send OTP |
 | POST | `/auth/contact/email/verify` | Bearer | Verify email OTP |
 
 ### NIN Cache
-| Method | Endpoint | Auth | Description |
+| Method | Endpoint | Auth | Notes |
 |---|---|---|---|
-| GET | `/nin/:nin` | No | Read local NIN cache record |
-| POST | `/nin/refresh/:nin` | No | Mark refresh request; returns unavailable message |
+| GET | `/nin/:nin` | Bearer | Read local cached record |
+| POST | `/nin/refresh/:nin` | Bearer | Refresh marker only, external unavailable |
 
 ### RBAC
-| Method | Endpoint | Auth | Description |
+| Method | Endpoint | Auth | Notes |
 |---|---|---|---|
-| GET | `/rbac/roles` | Bearer | List roles |
-| POST | `/rbac/roles` | Bearer (admin) | Create/update role |
-| POST | `/rbac/assign-role` | Bearer (admin) | Assign role to user |
-| GET | `/rbac/user/:userId/scope` | Bearer | Read user scope (self/admin) |
+| GET | `/rbac/me/scope` | Bearer | Effective app/org permissions |
+| POST | `/rbac/check` | Bearer | Authorization decision endpoint |
+| POST | `/rbac/app/permissions` | Bearer | Platform admin |
+| GET | `/rbac/app/permissions` | Bearer | Platform admin |
+| POST | `/rbac/app/roles` | Bearer | Platform admin |
+| GET | `/rbac/app/roles` | Bearer | Platform admin |
+| PATCH | `/rbac/app/roles/:roleId` | Bearer | Platform admin |
+| DELETE | `/rbac/app/roles/:roleId` | Bearer | Platform admin |
+| POST | `/rbac/app/users/:userId/roles` | Bearer | Platform admin |
+| POST | `/rbac/app/users/:userId/overrides` | Bearer | Platform admin |
+| GET | `/rbac/app/users/:userId/access` | Bearer | Platform admin |
+| POST | `/rbac/org/:organizationId/permissions` | Bearer | Org admin (or platform admin) |
+| GET | `/rbac/org/:organizationId/permissions` | Bearer | Org admin (or platform admin) |
+| POST | `/rbac/org/:organizationId/roles` | Bearer | Org admin (or platform admin) |
+| GET | `/rbac/org/:organizationId/roles` | Bearer | Org admin (or platform admin) |
+| PATCH | `/rbac/org/:organizationId/roles/:roleId` | Bearer | Org admin (or platform admin) |
+| DELETE | `/rbac/org/:organizationId/roles/:roleId` | Bearer | Org admin (or platform admin) |
+| POST | `/rbac/org/:organizationId/users/:userId/roles` | Bearer | Org admin (or platform admin) |
+| POST | `/rbac/org/:organizationId/users/:userId/overrides` | Bearer | Org admin (or platform admin) |
+| GET | `/rbac/org/:organizationId/users/:userId/access` | Bearer | Org admin (or platform admin) |
+
+### Audit
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| GET | `/audit/events` | Bearer | Admin/auditor only; supports `userId,eventType,organizationId,from,to,page,limit` |
+| GET | `/audit/events/:eventId` | Bearer | Admin/auditor only |
+
+### Tokens
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| POST | `/auth/token/refresh` | No | Implemented in auth-api |
+| POST | `/auth/logout` | No | Refresh revoke |
+
+### OTP
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| POST | `/auth/password/forgot` | No | OTP issue for password reset |
+| POST | `/auth/password/reset` | No | OTP verification + reset |
+| POST | `/auth/contact/phone/verify` | Bearer | Contact OTP verification |
+| POST | `/auth/contact/email/verify` | Bearer | Contact OTP verification |
+
+### Sessions
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| POST | `/auth/login` | No | Session creation |
+| POST | `/auth/token/refresh` | No | Session rotation |
+| POST | `/auth/logout` | No | Session revoke |
 
 ## cURL Examples
 
-### Login (NIN bootstrap)
+### 1) Citizen login + me
 ```bash
 curl -X POST http://localhost/auth/login \
   -H "Content-Type: application/json" \
   -d '{"method":"nin","nin":"90000000001","password":"01011985"}'
+
+curl http://localhost/auth/me -H "Authorization: Bearer <ACCESS_TOKEN>"
 ```
 
-### Set Password
+### 2) RBAC check
 ```bash
-curl -X POST http://localhost/auth/password/set \
+curl -X POST http://localhost/rbac/check \
   -H "Authorization: Bearer <ACCESS_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"newPassword":"Str0ngPass!234"}'
+  -d '{"permissionKey":"nin.profile.read","organizationId":"org-123"}'
 ```
 
-### Phone Login Gate (expected 403 before setup/verify)
+### 3) App role creation (platform admin)
 ```bash
-curl -X POST http://localhost/auth/login \
+curl -X POST http://localhost/rbac/app/roles \
+  -H "Authorization: Bearer <PLATFORM_ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"method":"phone","phone":"08000000001","password":"Str0ngPass!234"}'
+  -d '{"name":"support_agent","permissions":[{"permissionKey":"nin.profile.read","effect":"allow"}]}'
 ```
 
-### Email Login Gate (expected 403 before setup/verify)
+### 4) Org role assignment (org admin)
 ```bash
-curl -X POST http://localhost/auth/login \
+curl -X POST http://localhost/rbac/org/org-123/users/user-777/roles \
+  -H "Authorization: Bearer <ORG_ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"method":"email","email":"citizen001@example.com","password":"Str0ngPass!234"}'
+  -d '{"roleIds":["<ORG_ROLE_ID>"]}'
 ```
 
-### Me
+### 5) Override deny over allow
 ```bash
-curl http://localhost/auth/me \
-  -H "Authorization: Bearer <ACCESS_TOKEN>"
-```
-
-### NIN Fetch
-```bash
-curl http://localhost/nin/90000000001
-```
-
-### NIN Refresh (Phase 1)
-```bash
-curl -X POST http://localhost/nin/refresh/90000000001
-```
-
-### List Roles
-```bash
-curl http://localhost/rbac/roles \
-  -H "Authorization: Bearer <ACCESS_TOKEN>"
-```
-
-### Create Role (admin)
-```bash
-curl -X POST http://localhost/rbac/roles \
-  -H "Authorization: Bearer <ADMIN_ACCESS_TOKEN>" \
+curl -X POST http://localhost/rbac/org/org-123/users/user-777/overrides \
+  -H "Authorization: Bearer <ORG_ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"name":"support_agent","permissions":["ticket:read","ticket:update"]}'
+  -d '{"overrides":[{"permissionKey":"nin.profile.read","effect":"deny"}]}'
 ```
 
-### Assign Role (admin)
+### 6) Override allow over deny
 ```bash
-curl -X POST http://localhost/rbac/assign-role \
-  -H "Authorization: Bearer <ADMIN_ACCESS_TOKEN>" \
+curl -X POST http://localhost/rbac/org/org-123/users/user-777/overrides \
+  -H "Authorization: Bearer <ORG_ADMIN_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"userId":"<USER_ID>","roleName":"support_agent"}'
-```
-
-### User Scope
-```bash
-curl http://localhost/rbac/user/<USER_ID>/scope \
-  -H "Authorization: Bearer <ACCESS_TOKEN>"
-```
-
-### Change Password
-```bash
-curl -X POST http://localhost/auth/password/change \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"currentPassword":"Str0ngPass!234","newPassword":"N3wPass!456"}'
-```
-
-### Forgot Password
-```bash
-curl -X POST http://localhost/auth/password/forgot \
-  -H "Content-Type: application/json" \
-  -d '{"channel":"phone","destination":"08000000001"}'
-```
-
-### Reset Password
-```bash
-curl -X POST http://localhost/auth/password/reset \
-  -H "Content-Type: application/json" \
-  -d '{"channel":"phone","destination":"08000000001","code":"<OTP>","newPassword":"Str0ngPass!234"}'
-```
-
-### Token Refresh
-```bash
-curl -X POST http://localhost/auth/token/refresh \
-  -H "Content-Type: application/json" \
-  -d '{"refreshToken":"<REFRESH_TOKEN>"}'
-```
-
-### Logout
-```bash
-curl -X POST http://localhost/auth/logout \
-  -H "Content-Type: application/json" \
-  -d '{"refreshToken":"<REFRESH_TOKEN>"}'
-```
-
-### Set Phone + Verify Phone
-```bash
-curl -X POST http://localhost/auth/contact/phone \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"phone":"08000000001"}'
-
-curl -X POST http://localhost/auth/contact/phone/verify \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"phone":"08000000001","code":"<OTP>"}'
-```
-
-### Set Email + Verify Email
-```bash
-curl -X POST http://localhost/auth/contact/email \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"citizen001@example.com"}'
-
-curl -X POST http://localhost/auth/contact/email/verify \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"citizen001@example.com","code":"<OTP>"}'
+  -d '{"overrides":[{"permissionKey":"lab.results.write","effect":"allow"}]}'
 ```

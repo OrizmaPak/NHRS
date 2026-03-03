@@ -5,10 +5,13 @@
   "description": "NHRS rbac-service placeholder",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "fastify": "^4.29.0",
-    "mongodb": "^6.15.0"
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.15.0",
+    "redis": "^4.7.0"
   }
 }

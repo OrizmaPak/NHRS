@@ -11,10 +11,12 @@ MongoDB is Atlas-only via MONGODB_URI. No local MongoDB container is included.
 
 ## Phase 1 (Auth + RBAC)
 - Service: `services/core-platform/authentication/auth-api`
+- Service: `services/governance/rbac-service`
 - Seed NIN cache: `npm run seed:nin-cache` (uses Atlas URI from `.env`)
+- Seed RBAC defaults: `npm run seed:rbac`
 - Test plan: `docs/infrastructure/phase1-auth-rbac-tests.md`
 - Postman collection: `docs/infrastructure/postman-phase1-auth-rbac.postman_collection.json`
 - Swagger UI: `http://localhost/docs`
 - Raw OpenAPI: `http://localhost/openapi.json`
 - API index: `docs/API.md`
-- Generate versioned spec file: `npm run generate:openapi` (writes `docs/openapi.json`)
+- Generate versioned spec file: `npm run docs:openapi` (writes `docs/openapi.json`)
