@@ -42,6 +42,7 @@
 - OTP verification backoff: exponential cooldown on failures; OTP invalidates at 5 failed attempts.
 - Progressive delay: failed logins add 100-500ms jitter.
 - Audit logging is async and non-blocking. Passwords and raw OTP values are never logged.
+- Audit metadata is defensively sanitized at gateway and audit-log-service. Passwords, OTP values, and token-like fields (`refreshToken`, `accessToken`, `authorization`, `token`, `idToken`, variants) are always stored as `[REDACTED]`.
 - Tracked event types:
   `AUTH_LOGIN_SUCCESS`, `AUTH_LOGIN_FAILURE`, `AUTH_PASSWORD_SET`, `AUTH_PASSWORD_CHANGE`, `AUTH_PASSWORD_RESET_REQUEST`, `AUTH_PASSWORD_RESET_COMPLETE`, `AUTH_LOGOUT`, `AUTH_PHONE_ADDED`, `AUTH_PHONE_VERIFIED`, `AUTH_EMAIL_ADDED`, `AUTH_EMAIL_VERIFIED`, `RBAC_ROLE_CREATED`, `RBAC_ROLE_UPDATED`, `RBAC_ROLE_DELETED`, `RBAC_PERMISSION_CREATED`, `RBAC_PERMISSION_ASSIGNED`, `RBAC_USER_OVERRIDE_APPLIED`, `RBAC_ACCESS_GRANTED`, `RBAC_ACCESS_DENIED`, `NIN_LOOKUP_SUCCESS`, `NIN_LOOKUP_FAILURE`, `NIN_REFRESH_REQUESTED`.
 

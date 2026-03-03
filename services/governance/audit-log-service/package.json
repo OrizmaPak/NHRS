@@ -5,7 +5,8 @@
   "description": "NHRS audit-log-service placeholder",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "fastify": "^4.29.0",

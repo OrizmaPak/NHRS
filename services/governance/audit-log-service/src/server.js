@@ -1,7 +1,7 @@
 const fastify = require('fastify')({ logger: true });
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
+const { normalizeEvent } = require('./audit-utils');
 
 const serviceName = 'audit-log-service';
 const port = Number(process.env.PORT) || 8091;
@@ -10,31 +10,6 @@ const dbName = process.env.DB_NAME || 'nhrs_audit_db';
 const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const flushIntervalMs = Number(process.env.AUDIT_FLUSH_INTERVAL_MS) || 1000;
 const flushBatchSize = Number(process.env.AUDIT_FLUSH_BATCH_SIZE) || 200;
-
-const eventTypes = new Set([
-  'AUTH_LOGIN_SUCCESS',
-  'AUTH_LOGIN_FAILURE',
-  'AUTH_PASSWORD_SET',
-  'AUTH_PASSWORD_CHANGE',
-  'AUTH_PASSWORD_RESET_REQUEST',
-  'AUTH_PASSWORD_RESET_COMPLETE',
-  'AUTH_LOGOUT',
-  'AUTH_PHONE_ADDED',
-  'AUTH_PHONE_VERIFIED',
-  'AUTH_EMAIL_ADDED',
-  'AUTH_EMAIL_VERIFIED',
-  'RBAC_ROLE_CREATED',
-  'RBAC_ROLE_UPDATED',
-  'RBAC_ROLE_DELETED',
-  'RBAC_PERMISSION_CREATED',
-  'RBAC_PERMISSION_ASSIGNED',
-  'RBAC_USER_OVERRIDE_APPLIED',
-  'RBAC_ACCESS_GRANTED',
-  'RBAC_ACCESS_DENIED',
-  'NIN_LOOKUP_SUCCESS',
-  'NIN_LOOKUP_FAILURE',
-  'NIN_REFRESH_REQUESTED',
-]);
 
 let dbReady = false;
 let mongoClient;
@@ -74,59 +49,6 @@ async function requireAdmin(req, reply) {
   } catch (_err) {
     return reply.code(401).send({ message: 'Unauthorized' });
   }
-}
-
-function sanitizeMetadata(value) {
-  if (!value || typeof value !== 'object') {
-    return value ?? null;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeMetadata(item));
-  }
-
-  const blockedKeys = new Set(['password', 'newPassword', 'currentPassword', 'code', 'otp', 'rawOtp']);
-  const out = {};
-  for (const [k, v] of Object.entries(value)) {
-    if (blockedKeys.has(k)) {
-      continue;
-    }
-    out[k] = sanitizeMetadata(v);
-  }
-  return out;
-}
-
-function normalizeEvent(input) {
-  const eventType = typeof input?.eventType === 'string' ? input.eventType : '';
-  const createdAt = input?.createdAt ? new Date(input.createdAt) : new Date();
-  const normalized = {
-    eventId: typeof input?.eventId === 'string' && input.eventId ? input.eventId : crypto.randomUUID(),
-    userId: input?.userId ? String(input.userId) : null,
-    organizationId: input?.organizationId ? String(input.organizationId) : null,
-    eventType,
-    action: typeof input?.action === 'string' ? input.action : eventType,
-    resource:
-      input?.resource && typeof input.resource === 'object'
-        ? {
-            type: input.resource.type ? String(input.resource.type) : null,
-            id: input.resource.id ? String(input.resource.id) : null,
-          }
-        : null,
-    permissionKey: input?.permissionKey ? String(input.permissionKey) : null,
-    ipAddress: input?.ipAddress ? String(input.ipAddress) : null,
-    userAgent: input?.userAgent ? String(input.userAgent) : null,
-    metadata: sanitizeMetadata(input?.metadata || {}),
-    outcome: input?.outcome === 'failure' ? 'failure' : 'success',
-    failureReason: input?.failureReason ? String(input.failureReason) : null,
-    createdAt,
-  };
-
-  if (!eventTypes.has(normalized.eventType)) {
-    normalized.eventType = 'AUTH_LOGIN_FAILURE';
-    normalized.failureReason = normalized.failureReason || 'UNKNOWN_EVENT_TYPE';
-    normalized.outcome = 'failure';
-  }
-
-  return normalized;
 }
 
 async function flushEvents() {

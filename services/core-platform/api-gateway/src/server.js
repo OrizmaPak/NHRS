@@ -6,6 +6,7 @@ const swagger = require('@fastify/swagger');
 const swaggerUi = require('@fastify/swagger-ui');
 const { findPermissionRule } = require('./permissions/registry');
 const { evaluateAuthzResponse } = require('./authz');
+const { buildAuditPayload } = require('./audit-utils');
 
 const serviceName = 'api-gateway';
 const port = Number(process.env.PORT) || 8080;
@@ -75,15 +76,16 @@ function getClientIp(req) {
 }
 
 function emitAuditEvent(event) {
+  const payload = buildAuditPayload(event);
   setImmediate(async () => {
     try {
       await fetch(`${auditApiBaseUrl}/internal/audit/events`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(event),
+        body: JSON.stringify(payload),
       });
     } catch (err) {
-      fastify.log.warn({ err, eventType: event?.eventType }, 'Gateway audit emit failed');
+      fastify.log.warn({ err, eventType: payload?.eventType }, 'Gateway audit emit failed');
     }
   });
 }
