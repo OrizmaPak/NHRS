@@ -13,6 +13,7 @@ const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
+const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 
 const accessTtlSec = 15 * 60;
@@ -117,6 +118,30 @@ function syncProfileInternal(path, payload) {
       });
     } catch (err) {
       fastify.log.warn({ err, path }, 'Profile internal sync failed');
+    }
+  });
+
+  if (path === '/internal/profile/ensure' && payload?.userId && payload?.nin) {
+    syncMembershipLink(payload.userId, payload.nin);
+  }
+}
+
+function syncMembershipLink(userId, nin) {
+  if (!userId || !nin) {
+    return;
+  }
+  setImmediate(async () => {
+    try {
+      await fetch(`${membershipApiBaseUrl}/internal/memberships/link-user`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': internalServiceToken,
+        },
+        body: JSON.stringify({ userId: String(userId), nin: String(nin) }),
+      });
+    } catch (err) {
+      fastify.log.warn({ err }, 'Membership link sync failed');
     }
   });
 }

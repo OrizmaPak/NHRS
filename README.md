@@ -21,3 +21,9 @@ MongoDB is Atlas-only via MONGODB_URI. No local MongoDB container is included.
 - Raw OpenAPI: `http://localhost/openapi.json`
 - API index: `docs/API.md`
 - Generate versioned spec file: `npm run docs:openapi` (writes `docs/openapi.json`)
+
+## Phase 2 (Organization + Branch + Membership)
+- Service: `services/providers/organization-service`
+- Service: `services/providers/membership-service`
+- Includes tenant organizations, branch lifecycle, NIN-based staff onboarding, multi-branch assignments, transfer history, and internal NIN->user linking.
+- Documented in Swagger UI: `http://localhost/docs`

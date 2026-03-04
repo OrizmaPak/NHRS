@@ -22,6 +22,21 @@ test('profile search route resolves permission', () => {
   assert.equal(rule.permissionKey, 'profile.search');
 });
 
+test('organization branch route resolves org-scoped permission', () => {
+  const rule = findPermissionRule('POST', '/orgs/org-1/branches');
+  assert.equal(rule.permissionKey, 'org.branch.create');
+});
+
+test('organization search route resolves org.search permission', () => {
+  const rule = findPermissionRule('GET', '/orgs/search');
+  assert.equal(rule.permissionKey, 'org.search');
+});
+
+test('membership transfer route resolves permission', () => {
+  const rule = findPermissionRule('POST', '/orgs/org-1/members/member-1/transfer');
+  assert.equal(rule.permissionKey, 'org.member.transfer');
+});
+
 test('unknown route has no permission mapping', () => {
   const rule = findPermissionRule('GET', '/unknown/path');
   assert.equal(rule, undefined);

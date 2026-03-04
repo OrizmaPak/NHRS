@@ -1,8 +1,8 @@
 {
-  "name": "organization-service",
+  "name": "membership-service",
   "version": "0.1.0",
   "private": true,
-  "description": "NHRS organization-service placeholder",
+  "description": "NHRS organization membership service",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

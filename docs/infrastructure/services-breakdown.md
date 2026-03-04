@@ -11,7 +11,9 @@
    - RBAC Service: Role/permission models and access policy decisions.
    - User Profile Service: Citizen/provider profile data management.
 2. Organization & Provider
-   - Organization Service: Facility and organization lifecycle management.
+   - Organization Service: Tenant organization lifecycle and ownership history management.
+   - Branch Service (logical module under Organization Service): Branch lifecycle and location/address management.
+   - Membership Service: Staff onboarding by NIN, multi-branch assignment, transfers, and movement history.
    - Doctor Registry Service: Certified doctor records and credential status indexing.
 3. Health Data & Repository
    - Health Records Service: Longitudinal patient health records repository.

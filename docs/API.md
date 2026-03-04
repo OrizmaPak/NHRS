@@ -112,6 +112,35 @@
 | GET | `/profile/by-nin/:nin` | Bearer | Registered check + NIN summary (authorized only) |
 | POST | `/profile/create-placeholder` | Bearer | Create non-auth placeholder reference by NIN |
 
+### Organization & Membership Onboarding
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| POST | `/orgs` | Bearer | Create organization with owner as `ownerUserId` or `ownerNin` |
+| GET | `/orgs/:orgId` | Bearer | Read one organization |
+| PATCH | `/orgs/:orgId` | Bearer | Update organization metadata/status |
+| PATCH | `/orgs/:orgId/owner` | Bearer | Change owner with owner history tracking |
+| GET | `/orgs/search` | Bearer | Search organizations |
+| POST | `/orgs/:orgId/branches` | Bearer | Create branch in org |
+| GET | `/orgs/:orgId/branches` | Bearer | List branches in org |
+| GET | `/orgs/:orgId/branches/:branchId` | Bearer | Read one branch |
+| PATCH | `/orgs/:orgId/branches/:branchId` | Bearer | Update branch |
+| DELETE | `/orgs/:orgId/branches/:branchId` | Bearer | Soft delete/close branch |
+| POST | `/orgs/:orgId/members` | Bearer | Add member by NIN; creates membership even when user is not registered |
+| GET | `/orgs/:orgId/members` | Bearer | List members (paginated) |
+| GET | `/orgs/:orgId/members/:memberId` | Bearer | Get member with assignments |
+| PATCH | `/orgs/:orgId/members/:memberId/status` | Bearer | Change member status |
+| POST | `/orgs/:orgId/members/:memberId/branches` | Bearer | Assign to a branch (supports multi-branch) |
+| PATCH | `/orgs/:orgId/members/:memberId/branches/:assignmentId` | Bearer | Update assignment roles/departments/status |
+| DELETE | `/orgs/:orgId/members/:memberId/branches/:assignmentId` | Bearer | Remove assignment (soft) |
+| POST | `/orgs/:orgId/members/:memberId/transfer` | Bearer | Transfer between branches with history event |
+| GET | `/orgs/:orgId/members/:memberId/history` | Bearer | Movement history timeline |
+
+Multi-branch model:
+One membership can have multiple active `branch_assignments` with independent `roles`, `departments`, `coverageType`, and validity dates.
+
+User-linking model:
+When a citizen with matching NIN logs in, auth calls `POST /internal/memberships/link-user` so pending NIN memberships are attached to the real `userId`.
+
 ### Tokens
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|

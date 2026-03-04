@@ -12,6 +12,7 @@ const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const cacheTtlSec = Number(process.env.RBAC_CACHE_TTL_SEC) || 60;
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
+const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 
 let dbReady = false;
 let redisReady = false;
@@ -43,6 +44,24 @@ const systemPermissions = [
   { key: 'profile.user.read', name: 'Read user profile', scope: 'org', module: 'profile', actions: ['read'], isSystem: true },
   { key: 'profile.placeholder.create', name: 'Create profile placeholder', scope: 'org', module: 'profile', actions: ['create'], isSystem: true },
   { key: 'profile.nin.refresh.request', name: 'Request NIN refresh for profile', scope: 'app', module: 'profile', actions: ['create'], isSystem: true },
+  { key: 'org.create', name: 'Create organization', scope: 'app', module: 'organization', actions: ['create'], isSystem: true },
+  { key: 'org.read', name: 'Read organization', scope: 'app', module: 'organization', actions: ['read'], isSystem: true },
+  { key: 'org.update', name: 'Update organization', scope: 'app', module: 'organization', actions: ['update'], isSystem: true },
+  { key: 'org.owner.assign', name: 'Assign organization owner', scope: 'app', module: 'organization', actions: ['update'], isSystem: true },
+  { key: 'org.search', name: 'Search organizations', scope: 'app', module: 'organization', actions: ['read'], isSystem: true },
+  { key: 'org.branch.create', name: 'Create branch', scope: 'org', module: 'organization', actions: ['create'], isSystem: true },
+  { key: 'org.branch.read', name: 'Read branch', scope: 'org', module: 'organization', actions: ['read'], isSystem: true },
+  { key: 'org.branch.update', name: 'Update branch', scope: 'org', module: 'organization', actions: ['update'], isSystem: true },
+  { key: 'org.branch.delete', name: 'Delete branch', scope: 'org', module: 'organization', actions: ['delete'], isSystem: true },
+  { key: 'org.member.add', name: 'Add org member', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
+  { key: 'org.member.read', name: 'Read org member', scope: 'org', module: 'membership', actions: ['read'], isSystem: true },
+  { key: 'org.member.update', name: 'Update org member', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
+  { key: 'org.member.status.change', name: 'Change org member status', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
+  { key: 'org.member.branch.assign', name: 'Assign member to branch', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
+  { key: 'org.member.branch.update', name: 'Update member branch assignment', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
+  { key: 'org.member.branch.remove', name: 'Remove member branch assignment', scope: 'org', module: 'membership', actions: ['delete'], isSystem: true },
+  { key: 'org.member.transfer', name: 'Transfer member branch assignment', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
+  { key: 'org.member.history.read', name: 'Read membership history', scope: 'org', module: 'membership', actions: ['read'], isSystem: true },
 ];
 
 const systemRoles = [
@@ -61,6 +80,9 @@ const systemRoles = [
       { permissionKey: 'profile.me.read', effect: 'allow' },
       { permissionKey: 'profile.me.update', effect: 'allow' },
       { permissionKey: 'profile.nin.refresh.request', effect: 'allow' },
+      { permissionKey: 'org.create', effect: 'allow' },
+      { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.search', effect: 'allow' },
     ],
   },
   {
@@ -91,6 +113,23 @@ const systemRoles = [
     permissions: [
       { permissionKey: 'rbac.org.manage', effect: 'allow' },
       { permissionKey: 'org.manage', effect: 'allow' },
+      { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.update', effect: 'allow' },
+      { permissionKey: 'org.owner.assign', effect: 'allow' },
+      { permissionKey: 'org.search', effect: 'allow' },
+      { permissionKey: 'org.branch.create', effect: 'allow' },
+      { permissionKey: 'org.branch.read', effect: 'allow' },
+      { permissionKey: 'org.branch.update', effect: 'allow' },
+      { permissionKey: 'org.branch.delete', effect: 'allow' },
+      { permissionKey: 'org.member.add', effect: 'allow' },
+      { permissionKey: 'org.member.read', effect: 'allow' },
+      { permissionKey: 'org.member.update', effect: 'allow' },
+      { permissionKey: 'org.member.status.change', effect: 'allow' },
+      { permissionKey: 'org.member.branch.assign', effect: 'allow' },
+      { permissionKey: 'org.member.branch.update', effect: 'allow' },
+      { permissionKey: 'org.member.branch.remove', effect: 'allow' },
+      { permissionKey: 'org.member.transfer', effect: 'allow' },
+      { permissionKey: 'org.member.history.read', effect: 'allow' },
       { permissionKey: 'nin.profile.read', effect: 'allow' },
       { permissionKey: 'lab.results.write', effect: 'allow' },
       { permissionKey: 'profile.search', effect: 'allow' },
@@ -110,6 +149,9 @@ const systemRoles = [
       { permissionKey: 'profile.search', effect: 'allow' },
       { permissionKey: 'profile.user.read', effect: 'allow' },
       { permissionKey: 'profile.placeholder.create', effect: 'allow' },
+      { permissionKey: 'org.branch.read', effect: 'allow' },
+      { permissionKey: 'org.member.read', effect: 'allow' },
+      { permissionKey: 'org.member.history.read', effect: 'allow' },
     ],
   },
   {
@@ -123,6 +165,8 @@ const systemRoles = [
       { permissionKey: 'lab.results.write', effect: 'deny' },
       { permissionKey: 'profile.search', effect: 'allow' },
       { permissionKey: 'profile.user.read', effect: 'allow' },
+      { permissionKey: 'org.branch.read', effect: 'allow' },
+      { permissionKey: 'org.member.read', effect: 'allow' },
     ],
   },
 ];
@@ -183,6 +227,13 @@ async function requireAuth(req, reply) {
     };
   } catch (_err) {
     return reply.code(401).send({ message: 'Unauthorized' });
+  }
+}
+
+async function requireInternal(req, reply) {
+  const incoming = req.headers['x-internal-token'];
+  if (!incoming || incoming !== internalServiceToken) {
+    return reply.code(401).send({ message: 'Unauthorized internal call' });
   }
 }
 
@@ -390,6 +441,32 @@ async function isOrgAdmin(userId, organizationId) {
   return result.allowed;
 }
 
+async function ensureDefaultOrgRoles(organizationId) {
+  const templates = systemRoles.filter((r) => r.scope === 'org' && r.organizationId === '__template__');
+  const ensured = [];
+  for (const role of templates) {
+    await collections.roles().updateOne(
+      { name: role.name, scope: 'org', organizationId },
+      {
+        $set: {
+          name: role.name,
+          description: role.description,
+          scope: 'org',
+          organizationId,
+          permissions: role.permissions,
+          isSystem: true,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: { createdAt: new Date() },
+      },
+      { upsert: true }
+    );
+    const created = await collections.roles().findOne({ name: role.name, scope: 'org', organizationId });
+    if (created) ensured.push(created);
+  }
+  return ensured;
+}
+
 fastify.get('/health', async () => ({
   status: 'ok',
   service: serviceName,
@@ -455,6 +532,44 @@ fastify.post('/rbac/check', { preHandler: requireAuth }, async (req, reply) => {
     userId: req.auth.userId,
     ...result,
     resource,
+  });
+});
+
+fastify.post('/internal/rbac/bootstrap-org/:organizationId', { preHandler: requireInternal }, async (req, reply) => {
+  if (!assertDependencyReady(reply)) {
+    return;
+  }
+
+  const { organizationId } = req.params;
+  const ownerUserId = req.body?.ownerUserId ? String(req.body.ownerUserId) : null;
+  const roles = await ensureDefaultOrgRoles(organizationId);
+
+  if (ownerUserId) {
+    const orgAdminRole = roles.find((r) => r.name === 'org_admin');
+    if (orgAdminRole?._id) {
+      await collections.roleAssignments().updateOne(
+        { userId: ownerUserId, scope: 'org', organizationId },
+        {
+          $set: {
+            userId: ownerUserId,
+            scope: 'org',
+            organizationId,
+            roleIds: [String(orgAdminRole._id)],
+            updatedAt: new Date(),
+          },
+          $setOnInsert: { createdAt: new Date() },
+        },
+        { upsert: true }
+      );
+    }
+  }
+
+  await bumpCacheVersion();
+  return reply.send({
+    message: 'Organization RBAC defaults bootstrapped',
+    organizationId,
+    roleNames: roles.map((r) => r.name),
+    ownerUserId,
   });
 });
 

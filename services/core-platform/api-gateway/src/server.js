@@ -16,6 +16,8 @@ const authApiBaseUrl = process.env.AUTH_API_BASE_URL || 'http://auth-api:8081';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
+const organizationApiBaseUrl = process.env.ORGANIZATION_API_BASE_URL || 'http://organization-service:8093';
+const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
 const docsExportPath = process.env.DOCS_EXPORT_PATH;
 
 let dbReady = false;
@@ -586,6 +588,85 @@ function registerProfileRoutes() {
   });
 }
 
+function registerOrganizationMembershipRoutes() {
+  const orgRoutes = [
+    ['POST', '/orgs', '/orgs'],
+    ['GET', '/orgs/search', '/orgs/search'],
+    ['GET', '/orgs/:orgId', '/orgs/:orgId'],
+    ['PATCH', '/orgs/:orgId', '/orgs/:orgId'],
+    ['PATCH', '/orgs/:orgId/owner', '/orgs/:orgId/owner'],
+    ['POST', '/orgs/:orgId/branches', '/orgs/:orgId/branches'],
+    ['GET', '/orgs/:orgId/branches', '/orgs/:orgId/branches'],
+    ['GET', '/orgs/:orgId/branches/:branchId', '/orgs/:orgId/branches/:branchId'],
+    ['PATCH', '/orgs/:orgId/branches/:branchId', '/orgs/:orgId/branches/:branchId'],
+    ['DELETE', '/orgs/:orgId/branches/:branchId', '/orgs/:orgId/branches/:branchId'],
+  ];
+
+  for (const [method, routePath, upstreamPath] of orgRoutes) {
+    registerProxyRoute({
+      method,
+      url: routePath,
+      targetBase: organizationApiBaseUrl,
+      targetPath: (req) => {
+        let p = upstreamPath;
+        for (const [k, v] of Object.entries(req.params || {})) {
+          p = p.replace(`:${k}`, encodeURIComponent(String(v)));
+        }
+        return p;
+      },
+      schema: {
+        tags: ['Organization'],
+        summary: `Proxy ${method} ${routePath}`,
+        description: 'Organization and branch management endpoints.',
+        security: [{ bearerAuth: [] }],
+        headers: authHeaderSchema(true),
+        params: { type: 'object', additionalProperties: true },
+        querystring: { type: 'object', additionalProperties: true },
+        body: { type: 'object', additionalProperties: true },
+        response: standardResponses({ 200: { type: 'object' }, 201: { type: 'object' } }),
+      },
+    });
+  }
+
+  const membershipRoutes = [
+    ['POST', '/orgs/:orgId/members', '/orgs/:orgId/members'],
+    ['GET', '/orgs/:orgId/members', '/orgs/:orgId/members'],
+    ['GET', '/orgs/:orgId/members/:memberId', '/orgs/:orgId/members/:memberId'],
+    ['PATCH', '/orgs/:orgId/members/:memberId/status', '/orgs/:orgId/members/:memberId/status'],
+    ['POST', '/orgs/:orgId/members/:memberId/branches', '/orgs/:orgId/members/:memberId/branches'],
+    ['PATCH', '/orgs/:orgId/members/:memberId/branches/:assignmentId', '/orgs/:orgId/members/:memberId/branches/:assignmentId'],
+    ['DELETE', '/orgs/:orgId/members/:memberId/branches/:assignmentId', '/orgs/:orgId/members/:memberId/branches/:assignmentId'],
+    ['POST', '/orgs/:orgId/members/:memberId/transfer', '/orgs/:orgId/members/:memberId/transfer'],
+    ['GET', '/orgs/:orgId/members/:memberId/history', '/orgs/:orgId/members/:memberId/history'],
+  ];
+
+  for (const [method, routePath, upstreamPath] of membershipRoutes) {
+    registerProxyRoute({
+      method,
+      url: routePath,
+      targetBase: membershipApiBaseUrl,
+      targetPath: (req) => {
+        let p = upstreamPath;
+        for (const [k, v] of Object.entries(req.params || {})) {
+          p = p.replace(`:${k}`, encodeURIComponent(String(v)));
+        }
+        return p;
+      },
+      schema: {
+        tags: ['Membership'],
+        summary: `Proxy ${method} ${routePath}`,
+        description: 'Organization staff onboarding, branch assignment, transfer, and history endpoints.',
+        security: [{ bearerAuth: [] }],
+        headers: authHeaderSchema(true),
+        params: { type: 'object', additionalProperties: true },
+        querystring: { type: 'object', additionalProperties: true },
+        body: { type: 'object', additionalProperties: true },
+        response: standardResponses({ 200: { type: 'object' }, 201: { type: 'object' } }),
+      },
+    });
+  }
+}
+
 async function registerDocs() {
   await fastify.register(swagger, {
     openapi: {
@@ -607,6 +688,8 @@ async function registerDocs() {
         { name: 'RBAC', description: 'Role/permission/override endpoints' },
         { name: 'Audit', description: 'Audit event query endpoints' },
         { name: 'Profile', description: 'User profile and onboarding endpoints' },
+        { name: 'Organization', description: 'Organization and branch endpoints' },
+        { name: 'Membership', description: 'Membership and branch assignment endpoints' },
       ],
       components: {
         securitySchemes: {
@@ -655,6 +738,7 @@ const start = async () => {
     registerRbacRoutes();
     registerAuditRoutes();
     registerProfileRoutes();
+    registerOrganizationMembershipRoutes();
 
     if (docsExportPath) {
       await fastify.ready();
