@@ -31,6 +31,7 @@ let redisClient;
 let dbReady = false;
 let redisReady = false;
 let db;
+let fetchClient = (...args) => fetch(...args);
 
 const collections = {
   profiles: () => db.collection('user_profiles'),
@@ -108,16 +109,17 @@ async function requireInternal(req, reply) {
 
 async function enforcePermission(req, reply, permissionKey, organizationId) {
   const authorization = req.headers.authorization;
-  const checked = await checkPermission(fetch, {
+  const checked = await checkPermission(fetchClient, {
     rbacBaseUrl: rbacApiBaseUrl,
     authorization,
     permissionKey,
     organizationId,
   });
   if (!checked.allowed) {
-    return reply.code(checked.status === 401 ? 401 : 403).send({ message: 'Forbidden' });
+    reply.code(checked.status === 401 ? 401 : 403).send({ message: 'Forbidden' });
+    return true;
   }
-  return null;
+  return false;
 }
 
 async function applySearchRateLimit(req, reply) {
@@ -188,7 +190,7 @@ fastify.addHook('onRequest', async (req, reply) => {
 });
 
 async function fetchAuthMe(authorization) {
-  const res = await callJson(fetch, `${authApiBaseUrl}/me`, {
+  const res = await callJson(fetchClient, `${authApiBaseUrl}/me`, {
     method: 'GET',
     headers: { authorization, 'content-type': 'application/json' },
   });
@@ -197,7 +199,7 @@ async function fetchAuthMe(authorization) {
 
 async function fetchNinSummary(nin, authorization) {
   if (!nin) return null;
-  const res = await callJson(fetch, `${authApiBaseUrl}/nin/${nin}`, {
+  const res = await callJson(fetchClient, `${authApiBaseUrl}/nin/${nin}`, {
     method: 'GET',
     headers: { authorization, 'content-type': 'application/json' },
   });
@@ -215,7 +217,7 @@ async function fetchNinSummary(nin, authorization) {
 }
 
 async function fetchRolesSummary(authorization) {
-  const res = await callJson(fetch, `${rbacApiBaseUrl}/rbac/me/scope`, {
+  const res = await callJson(fetchClient, `${rbacApiBaseUrl}/rbac/me/scope`, {
     method: 'GET',
     headers: { authorization, 'content-type': 'application/json' },
   });
@@ -229,7 +231,7 @@ async function fetchRolesSummary(authorization) {
 
 async function fetchMembershipSummary(userId, authorization) {
   if (!membershipApiBaseUrl) return null;
-  const res = await callJson(fetch, `${membershipApiBaseUrl}/internal/memberships/summary/${userId}`, {
+  const res = await callJson(fetchClient, `${membershipApiBaseUrl}/internal/memberships/summary/${userId}`, {
     method: 'GET',
     headers: { authorization, 'content-type': 'application/json' },
   });
@@ -298,7 +300,7 @@ fastify.get('/profile/me', {
   ]);
 
   const merged = mergeProfileView({ profile, ninSummary, rolesSummary, membershipSummary });
-  emitAuditEvent(fetch, auditApiBaseUrl, {
+  emitAuditEvent(fetchClient, auditApiBaseUrl, {
     userId: req.auth.userId,
     eventType: 'PROFILE_VIEWED_SELF',
     action: 'profile.me.read',
@@ -339,7 +341,7 @@ fastify.patch('/profile/me', {
     { $set: { 'onboarding.completedSteps': onboarding.completedSteps, 'onboarding.completenessScore': onboarding.completenessScore } }
   );
 
-  emitAuditEvent(fetch, auditApiBaseUrl, {
+  emitAuditEvent(fetchClient, auditApiBaseUrl, {
     userId: req.auth.userId,
     eventType: 'PROFILE_UPDATED_SELF',
     action: 'profile.me.update',
@@ -360,12 +362,12 @@ fastify.post('/profile/me/request-nin-refresh', { preHandler: requireAuth }, asy
     return reply.code(400).send({ message: 'No NIN linked to profile' });
   }
 
-  const response = await callJson(fetch, `${authApiBaseUrl}/nin/refresh/${profile.nin}`, {
+  const response = await callJson(fetchClient, `${authApiBaseUrl}/nin/refresh/${profile.nin}`, {
     method: 'POST',
     headers: { authorization: req.headers.authorization, 'content-type': 'application/json' },
   });
 
-  emitAuditEvent(fetch, auditApiBaseUrl, {
+  emitAuditEvent(fetchClient, auditApiBaseUrl, {
     userId: req.auth.userId,
     eventType: 'PROFILE_NIN_REFRESH_REQUESTED',
     action: 'profile.nin.refresh.request',
@@ -489,7 +491,7 @@ fastify.get('/profile/search', {
     collections.profiles().countDocuments(filter),
   ]);
 
-  emitAuditEvent(fetch, auditApiBaseUrl, {
+  emitAuditEvent(fetchClient, auditApiBaseUrl, {
     userId: req.auth.userId,
     eventType: 'PROFILE_SEARCHED',
     action: 'profile.search',
@@ -532,7 +534,7 @@ fastify.get('/profile/:userId', {
   const profile = await collections.profiles().findOne({ userId: String(userId) });
   if (!profile) return reply.code(404).send({ message: 'Profile not found' });
 
-  emitAuditEvent(fetch, auditApiBaseUrl, {
+  emitAuditEvent(fetchClient, auditApiBaseUrl, {
     userId: req.auth.userId,
     eventType: 'PROFILE_VIEWED_ADMIN',
     action: 'profile.user.read',
@@ -613,7 +615,7 @@ fastify.post('/profile/create-placeholder', {
     createdAt: new Date(),
   });
 
-  emitAuditEvent(fetch, auditApiBaseUrl, {
+  emitAuditEvent(fetchClient, auditApiBaseUrl, {
     userId: req.auth.userId,
     eventType: 'PROFILE_PLACEHOLDER_CREATED',
     action: 'profile.placeholder.create',
@@ -703,4 +705,27 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-start();
+function buildApp(options = {}) {
+  if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {
+    dbReady = !!options.dbReady;
+  }
+  if (Object.prototype.hasOwnProperty.call(options, 'redisReady')) {
+    redisReady = !!options.redisReady;
+  }
+  if (options.db) {
+    db = options.db;
+  }
+  if (options.fetchImpl) {
+    fetchClient = options.fetchImpl;
+  }
+  return fastify;
+}
+
+module.exports = {
+  buildApp,
+  start,
+};
+
+if (require.main === module) {
+  start();
+}
