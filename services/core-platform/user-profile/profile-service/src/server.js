@@ -37,6 +37,35 @@ const collections = {
   placeholders: () => db.collection('profile_placeholders'),
 };
 
+const errorSchema = {
+  type: 'object',
+  properties: {
+    message: { type: 'string' },
+  },
+  required: ['message'],
+};
+
+const validationErrorSchema = {
+  type: 'object',
+  properties: {
+    statusCode: { type: 'integer', example: 400 },
+    error: { type: 'string', example: 'Bad Request' },
+    message: { type: 'string', example: 'Validation error' },
+  },
+};
+
+function profileResponses(extra = {}) {
+  return {
+    200: { type: 'object' },
+    400: validationErrorSchema,
+    401: errorSchema,
+    403: errorSchema,
+    429: errorSchema,
+    503: errorSchema,
+    ...extra,
+  };
+}
+
 function getClientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string' && forwarded.length > 0) {
@@ -235,7 +264,28 @@ fastify.get('/health', async () => ({
   dbName,
 }));
 
-fastify.get('/profile/me', { preHandler: requireAuth }, async (req, reply) => {
+fastify.get('/profile/me', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['User Profile'],
+    summary: 'Get merged self profile view',
+    description: 'Returns user profile, NIN cache summary, RBAC scope summary, and optional membership summary.',
+    security: [{ bearerAuth: [] }],
+    response: profileResponses({
+      200: {
+        type: 'object',
+        example: {
+          profile: { userId: 'user-1', nin: '90000000001', displayName: 'John Doe', profileStatus: 'active' },
+          ninSummary: { nin: '90000000001', firstName: 'John', lastName: 'Doe' },
+          rolesSummary: { appScopePermissions: [{ permissionKey: 'profile.me.read', effect: 'allow' }] },
+          membershipSummary: null,
+        },
+      },
+    }),
+  },
+}, async (req, reply) => {
+  const denied = await enforcePermission(req, reply, 'profile.me.read');
+  if (denied) return;
   const authUser = await fetchAuthMe(req.headers.authorization);
   if (!authUser) {
     return reply.code(401).send({ message: 'Unauthorized' });
@@ -329,7 +379,26 @@ fastify.post('/profile/me/request-nin-refresh', { preHandler: requireAuth }, asy
   return reply.code(response.status).send(response.body || { message: 'Request failed' });
 });
 
-fastify.get('/profile/me/status', { preHandler: requireAuth }, async (req, reply) => {
+fastify.get('/profile/me/status', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['User Profile'],
+    summary: 'Get profile onboarding status',
+    description: 'Returns onboarding completeness score and suggested next steps.',
+    security: [{ bearerAuth: [] }],
+    response: profileResponses({
+      200: {
+        type: 'object',
+        example: {
+          userId: 'user-1',
+          profileStatus: 'pending',
+          onboarding: { hasSetPassword: true, completedSteps: ['password_set'], completenessScore: 40 },
+          nextSteps: ['verify_phone', 'verify_email'],
+        },
+      },
+    }),
+  },
+}, async (req, reply) => {
   const denied = await enforcePermission(req, reply, 'profile.me.read');
   if (denied) return;
   const profile = await collections.profiles().findOne({ userId: req.auth.userId });
@@ -351,7 +420,41 @@ fastify.get('/profile/me/status', { preHandler: requireAuth }, async (req, reply
   });
 });
 
-fastify.get('/profile/search', { preHandler: requireAuth }, async (req, reply) => {
+fastify.get('/profile/search', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['User Profile'],
+    summary: 'Search profiles',
+    description: 'Searches user profiles by q/nin/phone/email/name with pagination. Rate-limited.',
+    security: [{ bearerAuth: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        q: { type: 'string' },
+        nin: { type: 'string', pattern: '^\\d{11}$' },
+        phone: { type: 'string' },
+        email: { type: 'string', format: 'email' },
+        name: { type: 'string' },
+        role: { type: 'string' },
+        organizationId: { type: 'string' },
+        branchId: { type: 'string' },
+        page: { type: 'integer', minimum: 1 },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+    },
+    response: profileResponses({
+      200: {
+        type: 'object',
+        example: {
+          page: 1,
+          limit: 20,
+          total: 1,
+          items: [{ userId: 'user-1', nin: '90000000001', displayName: 'John Doe', profileStatus: 'active' }],
+        },
+      },
+    }),
+  },
+}, async (req, reply) => {
   const denied = await enforcePermission(req, reply, 'profile.search', req.query?.organizationId);
   if (denied) return;
   const limited = await applySearchRateLimit(req, reply);
@@ -398,7 +501,31 @@ fastify.get('/profile/search', { preHandler: requireAuth }, async (req, reply) =
   return reply.send({ page: safePage, limit: safeLimit, total, items });
 });
 
-fastify.get('/profile/:userId', { preHandler: requireAuth }, async (req, reply) => {
+fastify.get('/profile/:userId', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['User Profile'],
+    summary: 'Get profile by userId',
+    description: 'Admin/staff profile read.',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['userId'],
+      properties: {
+        userId: { type: 'string' },
+      },
+    },
+    response: profileResponses({
+      200: {
+        type: 'object',
+        example: {
+          profile: { userId: 'user-1', nin: '90000000001', displayName: 'John Doe', profileStatus: 'active' },
+        },
+      },
+      404: errorSchema,
+    }),
+  },
+}, async (req, reply) => {
   const denied = await enforcePermission(req, reply, 'profile.user.read', req.query?.organizationId);
   if (denied) return;
   const { userId } = req.params;
@@ -417,7 +544,31 @@ fastify.get('/profile/:userId', { preHandler: requireAuth }, async (req, reply) 
   return reply.send({ profile });
 });
 
-fastify.get('/profile/by-nin/:nin', { preHandler: requireAuth }, async (req, reply) => {
+fastify.get('/profile/by-nin/:nin', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['User Profile'],
+    summary: 'Get profile by NIN',
+    description: 'Returns registered profile when user exists, otherwise not-registered response with NIN summary (authorized callers only).',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['nin'],
+      properties: {
+        nin: { type: 'string', pattern: '^\\d{11}$' },
+      },
+    },
+    response: profileResponses({
+      200: {
+        type: 'object',
+        example: {
+          registered: false,
+          ninSummary: { nin: '90000000001', firstName: 'John', lastName: 'Doe' },
+        },
+      },
+    }),
+  },
+}, async (req, reply) => {
   const denied = await enforcePermission(req, reply, 'profile.user.read', req.query?.organizationId);
   if (denied) return;
   const { nin } = req.params;
