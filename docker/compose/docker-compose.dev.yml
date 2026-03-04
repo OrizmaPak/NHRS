@@ -251,6 +251,13 @@ services:
     build:
       context: ../../services/providers/health-records-index-service
       dockerfile: Dockerfile
+    depends_on:
+      auth-api:
+        condition: service_healthy
+      rbac-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
     env_file:
       - ../../.env
       - ../../services/providers/health-records-index-service/.env

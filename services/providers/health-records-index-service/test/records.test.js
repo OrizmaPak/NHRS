@@ -12,176 +12,278 @@ function makeAccessToken(payload, secret = 'change-me') {
   const encodedHeader = base64Url(JSON.stringify(header));
   const encodedPayload = base64Url(JSON.stringify(payload));
   const data = `${encodedHeader}.${encodedPayload}`;
-  const signature = crypto.createHmac('sha256', secret).update(data).digest('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(data)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
   return `${data}.${signature}`;
 }
 
 function makeFakeDb() {
-  const entries = [];
+  const recordsIndex = [];
+  const recordEntries = [];
+
   return {
-    __inspect: { entries },
+    __inspect: { recordsIndex, recordEntries },
     collection(name) {
-      if (name !== 'record_entries') return { createIndex: async () => ({}) };
-      return {
-        insertOne: async (doc) => { entries.push(structuredClone(doc)); return { acknowledged: true }; },
-        findOne: async (query) => entries.find((item) => item.entryId === query.entryId) || null,
-        find: (query) => {
-          let filtered = entries.filter((item) => {
-            if (query.ownerUserId && item.ownerUserId !== query.ownerUserId) return false;
-            if (query.nin && item.nin !== query.nin) return false;
-            if (query.membershipId?.$in) return query.membershipId.$in.includes(item.membershipId);
-            if (query['visibility.hidden']?.$ne === true && item.visibility?.hidden === true) return false;
-            if (query.status && item.status !== query.status) return false;
-            return true;
-          });
-          return {
-            sort: () => ({ toArray: async () => structuredClone(filtered) }),
-            toArray: async () => structuredClone(filtered),
-          };
-        },
-        updateOne: async (query, update) => {
-          const idx = entries.findIndex((item) => item.entryId === query.entryId);
-          if (idx >= 0) entries[idx] = { ...entries[idx], ...(update.$set || {}) };
-          return { acknowledged: true };
-        },
-        createIndex: async () => ({}),
-      };
+      if (name === 'records_index') {
+        return {
+          createIndex: async () => ({}),
+          insertOne: async (doc) => {
+            recordsIndex.push(structuredClone(doc));
+            return { acknowledged: true };
+          },
+          findOne: async (query) => recordsIndex.find((item) => {
+            if (query.recordId) return item.recordId === query.recordId;
+            if (query.citizenUserId) return item.citizenUserId === query.citizenUserId;
+            if (query.citizenNin) return item.citizenNin === query.citizenNin;
+            return false;
+          }) || null,
+          updateOne: async (query, update) => {
+            const idx = recordsIndex.findIndex((item) => item.recordId === query.recordId);
+            if (idx >= 0) recordsIndex[idx] = { ...recordsIndex[idx], ...(update.$set || {}) };
+            return { acknowledged: true };
+          },
+        };
+      }
+
+      if (name === 'record_entries') {
+        return {
+          createIndex: async () => ({}),
+          insertOne: async (doc) => {
+            recordEntries.push(structuredClone(doc));
+            return { acknowledged: true };
+          },
+          findOne: async (query) => recordEntries.find((item) => item.entryId === query.entryId) || null,
+          updateOne: async (query, update) => {
+            const idx = recordEntries.findIndex((item) => item.entryId === query.entryId);
+            if (idx >= 0) recordEntries[idx] = { ...recordEntries[idx], ...(update.$set || {}) };
+            return { acknowledged: true };
+          },
+          find: (query) => {
+            let filtered = recordEntries.filter((item) => (!query.recordId || item.recordId === query.recordId));
+            return {
+              sort: () => ({
+                toArray: async () => structuredClone(filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))),
+              }),
+            };
+          },
+        };
+      }
+
+      return { createIndex: async () => ({}) };
     },
   };
 }
 
-function buildTestApp(fetchImpl) {
-  return buildApp({ dbReady: true, db: makeFakeDb(), fetchImpl });
+function buildTestContext(fetchImpl) {
+  const db = makeFakeDb();
+  const app = buildApp({ dbReady: true, db, fetchImpl });
+  return { app, db };
 }
 
-test('citizen timeline returns contributing institutions and provider access emits notification', async () => {
-  let notificationEvents = 0;
-  const app = buildTestApp(async (url, options = {}) => {
+test('citizen can create symptom entry and later edit it', async () => {
+  const { app } = buildTestContext(async (url) => {
     const target = String(url);
-    if (target.includes('/rbac/check')) {
-      return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
-    }
-    if (target.endsWith('/me')) {
-      return { ok: true, status: 200, text: async () => JSON.stringify({ user: { nin: '90000000001' } }) };
-    }
-    if (target.includes('/internal/notifications/events')) {
-      notificationEvents += 1;
-      return { ok: true, status: 202, text: async () => JSON.stringify({ accepted: true }) };
-    }
-    return { ok: true, status: 200, text: async () => JSON.stringify({}) };
+    if (target.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (target.endsWith('/me')) return { ok: true, status: 200, text: async () => JSON.stringify({ user: { nin: '90000000001' } }) };
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
   });
 
-  const citizen = makeAccessToken({ sub: 'citizen-1' });
-  const provider = makeAccessToken({ sub: 'provider-1' });
-
-  const createSymptom = await app.inject({
+  const citizenToken = makeAccessToken({ sub: 'citizen-1', roles: ['citizen'] });
+  const createRes = await app.inject({
     method: 'POST',
     url: '/records/me/symptoms',
-    headers: { authorization: `Bearer ${citizen}` },
-    payload: { symptoms: ['headache'] },
+    headers: { authorization: `Bearer ${citizenToken}` },
+    payload: { symptoms: ['headache'], note: 'started yesterday' },
   });
-  assert.equal(createSymptom.statusCode, 201);
+  assert.equal(createRes.statusCode, 201);
+  const entryId = createRes.json().entry.entryId;
 
-  const createProviderEntry = await app.inject({
+  const editRes = await app.inject({
+    method: 'PATCH',
+    url: `/records/entries/${entryId}`,
+    headers: { authorization: `Bearer ${citizenToken}` },
+    payload: { payload: { symptoms: ['headache', 'fever'], note: 'worse today' } },
+  });
+  assert.equal(editRes.statusCode, 200);
+  assert.deepEqual(editRes.json().entry.payload.symptoms, ['headache', 'fever']);
+});
+
+test('provider can create and edit own entry within 24h', async () => {
+  const { app } = buildTestContext(async (url) => {
+    const target = String(url);
+    if (target.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+
+  const providerToken = makeAccessToken({ sub: 'provider-1', roles: ['doctor'] });
+  const createRes = await app.inject({
     method: 'POST',
     url: '/records/90000000001/entries',
-    headers: { authorization: `Bearer ${provider}`, 'x-org-id': 'org-1', 'x-branch-id': 'branch-1' },
-    payload: { entryType: 'clinical_note', payload: { note: 'Observed fever' } },
+    headers: {
+      authorization: `Bearer ${providerToken}`,
+      'x-org-id': 'org-1',
+      'x-branch-id': 'branch-1',
+    },
+    payload: { entryType: 'encounter', payload: { summary: 'Checked vitals' } },
   });
-  assert.equal(createProviderEntry.statusCode, 201);
+  assert.equal(createRes.statusCode, 201);
+  const entryId = createRes.json().entry.entryId;
 
-  const mine = await app.inject({
-    method: 'GET',
-    url: '/records/me',
-    headers: { authorization: `Bearer ${citizen}` },
+  const editRes = await app.inject({
+    method: 'PATCH',
+    url: `/records/entries/${entryId}`,
+    headers: { authorization: `Bearer ${providerToken}` },
+    payload: { payload: { summary: 'Checked vitals and temperature' } },
   });
-  assert.equal(mine.statusCode, 200);
-  assert.equal(Array.isArray(mine.json().contributingInstitutions), true);
-  assert.equal(mine.json().contributingInstitutions.some((item) => item.organizationId === 'org-1'), true);
-
-  const providerRead = await app.inject({
-    method: 'GET',
-    url: '/records/90000000001',
-    headers: { authorization: `Bearer ${provider}`, 'x-org-id': 'org-1', 'x-branch-id': 'branch-1' },
-  });
-  assert.equal(providerRead.statusCode, 200);
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.equal(notificationEvents > 0, true);
+  assert.equal(editRes.statusCode, 200);
 });
 
-test('hide endpoint prevents hidden entry from provider reads', async () => {
-  const app = buildTestApp(async (url) => {
+test('provider cannot edit after editableUntil expires', async () => {
+  const { app, db } = buildTestContext(async (url) => {
     const target = String(url);
     if (target.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
-    if (target.endsWith('/me')) return { ok: true, status: 200, text: async () => JSON.stringify({ user: { nin: '90000000001' } }) };
     return { ok: true, status: 202, text: async () => JSON.stringify({}) };
   });
-  const citizen = makeAccessToken({ sub: 'citizen-1' });
-  const provider = makeAccessToken({ sub: 'provider-1' });
 
-  const created = await app.inject({
+  const providerToken = makeAccessToken({ sub: 'provider-2', roles: ['doctor'] });
+  const createRes = await app.inject({
+    method: 'POST',
+    url: '/records/90000000002/entries',
+    headers: {
+      authorization: `Bearer ${providerToken}`,
+      'x-org-id': 'org-1',
+      'x-branch-id': 'branch-2',
+    },
+    payload: { entryType: 'note', payload: { text: 'Initial note' } },
+  });
+  const entryId = createRes.json().entry.entryId;
+  const stored = db.__inspect.recordEntries.find((item) => item.entryId === entryId);
+  stored.editableUntil = new Date(Date.now() - 60_000).toISOString();
+
+  const editRes = await app.inject({
+    method: 'PATCH',
+    url: `/records/entries/${entryId}`,
+    headers: { authorization: `Bearer ${providerToken}` },
+    payload: { payload: { text: 'Late update' } },
+  });
+  assert.equal(editRes.statusCode, 403);
+  assert.equal(editRes.json().message, 'EDIT_WINDOW_EXPIRED_USE_TASKFORCE_WORKFLOW');
+});
+
+test('provider view triggers RECORD_ACCESSED notification event', async () => {
+  let notificationCount = 0;
+  const { app } = buildTestContext(async (url) => {
+    const target = String(url);
+    if (target.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (target.includes('/internal/notifications/events')) {
+      notificationCount += 1;
+      return { ok: true, status: 202, text: async () => JSON.stringify({ accepted: true }) };
+    }
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+
+  const providerToken = makeAccessToken({ sub: 'provider-3', roles: ['doctor'] });
+  await app.inject({
+    method: 'POST',
+    url: '/records/90000000003/entries',
+    headers: { authorization: `Bearer ${providerToken}`, 'x-org-id': 'org-1' },
+    payload: { entryType: 'encounter', payload: { summary: 'visit' } },
+  });
+
+  const readRes = await app.inject({
+    method: 'GET',
+    url: '/records/90000000003',
+    headers: { authorization: `Bearer ${providerToken}`, 'x-org-id': 'org-1', 'x-branch-id': 'branch-x' },
+  });
+  assert.equal(readRes.statusCode, 200);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(notificationCount > 0, true);
+});
+
+test('hidden entries do not show for orgs/roles they are hidden from', async () => {
+  const { app } = buildTestContext(async (url) => {
+    const target = String(url);
+    if (target.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (target.endsWith('/me')) return { ok: true, status: 200, text: async () => JSON.stringify({ user: { nin: '90000000004' } }) };
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+
+  const citizenToken = makeAccessToken({ sub: 'citizen-4', roles: ['citizen'] });
+  const providerToken = makeAccessToken({ sub: 'provider-4', roles: ['doctor', 'auditor'] });
+
+  const createRes = await app.inject({
     method: 'POST',
     url: '/records/me/symptoms',
-    headers: { authorization: `Bearer ${citizen}` },
+    headers: { authorization: `Bearer ${citizenToken}` },
     payload: { symptoms: ['cough'] },
   });
-  const entryId = created.json().entry.entryId;
+  const entryId = createRes.json().entry.entryId;
 
-  const beforeHide = await app.inject({
-    method: 'GET',
-    url: '/records/90000000001',
-    headers: { authorization: `Bearer ${provider}`, 'x-org-id': 'org-1' },
-  });
-  assert.equal(beforeHide.json().items.length >= 1, true);
-
-  const hide = await app.inject({
+  await app.inject({
     method: 'POST',
     url: `/records/entries/${entryId}/hide`,
-    headers: { authorization: `Bearer ${citizen}` },
+    headers: { authorization: `Bearer ${citizenToken}` },
+    payload: { hidden: true, hiddenFromOrgs: ['org-hidden'], hiddenFromRoles: ['auditor'] },
   });
-  assert.equal(hide.statusCode, 200);
 
-  const afterHide = await app.inject({
+  const hiddenForOrg = await app.inject({
     method: 'GET',
-    url: '/records/90000000001',
-    headers: { authorization: `Bearer ${provider}`, 'x-org-id': 'org-1' },
+    url: '/records/90000000004',
+    headers: { authorization: `Bearer ${providerToken}`, 'x-org-id': 'org-hidden' },
   });
-  assert.equal(afterHide.statusCode, 200);
-  assert.equal(afterHide.json().items.some((item) => item.entryId === entryId), false);
+  assert.equal(hiddenForOrg.statusCode, 200);
+  assert.equal(hiddenForOrg.json().entries.some((item) => item.entryId === entryId), false);
+
+  const hiddenForRole = await app.inject({
+    method: 'GET',
+    url: '/records/90000000004',
+    headers: { authorization: `Bearer ${providerToken}`, 'x-org-id': 'org-visible' },
+  });
+  assert.equal(hiddenForRole.statusCode, 200);
+  assert.equal(hiddenForRole.json().entries.some((item) => item.entryId === entryId), false);
 });
 
-test('edit endpoint enforces creator and 24h editable window', async () => {
-  const app = buildTestApp(async (url) => {
+test('contributingInstitutions list contains only institutions that contributed entries', async () => {
+  const { app } = buildTestContext(async (url) => {
     const target = String(url);
     if (target.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
-    if (target.endsWith('/me')) return { ok: true, status: 200, text: async () => JSON.stringify({ user: { nin: '90000000001' } }) };
+    if (target.endsWith('/me')) return { ok: true, status: 200, text: async () => JSON.stringify({ user: { nin: '90000000005' } }) };
     return { ok: true, status: 202, text: async () => JSON.stringify({}) };
   });
 
-  const creator = makeAccessToken({ sub: 'creator-1' });
-  const otherUser = makeAccessToken({ sub: 'other-1' });
+  const citizenToken = makeAccessToken({ sub: 'citizen-5', roles: ['citizen'] });
+  const providerToken = makeAccessToken({ sub: 'provider-5', roles: ['doctor'] });
 
-  const created = await app.inject({
+  await app.inject({
     method: 'POST',
     url: '/records/me/symptoms',
-    headers: { authorization: `Bearer ${creator}` },
-    payload: { symptoms: ['fatigue'] },
+    headers: { authorization: `Bearer ${citizenToken}` },
+    payload: { symptoms: ['nausea'] },
   });
-  const entryId = created.json().entry.entryId;
+  await app.inject({
+    method: 'POST',
+    url: '/records/90000000005/entries',
+    headers: { authorization: `Bearer ${providerToken}`, 'x-org-id': 'org-a', 'x-branch-id': 'b-a' },
+    payload: { entryType: 'lab_result', payload: { test: 'CBC' } },
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/records/90000000005/entries',
+    headers: { authorization: `Bearer ${providerToken}`, 'x-org-id': 'org-b', 'x-branch-id': 'b-b' },
+    payload: { entryType: 'pharmacy_dispense', payload: { drug: 'Paracetamol' } },
+  });
 
-  const forbiddenOther = await app.inject({
-    method: 'PATCH',
-    url: `/records/entries/${entryId}`,
-    headers: { authorization: `Bearer ${otherUser}` },
-    payload: { payload: { symptoms: ['none'] } },
+  const meRes = await app.inject({
+    method: 'GET',
+    url: '/records/me',
+    headers: { authorization: `Bearer ${citizenToken}` },
   });
-  assert.equal(forbiddenOther.statusCode, 403);
-
-  const allowedUpdate = await app.inject({
-    method: 'PATCH',
-    url: `/records/entries/${entryId}`,
-    headers: { authorization: `Bearer ${creator}` },
-    payload: { payload: { symptoms: ['improved'] } },
-  });
-  assert.equal(allowedUpdate.statusCode, 200);
+  assert.equal(meRes.statusCode, 200);
+  const orgIds = (meRes.json().contributingInstitutions || []).map((item) => item.organizationId).sort();
+  assert.deepEqual(orgIds, ['org-a', 'org-b']);
 });

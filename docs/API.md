@@ -170,12 +170,12 @@ When a citizen with matching NIN logs in, auth calls `POST /internal/memberships
 ### Health Records Timeline Index
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|
-| GET | `/records/me` | Bearer | Citizen timeline metadata with contributing institutions list |
-| GET | `/records/:nin` | Bearer | Provider read by NIN; emits provider-access notification event |
-| POST | `/records/me/symptoms` | Bearer | Citizen symptom entry creation |
-| POST | `/records/:nin/entries` | Bearer | Provider creates timeline metadata entry |
-| PATCH | `/records/entries/:entryId` | Bearer | Creator-only update within 24h editable window |
-| POST | `/records/entries/:entryId/hide` | Bearer | Hide entry from standard reads (hide rules enforced) |
+| GET | `/records/me` | Bearer | Citizen timeline metadata with `contributingInstitutions` derived only from entry attribution |
+| GET | `/records/:nin` | Bearer + `x-org-id` | Provider read by NIN, applies hide rules (`hiddenFromOrgs` / `hiddenFromRoles`) and emits `RECORD_ACCESSED` |
+| POST | `/records/me/symptoms` | Bearer | Citizen creates `citizen_symptom` entry (record auto-created if missing) |
+| POST | `/records/:nin/entries` | Bearer + `x-org-id` | Provider creates timeline metadata entry with attribution and 24h edit window |
+| PATCH | `/records/entries/:entryId` | Bearer | Citizen can edit own citizen entries; provider can edit own provider entries only within 24h (`EDIT_WINDOW_EXPIRED_USE_TASKFORCE_WORKFLOW` on expiry) |
+| POST | `/records/entries/:entryId/hide` | Bearer | Citizen-owner updates visibility (`hidden`, `hiddenFromOrgs`, `hiddenFromRoles`) |
 
 ### Tokens
 | Method | Endpoint | Auth | Notes |
