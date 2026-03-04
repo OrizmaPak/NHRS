@@ -166,6 +166,16 @@ One membership can have multiple active `branch_assignments` with independent `r
 User-linking model:
 When a citizen with matching NIN logs in, auth calls `POST /internal/memberships/link-user` so pending NIN memberships are attached to the real `userId`.
 
+### Health Records Timeline Index
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| GET | `/records/me` | Bearer | Citizen timeline metadata with contributing institutions list |
+| GET | `/records/:nin` | Bearer | Provider read by NIN; emits provider-access notification event |
+| POST | `/records/me/symptoms` | Bearer | Citizen symptom entry creation |
+| POST | `/records/:nin/entries` | Bearer | Provider creates timeline metadata entry |
+| PATCH | `/records/entries/:entryId` | Bearer | Creator-only update within 24h editable window |
+| POST | `/records/entries/:entryId/hide` | Bearer | Hide entry from standard reads (hide rules enforced) |
+
 ### Tokens
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|

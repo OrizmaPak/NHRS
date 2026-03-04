@@ -76,6 +76,12 @@ const permissionRegistry = [
   { method: 'GET', path: '/orgs/:orgId/memberships/:membershipId', permissionKey: 'org.member.read', orgFrom: 'params.orgId' },
   { method: 'GET', path: '/users/:userId/memberships', permissionKey: 'membership.user.read' },
   { method: 'GET', path: '/users/:userId/movement-history', permissionKey: 'membership.user.history.read' },
+  { method: 'GET', path: '/records/me', permissionKey: 'records.me.read' },
+  { method: 'GET', path: '/records/:nin', permissionKey: 'records.nin.read' },
+  { method: 'POST', path: '/records/me/symptoms', permissionKey: 'records.symptoms.create' },
+  { method: 'POST', path: '/records/:nin/entries', permissionKey: 'records.entry.create' },
+  { method: 'PATCH', path: '/records/entries/:entryId', permissionKey: 'records.entry.update' },
+  { method: 'POST', path: '/records/entries/:entryId/hide', permissionKey: 'records.entry.hide' },
 ];
 
 function pathMatches(pattern, actualPath) {

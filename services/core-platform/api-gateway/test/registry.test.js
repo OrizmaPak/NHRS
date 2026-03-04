@@ -61,3 +61,12 @@ test('internal membership linking route is not publicly mapped', () => {
   const rule = findPermissionRule('POST', '/internal/memberships/link-user');
   assert.equal(rule, undefined);
 });
+
+test('records route mappings resolve expected permissions', () => {
+  assert.equal(findPermissionRule('GET', '/records/me').permissionKey, 'records.me.read');
+  assert.equal(findPermissionRule('GET', '/records/90000000001').permissionKey, 'records.nin.read');
+  assert.equal(findPermissionRule('POST', '/records/me/symptoms').permissionKey, 'records.symptoms.create');
+  assert.equal(findPermissionRule('POST', '/records/90000000001/entries').permissionKey, 'records.entry.create');
+  assert.equal(findPermissionRule('PATCH', '/records/entries/e-1').permissionKey, 'records.entry.update');
+  assert.equal(findPermissionRule('POST', '/records/entries/e-1/hide').permissionKey, 'records.entry.hide');
+});

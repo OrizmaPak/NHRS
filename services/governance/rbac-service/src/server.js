@@ -69,6 +69,12 @@ const systemPermissions = [
   { key: 'org.member.history.read', name: 'Read membership history', scope: 'org', module: 'membership', actions: ['read'], isSystem: true },
   { key: 'membership.user.read', name: 'Read memberships by user', scope: 'app', module: 'membership', actions: ['read'], isSystem: true },
   { key: 'membership.user.history.read', name: 'Read user movement history', scope: 'app', module: 'membership', actions: ['read'], isSystem: true },
+  { key: 'records.me.read', name: 'Read own timeline records', scope: 'app', module: 'records', actions: ['read'], isSystem: true },
+  { key: 'records.nin.read', name: 'Read timeline records by NIN', scope: 'org', module: 'records', actions: ['read'], isSystem: true },
+  { key: 'records.symptoms.create', name: 'Create own symptom record', scope: 'app', module: 'records', actions: ['create'], isSystem: true },
+  { key: 'records.entry.create', name: 'Create provider timeline entry', scope: 'org', module: 'records', actions: ['create'], isSystem: true },
+  { key: 'records.entry.update', name: 'Update timeline entry', scope: 'app', module: 'records', actions: ['update'], isSystem: true },
+  { key: 'records.entry.hide', name: 'Hide timeline entry', scope: 'app', module: 'records', actions: ['update'], isSystem: true },
 ];
 
 const systemRoles = [
@@ -87,6 +93,10 @@ const systemRoles = [
       { permissionKey: 'profile.me.read', effect: 'allow' },
       { permissionKey: 'profile.me.update', effect: 'allow' },
       { permissionKey: 'profile.nin.refresh.request', effect: 'allow' },
+      { permissionKey: 'records.me.read', effect: 'allow' },
+      { permissionKey: 'records.symptoms.create', effect: 'allow' },
+      { permissionKey: 'records.entry.update', effect: 'allow' },
+      { permissionKey: 'records.entry.hide', effect: 'allow' },
     ],
   },
   {
@@ -144,6 +154,8 @@ const systemRoles = [
       { permissionKey: 'org.member.branch.remove', effect: 'allow' },
       { permissionKey: 'org.member.transfer', effect: 'allow' },
       { permissionKey: 'org.member.history.read', effect: 'allow' },
+      { permissionKey: 'records.nin.read', effect: 'allow' },
+      { permissionKey: 'records.entry.create', effect: 'allow' },
     ],
   },
   {
@@ -161,6 +173,7 @@ const systemRoles = [
       { permissionKey: 'org.member.history.read', effect: 'allow' },
       { permissionKey: 'membership.user.read', effect: 'allow' },
       { permissionKey: 'membership.user.history.read', effect: 'allow' },
+      { permissionKey: 'records.nin.read', effect: 'allow' },
     ],
   },
   {

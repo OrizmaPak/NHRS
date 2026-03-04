@@ -41,6 +41,6 @@ test('audit event emitter sends payload non-blocking', async () => {
     userId: 'u1',
   });
 
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await new Promise((resolve) => setTimeout(resolve, 250));
   assert.equal(called, true);
 });

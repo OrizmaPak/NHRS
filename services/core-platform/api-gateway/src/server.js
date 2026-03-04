@@ -19,6 +19,7 @@ const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-serv
 const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
 const organizationApiBaseUrl = process.env.ORGANIZATION_API_BASE_URL || 'http://organization-service:8093';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
+const healthRecordsIndexApiBaseUrl = process.env.HEALTH_RECORDS_INDEX_API_BASE_URL || 'http://health-records-index-service:8104';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL_SEC) || 60;
@@ -803,6 +804,42 @@ function registerOrganizationMembershipRoutes() {
   }
 }
 
+function registerHealthRecordsRoutes() {
+  const routes = [
+    ['GET', '/records/me', '/records/me'],
+    ['GET', '/records/:nin', '/records/:nin'],
+    ['POST', '/records/me/symptoms', '/records/me/symptoms'],
+    ['POST', '/records/:nin/entries', '/records/:nin/entries'],
+    ['PATCH', '/records/entries/:entryId', '/records/entries/:entryId'],
+    ['POST', '/records/entries/:entryId/hide', '/records/entries/:entryId/hide'],
+  ];
+
+  for (const [method, routePath, upstreamPath] of routes) {
+    registerProxyRoute({
+      method,
+      url: routePath,
+      targetBase: healthRecordsIndexApiBaseUrl,
+      targetPath: (req) => {
+        let p = upstreamPath;
+        for (const [k, v] of Object.entries(req.params || {})) {
+          p = p.replace(`:${k}`, encodeURIComponent(String(v)));
+        }
+        return p;
+      },
+      schema: {
+        tags: ['Health Records'],
+        summary: `Proxy ${method} ${routePath}`,
+        description: 'Citizen/provider timeline metadata endpoints.',
+        security: [{ bearerAuth: [] }],
+        headers: authHeaderSchema(true),
+        params: { type: 'object', additionalProperties: true },
+        body: { type: 'object', additionalProperties: true },
+        response: standardResponses({ 200: { type: 'object' }, 201: { type: 'object' } }),
+      },
+    });
+  }
+}
+
 async function registerDocs() {
   await fastify.register(swagger, {
     openapi: {
@@ -826,6 +863,7 @@ async function registerDocs() {
         { name: 'Profile', description: 'User profile and onboarding endpoints' },
         { name: 'Organization', description: 'Organization and branch endpoints' },
         { name: 'Membership', description: 'Membership and branch assignment endpoints' },
+        { name: 'Health Records', description: 'Citizen/provider timeline metadata endpoints' },
       ],
       components: {
         securitySchemes: {
@@ -874,6 +912,7 @@ async function registerGatewayRoutes() {
   registerAuditRoutes();
   registerProfileRoutes();
   registerOrganizationMembershipRoutes();
+  registerHealthRecordsRoutes();
   routesRegistered = true;
 }
 
