@@ -198,7 +198,11 @@ async function validateMembershipScope({ userId, organizationId, branchId }) {
   });
   const body = await response.json();
   const result = response.ok
-    ? { allowed: true, reason: null, membership: body?.membership || null }
+    ? {
+      allowed: body?.allowed === true,
+      reason: body?.allowed === true ? null : (body?.message || 'NOT_ORG_MEMBER'),
+      membership: body?.membership || null,
+    }
     : { allowed: false, reason: body?.message || 'NOT_ORG_MEMBER' };
 
   if (redisReady) {

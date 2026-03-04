@@ -1278,12 +1278,12 @@ fastify.get('/users/:userId/memberships', {
 });
 
 fastify.get('/orgs/:orgId/memberships/me', {
-  preHandler: requireInternalOrAuth,
+  preHandler: requireInternal,
   schema: {
     tags: ['Membership'],
-    summary: 'Validate active membership for self (or internal user)',
-    description: 'Used by gateway for org/branch scoped access checks.',
-    security: [{ bearerAuth: [] }],
+    summary: 'Internal membership scope check by org/branch',
+    description: 'Internal-only endpoint used by gateway for org/branch scoped authorization checks.',
+    security: [],
     params: {
       type: 'object',
       required: ['orgId'],
@@ -1291,6 +1291,7 @@ fastify.get('/orgs/:orgId/memberships/me', {
     },
     querystring: {
       type: 'object',
+      required: ['userId'],
       properties: {
         userId: { type: 'string' },
         branchId: { type: 'string' },
@@ -1299,12 +1300,11 @@ fastify.get('/orgs/:orgId/memberships/me', {
     response: {
       200: { type: 'object', additionalProperties: true },
       401: { type: 'object', additionalProperties: true },
-      403: { type: 'object', additionalProperties: true },
     },
   },
 }, async (req, reply) => {
   const orgId = String(req.params.orgId);
-  const userId = req.internal ? String(req.query?.userId || '') : String(req.auth?.userId || '');
+  const userId = String(req.query?.userId || '');
   if (!userId) {
     return reply.code(401).send({ message: 'Unauthorized' });
   }
@@ -1312,34 +1312,28 @@ fastify.get('/orgs/:orgId/memberships/me', {
   const membership = await collections.memberships().findOne({
     userId,
     organizationId: orgId,
-    status: { $in: ['active', 'invited'] },
+    status: 'active',
   });
   if (!membership) {
-    return reply.code(403).send({ message: 'Not a member of this organization', allowed: false });
+    return reply.send({ allowed: false, membership: null, assignments: [] });
   }
+
+  const assignments = await collections.assignments().find({
+    membershipId: membership.membershipId,
+    organizationId: orgId,
+    status: 'active',
+  }).toArray();
 
   const branchId = req.query?.branchId ? String(req.query.branchId) : null;
   if (branchId) {
-    const activeAssignment = await collections.assignments().findOne({
-      membershipId: membership.membershipId,
-      organizationId: orgId,
-      branchId,
-      status: 'active',
-    });
-    if (!activeAssignment) {
-      return reply.code(403).send({ message: 'Not assigned to this branch', allowed: false });
-    }
+    const branchMatch = assignments.some((item) => item.branchId === branchId);
+    if (!branchMatch) return reply.send({ allowed: false, membership, assignments });
   }
 
   return reply.send({
     allowed: true,
-    membership: {
-      membershipId: membership.membershipId,
-      organizationId: membership.organizationId,
-      userId: membership.userId,
-      status: membership.status,
-      roles: membership.roles || [],
-    },
+    membership,
+    assignments,
   });
 });
 

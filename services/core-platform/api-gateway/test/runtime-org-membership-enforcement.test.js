@@ -43,9 +43,9 @@ test('runtime gateway enforcement for org/membership routes', async () => {
       if (target.includes('/memberships/me?')) {
         if (target.includes('userId=user-no-membership')) {
           return {
-            ok: false,
-            status: 403,
-            json: async () => ({ message: 'Not a member of this organization' }),
+            ok: true,
+            status: 200,
+            json: async () => ({ allowed: false, membership: null, assignments: [] }),
           };
         }
         return {

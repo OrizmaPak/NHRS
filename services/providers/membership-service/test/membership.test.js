@@ -224,3 +224,69 @@ test('movement-history returns chronological timeline with activeTo set', async 
   assert.equal(history.json().timeline.length >= 2, true);
   assert.equal(history.json().timeline.some((x) => x.activeTo), true);
 });
+
+test('scope check returns allowed=false when user is not a member', async () => {
+  const { app } = buildTestApp({ allow: true });
+  const res = await app.inject({
+    method: 'GET',
+    url: '/orgs/org-1/memberships/me?userId=missing-user',
+    headers: { 'x-internal-token': 'change-me-internal-token' },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().allowed, false);
+  assert.equal(res.json().membership, null);
+  assert.deepEqual(res.json().assignments, []);
+});
+
+test('scope check returns allowed=false when member exists but branch assignment is missing', async () => {
+  const { app } = buildTestApp({ allow: true });
+  const token = makeAccessToken({ sub: 'admin-1' }, 'change-me');
+  await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/memberships/invite',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { nin: '90000000001', roles: ['doctor'], branchIds: ['b1'] },
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/internal/memberships/link-user',
+    headers: { 'x-internal-token': 'change-me-internal-token' },
+    payload: { userId: 'user-branch-miss', nin: '90000000001' },
+  });
+
+  const res = await app.inject({
+    method: 'GET',
+    url: '/orgs/org-1/memberships/me?userId=user-branch-miss&branchId=missing-branch',
+    headers: { 'x-internal-token': 'change-me-internal-token' },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().allowed, false);
+  assert.equal(res.json().membership.userId, 'user-branch-miss');
+});
+
+test('scope check returns allowed=true when member and branch assignment exist', async () => {
+  const { app } = buildTestApp({ allow: true });
+  const token = makeAccessToken({ sub: 'admin-1' }, 'change-me');
+  await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/memberships/invite',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { nin: '90000000002', roles: ['doctor'], branchIds: ['b2'] },
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/internal/memberships/link-user',
+    headers: { 'x-internal-token': 'change-me-internal-token' },
+    payload: { userId: 'user-branch-hit', nin: '90000000002' },
+  });
+
+  const res = await app.inject({
+    method: 'GET',
+    url: '/orgs/org-1/memberships/me?userId=user-branch-hit&branchId=b2',
+    headers: { 'x-internal-token': 'change-me-internal-token' },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().allowed, true);
+  assert.equal(Array.isArray(res.json().assignments), true);
+  assert.equal(res.json().assignments.some((a) => a.branchId === 'b2'), true);
+});
