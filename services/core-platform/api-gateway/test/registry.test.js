@@ -56,3 +56,8 @@ test('unknown route has no permission mapping', () => {
   const rule = findPermissionRule('GET', '/unknown/path');
   assert.equal(rule, undefined);
 });
+
+test('internal membership linking route is not publicly mapped', () => {
+  const rule = findPermissionRule('POST', '/internal/memberships/link-user');
+  assert.equal(rule, undefined);
+});

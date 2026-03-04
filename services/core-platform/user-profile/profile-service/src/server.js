@@ -57,7 +57,7 @@ const validationErrorSchema = {
 
 function profileResponses(extra = {}) {
   return {
-    200: { type: 'object' },
+    200: { type: 'object', additionalProperties: true },
     400: validationErrorSchema,
     401: errorSchema,
     403: errorSchema,
@@ -231,11 +231,25 @@ async function fetchRolesSummary(authorization) {
 
 async function fetchMembershipSummary(userId, authorization) {
   if (!membershipApiBaseUrl) return null;
-  const res = await callJson(fetchClient, `${membershipApiBaseUrl}/internal/memberships/summary/${userId}`, {
+  const res = await callJson(fetchClient, `${membershipApiBaseUrl}/users/${userId}/memberships?includeBranches=true`, {
     method: 'GET',
-    headers: { authorization, 'content-type': 'application/json' },
+    headers: {
+      authorization,
+      'x-internal-token': internalServiceToken,
+      'content-type': 'application/json',
+    },
   });
-  return res.ok ? (res.body || null) : null;
+  if (!res.ok) return null;
+  const items = Array.isArray(res.body?.items) ? res.body.items : [];
+  return {
+    memberships: items.map((item) => ({
+      organizationId: item.organizationId,
+      membershipId: item.membershipId,
+      status: item.status,
+      roles: Array.isArray(item.roles) ? item.roles : [],
+      branches: Array.isArray(item.branches) ? item.branches : [],
+    })),
+  };
 }
 
 async function ensureProfileFromAuth(userId, authUser, createdFrom = 'nin_login') {
@@ -276,11 +290,29 @@ fastify.get('/profile/me', {
     response: profileResponses({
       200: {
         type: 'object',
+        additionalProperties: true,
         example: {
           profile: { userId: 'user-1', nin: '90000000001', displayName: 'John Doe', profileStatus: 'active' },
           ninSummary: { nin: '90000000001', firstName: 'John', lastName: 'Doe' },
           rolesSummary: { appScopePermissions: [{ permissionKey: 'profile.me.read', effect: 'allow' }] },
-          membershipSummary: null,
+          membershipSummary: {
+            memberships: [
+              {
+                organizationId: 'org-1',
+                membershipId: 'mem-1',
+                status: 'active',
+                roles: ['org_staff'],
+                branches: [
+                  {
+                    branchId: 'branch-1',
+                    roles: ['doctor'],
+                    departments: ['pediatrics'],
+                    status: 'active',
+                  },
+                ],
+              },
+            ],
+          },
         },
       },
     }),
@@ -298,6 +330,17 @@ fastify.get('/profile/me', {
     fetchRolesSummary(req.headers.authorization),
     fetchMembershipSummary(req.auth.userId, req.headers.authorization),
   ]);
+  if (membershipApiBaseUrl && membershipSummary === null) {
+    emitAuditEvent(fetchClient, auditApiBaseUrl, {
+      userId: req.auth.userId,
+      eventType: 'PROFILE_MEMBERSHIP_LOOKUP_FAILED',
+      action: 'profile.membership.lookup',
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || null,
+      outcome: 'failure',
+      failureReason: 'MEMBERSHIP_SERVICE_UNAVAILABLE',
+    });
+  }
 
   const merged = mergeProfileView({ profile, ninSummary, rolesSummary, membershipSummary });
   emitAuditEvent(fetchClient, auditApiBaseUrl, {

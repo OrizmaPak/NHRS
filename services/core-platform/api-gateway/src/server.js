@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const fastify = require('fastify')({ logger: true });
 const { MongoClient, ServerApiVersion } = require('mongodb');
+const { createClient } = require('redis');
 const swagger = require('@fastify/swagger');
 const swaggerUi = require('@fastify/swagger-ui');
 const { findPermissionRule } = require('./permissions/registry');
@@ -19,10 +20,14 @@ const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profi
 const organizationApiBaseUrl = process.env.ORGANIZATION_API_BASE_URL || 'http://organization-service:8093';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
+const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
+const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL_SEC) || 60;
 const docsExportPath = process.env.DOCS_EXPORT_PATH;
 
 let dbReady = false;
 let mongoClient;
+let redisClient;
+let redisReady = false;
 let fetchClient = (...args) => fetch(...args);
 let routesRegistered = false;
 
@@ -120,6 +125,92 @@ async function connectToMongo() {
   }
 }
 
+async function connectToRedis() {
+  try {
+    redisClient = createClient({
+      url: redisUrl,
+      socket: {
+        connectTimeout: 1000,
+        reconnectStrategy: () => false,
+      },
+    });
+    redisClient.on('error', (err) => fastify.log.warn({ err }, 'Redis error'));
+    await redisClient.connect();
+    redisReady = true;
+  } catch (err) {
+    fastify.log.warn({ err }, 'Redis connection failed; membership scope cache disabled');
+  }
+}
+
+function extractScope(req, rule) {
+  let organizationId = req.headers['x-org-id'] || null;
+  let branchId = req.headers['x-branch-id'] || null;
+  if (typeof rule.orgFrom === 'string' && rule.orgFrom.startsWith('params.')) {
+    const paramKey = rule.orgFrom.split('.')[1];
+    if (paramKey && req.params?.[paramKey]) {
+      organizationId = req.params[paramKey];
+    }
+  }
+  if (!organizationId && req.params?.orgId) {
+    organizationId = req.params.orgId;
+  }
+  if (!branchId && req.params?.branchId) {
+    branchId = req.params.branchId;
+  }
+  return {
+    organizationId: organizationId ? String(organizationId) : null,
+    branchId: branchId ? String(branchId) : null,
+  };
+}
+
+function membershipScopeCacheKey(userId, organizationId, branchId) {
+  return `gateway:scope:${String(userId)}:${String(organizationId)}:${branchId ? String(branchId) : 'all'}`;
+}
+
+async function validateMembershipScope({ userId, organizationId, branchId }) {
+  if (!userId || !organizationId) {
+    return { allowed: false, reason: 'MISSING_SCOPE_IDENTIFIERS' };
+  }
+
+  const cacheKey = membershipScopeCacheKey(userId, organizationId, branchId);
+  if (redisReady) {
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed;
+      }
+    } catch (err) {
+      fastify.log.warn({ err }, 'Failed reading membership scope cache');
+    }
+  }
+
+  const qs = new URLSearchParams({ userId: String(userId) });
+  if (branchId) {
+    qs.set('branchId', String(branchId));
+  }
+  const response = await fetchClient(`${membershipApiBaseUrl}/orgs/${encodeURIComponent(String(organizationId))}/memberships/me?${qs.toString()}`, {
+    method: 'GET',
+    headers: {
+      'content-type': 'application/json',
+      'x-internal-token': internalServiceToken,
+    },
+  });
+  const body = await response.json();
+  const result = response.ok
+    ? { allowed: true, reason: null, membership: body?.membership || null }
+    : { allowed: false, reason: body?.message || 'NOT_ORG_MEMBER' };
+
+  if (redisReady) {
+    try {
+      await redisClient.set(cacheKey, JSON.stringify(result), { EX: membershipScopeCacheTtlSec });
+    } catch (err) {
+      fastify.log.warn({ err }, 'Failed writing membership scope cache');
+    }
+  }
+  return result;
+}
+
 async function forwardRequest(baseUrl, req, reply, targetPath) {
   const queryPart = req.raw?.url && req.raw.url.includes('?') ? req.raw.url.slice(req.raw.url.indexOf('?')) : '';
   const url = `${baseUrl}${targetPath}${queryPart}`;
@@ -185,17 +276,7 @@ async function enforcePermission(req, reply) {
     return reply.code(decision.statusCode).send(decision.body);
   }
 
-  let organizationId = req.headers['x-org-id'] || null;
-  let branchId = req.headers['x-branch-id'] || null;
-  if (typeof rule.orgFrom === 'string' && rule.orgFrom.startsWith('params.')) {
-    const paramKey = rule.orgFrom.split('.')[1];
-    if (paramKey && req.params?.[paramKey]) {
-      organizationId = req.params[paramKey];
-    }
-  }
-  if (!branchId && req.params?.branchId) {
-    branchId = req.params.branchId;
-  }
+  const { organizationId, branchId } = extractScope(req, rule);
 
   try {
     const checkResponse = await fetchClient(`${rbacApiBaseUrl}/rbac/check`, {
@@ -241,20 +322,12 @@ async function enforcePermission(req, reply) {
     }
 
     if (organizationId) {
-      const accessCheck = await fetchClient(`${membershipApiBaseUrl}/internal/memberships/access-check`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-internal-token': internalServiceToken,
-        },
-        body: JSON.stringify({
-          userId: checkBody?.userId || null,
-          organizationId,
-          branchId,
-        }),
+      const membershipDecision = await validateMembershipScope({
+        userId: checkBody?.userId || null,
+        organizationId,
+        branchId,
       });
-      const accessBody = await accessCheck.json();
-      if (!accessCheck.ok || !accessBody?.allowed) {
+      if (!membershipDecision.allowed) {
         emitAuditEvent({
           userId: checkBody?.userId || null,
           organizationId,
@@ -264,14 +337,14 @@ async function enforcePermission(req, reply) {
           ipAddress,
           userAgent,
           outcome: 'failure',
-          failureReason: accessBody?.reason || 'NO_ACTIVE_MEMBERSHIP',
+          failureReason: membershipDecision.reason || 'NO_ACTIVE_MEMBERSHIP',
           metadata: {
             method: req.method,
             path: routePath,
             branchId,
           },
         });
-        return reply.code(403).send({ message: 'Forbidden' });
+        return reply.code(403).send({ message: 'Not a member of this organization' });
       }
     }
   } catch (err) {
@@ -803,6 +876,7 @@ async function registerGatewayRoutes() {
 const start = async () => {
   try {
     await connectToMongo();
+    await connectToRedis();
     await registerGatewayRoutes();
 
     if (docsExportPath) {
@@ -824,6 +898,9 @@ const start = async () => {
 
 const shutdown = async () => {
   try {
+    if (redisClient) {
+      await redisClient.quit();
+    }
     if (mongoClient) {
       await mongoClient.close();
     }
@@ -838,6 +915,12 @@ process.on('SIGTERM', shutdown);
 async function buildApp(options = {}) {
   if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {
     dbReady = !!options.dbReady;
+  }
+  if (Object.prototype.hasOwnProperty.call(options, 'redisReady')) {
+    redisReady = !!options.redisReady;
+  }
+  if (options.redisClient) {
+    redisClient = options.redisClient;
   }
   if (options.fetchImpl) {
     fetchClient = options.fetchImpl;

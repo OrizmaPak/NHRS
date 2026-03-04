@@ -113,6 +113,21 @@
 | POST | `/profile/create-placeholder` | Bearer | Create non-auth placeholder reference by NIN |
 
 ### Organization & Membership Onboarding
+Owner vs creator:
+- Creator is the actor who submits `POST /orgs`.
+- Owner is the accountable tenant owner and can be assigned by NIN/user separately.
+
+Membership vs branch assignment:
+- Membership links a person to an organization tenant.
+- Branch assignments link one membership to one or many branches with independent role coverage.
+
+Multi-branch coverage:
+- One membership can hold multiple active branch assignments at the same time.
+- Regional/floating coverage is represented by assignment-level roles/departments and active windows.
+
+Movement history:
+- Transfers and assignment updates are preserved through `activeFrom/activeTo`; history is queryable via user and member history endpoints.
+
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|
 | POST | `/orgs` | Bearer | Create organization with owner as `ownerUserId` or `ownerNin` |

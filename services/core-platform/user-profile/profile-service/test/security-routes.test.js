@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+process.env.MEMBERSHIP_API_BASE_URL = 'http://membership-service:8103';
 const { buildApp } = require('../src/server');
 
 test('GET /profile/me enforces profile.me.read permission', () => {
@@ -122,6 +123,23 @@ test('runtime: GET /profile/me returns 200 when profile.me.read allowed', { conc
     if (target.includes('/rbac/me/scope')) {
       return { ok: true, status: 200, text: async () => JSON.stringify({ appScopePermissions: [] }) };
     }
+    if (target.includes('/users/user-allow/memberships?includeBranches=true')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          items: [
+            {
+              organizationId: 'org-1',
+              membershipId: 'mem-1',
+              status: 'active',
+              roles: ['org_staff'],
+              branches: [{ branchId: 'branch-1', roles: ['doctor'], departments: ['pediatrics'] }],
+            },
+          ],
+        }),
+      };
+    }
     return { ok: true, status: 202, text: async () => JSON.stringify({}) };
   };
 
@@ -135,4 +153,50 @@ test('runtime: GET /profile/me returns 200 when profile.me.read allowed', { conc
 
   assert.equal(res.statusCode, 200);
   assert.equal(authMeCalled, true);
+  assert.equal(Array.isArray(res.json().membershipSummary.memberships), true);
+  assert.equal(res.json().membershipSummary.memberships[0].organizationId, 'org-1');
+});
+
+test('runtime: GET /profile/me returns 200 with membershipSummary null when membership service fails', { concurrency: false }, async () => {
+  const fetchImpl = async (url) => {
+    const target = String(url);
+    if (target.includes('/rbac/check')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    }
+    if (target.endsWith('/me')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          user: {
+            id: 'user-membership-down',
+            nin: '90000000001',
+            passwordSetAt: new Date().toISOString(),
+            requiresPasswordChange: false,
+          },
+        }),
+      };
+    }
+    if (target.includes('/nin/')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ nin: '90000000001', firstName: 'Test' }) };
+    }
+    if (target.includes('/rbac/me/scope')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ appScopePermissions: [] }) };
+    }
+    if (target.includes('/users/user-membership-down/memberships?includeBranches=true')) {
+      return { ok: false, status: 503, text: async () => JSON.stringify({ message: 'down' }) };
+    }
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  };
+
+  const app = buildApp({ dbReady: true, redisReady: true, db: makeFakeDb(), fetchImpl });
+  const token = makeAccessToken({ sub: 'user-membership-down', roles: ['citizen'], type: 'access' }, 'change-me');
+  const res = await app.inject({
+    method: 'GET',
+    url: '/profile/me',
+    headers: { authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().membershipSummary, null);
 });
