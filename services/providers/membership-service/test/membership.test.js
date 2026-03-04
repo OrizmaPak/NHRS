@@ -37,8 +37,14 @@ function makeFakeDb() {
           find: (query) => {
             let result = memberships.filter((m) => {
               if (query.membershipId?.$in) return query.membershipId.$in.includes(m.membershipId);
-              if (query.userId && query.organizationId) return m.userId === query.userId && m.organizationId === query.organizationId;
-              if (query.userId) return m.userId === query.userId;
+              if (query.userId && query.organizationId) {
+                const statusMatch = query.status ? m.status === query.status : true;
+                return m.userId === query.userId && m.organizationId === query.organizationId && statusMatch;
+              }
+              if (query.userId) {
+                const statusMatch = query.status ? m.status === query.status : true;
+                return m.userId === query.userId && statusMatch;
+              }
               if (query.organizationId) return m.organizationId === query.organizationId;
               if (query.nin && query.userId === null) return m.nin === query.nin && m.userId === null;
               return true;
@@ -289,4 +295,35 @@ test('scope check returns allowed=true when member and branch assignment exist',
   assert.equal(res.json().allowed, true);
   assert.equal(Array.isArray(res.json().assignments), true);
   assert.equal(res.json().assignments.some((a) => a.branchId === 'b2'), true);
+});
+
+test('users memberships endpoint returns active memberships with branches shape', async () => {
+  const { app } = buildTestApp({ allow: true });
+  const token = makeAccessToken({ sub: 'admin-1' }, 'change-me');
+
+  await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/memberships/invite',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { nin: '90000000003', roles: ['doctor'], branchIds: ['b3'] },
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/internal/memberships/link-user',
+    headers: { 'x-internal-token': 'change-me-internal-token' },
+    payload: { userId: 'user-summary-1', nin: '90000000003' },
+  });
+
+  const res = await app.inject({
+    method: 'GET',
+    url: '/users/user-summary-1/memberships?includeBranches=true',
+    headers: { 'x-internal-token': 'change-me-internal-token' },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().userId, 'user-summary-1');
+  assert.equal(Array.isArray(res.json().memberships), true);
+  assert.equal(res.json().memberships[0].membershipStatus, 'active');
+  assert.equal(Array.isArray(res.json().memberships[0].branches), true);
+  assert.equal(res.json().memberships[0].branches[0].branchId, 'b3');
 });

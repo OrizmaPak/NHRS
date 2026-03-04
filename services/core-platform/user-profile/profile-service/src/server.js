@@ -231,25 +231,37 @@ async function fetchRolesSummary(authorization) {
 
 async function fetchMembershipSummary(userId, authorization) {
   if (!membershipApiBaseUrl) return null;
-  const res = await callJson(fetchClient, `${membershipApiBaseUrl}/users/${userId}/memberships?includeBranches=true`, {
-    method: 'GET',
-    headers: {
-      authorization,
-      'x-internal-token': internalServiceToken,
-      'content-type': 'application/json',
-    },
-  });
-  if (!res.ok) return null;
-  const items = Array.isArray(res.body?.items) ? res.body.items : [];
-  return {
-    memberships: items.map((item) => ({
-      organizationId: item.organizationId,
-      membershipId: item.membershipId,
-      status: item.status,
-      roles: Array.isArray(item.roles) ? item.roles : [],
-      branches: Array.isArray(item.branches) ? item.branches : [],
-    })),
-  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1200);
+  try {
+    const res = await callJson(fetchClient, `${membershipApiBaseUrl}/users/${userId}/memberships?includeBranches=true`, {
+      method: 'GET',
+      headers: {
+        authorization,
+        'x-internal-token': internalServiceToken,
+        'content-type': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const memberships = Array.isArray(res.body?.memberships)
+      ? res.body.memberships
+      : (Array.isArray(res.body?.items) ? res.body.items : []);
+    return {
+      memberships: memberships.map((item) => ({
+        organizationId: item.organizationId,
+        organizationName: item.organizationName || null,
+        membershipId: item.membershipId,
+        membershipStatus: item.membershipStatus || item.status || null,
+        roles: Array.isArray(item.roles) ? item.roles : [],
+        branches: Array.isArray(item.branches) ? item.branches : [],
+      })),
+    };
+  } catch (_err) {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function ensureProfileFromAuth(userId, authUser, createdFrom = 'nin_login') {

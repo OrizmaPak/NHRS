@@ -159,6 +159,7 @@ Movement history:
 | GET | `/orgs/:orgId/memberships/:membershipId` | Bearer | Read membership in org |
 | GET | `/users/:userId/memberships` | Bearer | Read memberships by user |
 | GET | `/users/:userId/movement-history` | Bearer | Chronological org/branch movement timeline |
+| GET | `/orgs/:orgId/memberships/me?userId=&branchId=` | Internal token | Gateway scope check endpoint used for org/branch membership validation |
 
 Multi-branch model:
 One membership can have multiple active `branch_assignments` with independent `roles`, `departments`, `coverageType`, and validity dates.

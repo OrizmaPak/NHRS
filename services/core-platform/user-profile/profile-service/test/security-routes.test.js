@@ -128,11 +128,11 @@ test('runtime: GET /profile/me returns 200 when profile.me.read allowed', { conc
         ok: true,
         status: 200,
         text: async () => JSON.stringify({
-          items: [
+          memberships: [
             {
               organizationId: 'org-1',
               membershipId: 'mem-1',
-              status: 'active',
+              membershipStatus: 'active',
               roles: ['org_staff'],
               branches: [{ branchId: 'branch-1', roles: ['doctor'], departments: ['pediatrics'] }],
             },

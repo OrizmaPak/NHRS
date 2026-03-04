@@ -87,6 +87,20 @@ function getClientIp(req) {
   return req.ip;
 }
 
+function getUserIdFromAuthorization(authorization) {
+  if (!authorization || !authorization.startsWith('Bearer ')) return null;
+  const token = authorization.slice(7);
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const payloadRaw = Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    const payload = JSON.parse(payloadRaw);
+    return payload?.sub ? String(payload.sub) : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
 function emitAuditEvent(event) {
   const payload = buildAuditPayload(event);
   setImmediate(async () => {
@@ -282,8 +296,39 @@ async function enforcePermission(req, reply) {
   }
 
   const { organizationId, branchId } = extractScope(req, rule);
+  const tokenUserId = getUserIdFromAuthorization(authorization);
 
   try {
+    if (organizationId) {
+      if (!tokenUserId) {
+        return reply.code(401).send({ message: 'Unauthorized' });
+      }
+      const membershipDecision = await validateMembershipScope({
+        userId: tokenUserId,
+        organizationId,
+        branchId,
+      });
+      if (!membershipDecision.allowed) {
+        emitAuditEvent({
+          userId: tokenUserId,
+          organizationId,
+          eventType: 'RBAC_ACCESS_DENIED',
+          action: 'gateway.membership_scope_check',
+          permissionKey: rule.permissionKey,
+          ipAddress,
+          userAgent,
+          outcome: 'failure',
+          failureReason: membershipDecision.reason || 'NO_ACTIVE_MEMBERSHIP',
+          metadata: {
+            method: req.method,
+            path: routePath,
+            branchId,
+          },
+        });
+        return reply.code(403).send({ message: 'Not a member of this organization' });
+      }
+    }
+
     const checkResponse = await fetchClient(`${rbacApiBaseUrl}/rbac/check`, {
       method: 'POST',
       headers: {
@@ -324,33 +369,6 @@ async function enforcePermission(req, reply) {
 
     if (!decision.proceed) {
       return reply.code(decision.statusCode).send(decision.body);
-    }
-
-    if (organizationId) {
-      const membershipDecision = await validateMembershipScope({
-        userId: checkBody?.userId || null,
-        organizationId,
-        branchId,
-      });
-      if (!membershipDecision.allowed) {
-        emitAuditEvent({
-          userId: checkBody?.userId || null,
-          organizationId,
-          eventType: 'RBAC_ACCESS_DENIED',
-          action: 'gateway.membership_scope_check',
-          permissionKey: rule.permissionKey,
-          ipAddress,
-          userAgent,
-          outcome: 'failure',
-          failureReason: membershipDecision.reason || 'NO_ACTIVE_MEMBERSHIP',
-          metadata: {
-            method: req.method,
-            path: routePath,
-            branchId,
-          },
-        });
-        return reply.code(403).send({ message: 'Not a member of this organization' });
-      }
     }
   } catch (err) {
     req.log.error({ err, routePath, permissionKey: rule.permissionKey }, 'RBAC enforcement failed');
@@ -802,6 +820,7 @@ function registerOrganizationMembershipRoutes() {
       },
     });
   }
+
 }
 
 function registerHealthRecordsRoutes() {

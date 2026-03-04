@@ -118,6 +118,29 @@ function validateCoverageType(type) {
   return ['primary', 'secondary', 'floating'].includes(type);
 }
 
+function hasCrossBranchRole(roles) {
+  const elevated = new Set(['org_owner', 'org_admin', 'regional_manager', 'supervisor']);
+  return Array.isArray(roles) && roles.some((role) => elevated.has(String(role)));
+}
+
+function toMembershipSummary(membership, assignments) {
+  return {
+    organizationId: membership.organizationId,
+    organizationName: membership.organizationName || null,
+    membershipId: membership.membershipId,
+    membershipStatus: membership.status,
+    roles: Array.isArray(membership.roles) ? membership.roles : [],
+    branches: assignments.map((assignment) => ({
+      branchId: assignment.branchId,
+      branchName: assignment.branchName || null,
+      roles: assignment.roles || [],
+      departments: assignment.departments || [],
+      assignedAt: assignment.assignedAt || assignment.activeFrom || null,
+      removedAt: assignment.removedAt || assignment.activeTo || null,
+    })),
+  };
+}
+
 async function ensureNinExists(nin, authorization) {
   const ninRes = await callJson(`${authApiBaseUrl}/nin/${nin}`, {
     method: 'GET',
@@ -270,6 +293,8 @@ fastify.post('/orgs/:orgId/members', {
       coverageType: validateCoverageType(assignment.coverageType) ? assignment.coverageType : 'secondary',
       activeFrom: assignment.startDate ? new Date(assignment.startDate) : now(),
       activeTo: null,
+      assignedAt: assignment.startDate ? new Date(assignment.startDate) : now(),
+      removedAt: null,
       status: 'active',
       createdAt: now(),
       updatedAt: now(),
@@ -547,6 +572,8 @@ fastify.post('/orgs/:orgId/members/:memberId/branches', {
     coverageType: validateCoverageType(req.body.coverageType) ? req.body.coverageType : 'secondary',
     activeFrom: req.body.startDate ? new Date(req.body.startDate) : now(),
     activeTo: null,
+    assignedAt: req.body.startDate ? new Date(req.body.startDate) : now(),
+    removedAt: null,
     status: 'active',
     createdAt: now(),
     updatedAt: now(),
@@ -694,7 +721,7 @@ fastify.delete('/orgs/:orgId/members/:memberId/branches/:assignmentId', {
 
   await collections.assignments().updateOne(
     { organizationId: orgId, membershipId: req.params.memberId, assignmentId: req.params.assignmentId },
-    { $set: { status: 'inactive', activeTo: now(), updatedAt: now() } }
+    { $set: { status: 'inactive', activeTo: now(), removedAt: now(), updatedAt: now() } }
   );
 
   const membership = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.memberId });
@@ -768,7 +795,7 @@ fastify.post('/orgs/:orgId/members/:memberId/transfer', {
 
   await collections.assignments().updateOne(
     { assignmentId: currentAssignment.assignmentId },
-    { $set: { status: 'inactive', activeTo: now(), updatedAt: now() } }
+    { $set: { status: 'inactive', activeTo: now(), removedAt: now(), updatedAt: now() } }
   );
 
   const newAssignment = {
@@ -782,6 +809,8 @@ fastify.post('/orgs/:orgId/members/:memberId/transfer', {
     coverageType: currentAssignment.coverageType,
     activeFrom: now(),
     activeTo: null,
+    assignedAt: now(),
+    removedAt: null,
     status: 'active',
     createdAt: now(),
     updatedAt: now(),
@@ -1023,6 +1052,8 @@ fastify.post('/orgs/:orgId/memberships/invite', {
       roles: Array.isArray(req.body.roles) ? req.body.roles : [],
       activeFrom: now(),
       activeTo: null,
+      assignedAt: now(),
+      removedAt: null,
       status: 'active',
       createdAt: now(),
       updatedAt: now(),
@@ -1106,6 +1137,8 @@ fastify.post('/orgs/:orgId/memberships/:membershipId/branches', {
       roles,
       activeFrom: now(),
       activeTo: null,
+      assignedAt: now(),
+      removedAt: null,
       status: 'active',
       createdAt: now(),
       updatedAt: now(),
@@ -1168,7 +1201,12 @@ fastify.patch('/orgs/:orgId/memberships/:membershipId/branches/:branchId', {
   if (Array.isArray(req.body?.roles)) updates.roles = req.body.roles;
   if (req.body?.status) updates.status = req.body.status;
   if (req.body?.activeTo) updates.activeTo = new Date(req.body.activeTo);
-  if (req.body?.status === 'inactive' && !updates.activeTo) updates.activeTo = now();
+  if (req.body?.status === 'inactive') {
+    if (!updates.activeTo) updates.activeTo = now();
+    updates.removedAt = updates.activeTo;
+  } else if (req.body?.activeTo) {
+    updates.removedAt = new Date(req.body.activeTo);
+  }
   await collections.assignments().updateOne({ assignmentId: existing.assignmentId }, { $set: updates });
   await writeEvent({
     eventType: 'ROLE_CHANGED',
@@ -1244,10 +1282,19 @@ fastify.get('/users/:userId/memberships', {
     const denied = await enforcePermission(req, reply, 'membership.user.read');
     if (denied) return;
   }
-  const items = await collections.memberships().find({ userId }).toArray();
+  const items = await collections.memberships().find({ userId, status: 'active' }).toArray();
   const includeBranches = req.query?.includeBranches === true || req.query?.includeBranches === 'true';
   if (!includeBranches || items.length === 0) {
-    return reply.send({ items });
+    return reply.send({
+      userId,
+      memberships: items.map((item) => ({
+        organizationId: item.organizationId,
+        organizationName: item.organizationName || null,
+        membershipId: item.membershipId,
+        membershipStatus: item.status,
+        roles: Array.isArray(item.roles) ? item.roles : [],
+      })),
+    });
   }
   const membershipIds = items.map((item) => item.membershipId);
   const assignments = await collections.assignments().find({
@@ -1269,12 +1316,7 @@ fastify.get('/users/:userId/memberships', {
     });
     return acc;
   }, {});
-  return reply.send({
-    items: items.map((item) => ({
-      ...item,
-      branches: assignmentsByMembership[item.membershipId] || [],
-    })),
-  });
+  return reply.send({ userId, memberships: items.map((item) => toMembershipSummary(item, assignmentsByMembership[item.membershipId] || [])) });
 });
 
 fastify.get('/orgs/:orgId/memberships/me', {
@@ -1327,7 +1369,10 @@ fastify.get('/orgs/:orgId/memberships/me', {
   const branchId = req.query?.branchId ? String(req.query.branchId) : null;
   if (branchId) {
     const branchMatch = assignments.some((item) => item.branchId === branchId);
-    if (!branchMatch) return reply.send({ allowed: false, membership, assignments });
+    const crossBranchAllowed = hasCrossBranchRole(membership.roles);
+    if (!branchMatch && !crossBranchAllowed) {
+      return reply.send({ allowed: false, membership, assignments });
+    }
   }
 
   return reply.send({

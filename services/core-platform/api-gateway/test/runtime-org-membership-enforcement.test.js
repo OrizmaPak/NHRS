@@ -2,6 +2,25 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildApp } = require('../src/server');
 
+function base64Url(input) {
+  return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function makeJwt(sub) {
+  const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = base64Url(JSON.stringify({ sub }));
+  return `${header}.${payload}.sig`;
+}
+
+function readSubFromAuthorization(authorization) {
+  if (!authorization || !authorization.startsWith('Bearer ')) return null;
+  const token = authorization.slice(7);
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+  return payload?.sub || null;
+}
+
 function downstreamResponse(status, body) {
   return {
     ok: status >= 200 && status < 300,
@@ -21,6 +40,11 @@ function rbacResponse(allowed) {
 
 test('runtime gateway enforcement for org/membership routes', async () => {
   const calls = [];
+  const allowToken = makeJwt('user-allow');
+  const deniedToken = makeJwt('user-denied');
+  const memberlessToken = makeJwt('user-no-membership');
+  const branchMissToken = makeJwt('user-branch-miss');
+
   const app = await buildApp({
     dbReady: true,
     fetchImpl: async (url, options = {}) => {
@@ -28,15 +52,8 @@ test('runtime gateway enforcement for org/membership routes', async () => {
       calls.push({ target, options });
 
       if (target.includes('/rbac/check')) {
-        const auth = options.headers?.authorization || '';
-        const allowed = auth.includes('allow') || auth.includes('memberless');
-        if (auth.includes('memberless')) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ allowed: true, userId: 'user-no-membership' }),
-          };
-        }
+        const userId = readSubFromAuthorization(options.headers?.authorization || '');
+        const allowed = userId !== 'user-denied';
         return rbacResponse(allowed);
       }
 
@@ -46,6 +63,13 @@ test('runtime gateway enforcement for org/membership routes', async () => {
             ok: true,
             status: 200,
             json: async () => ({ allowed: false, membership: null, assignments: [] }),
+          };
+        }
+        if (target.includes('userId=user-branch-miss') && target.includes('branchId=branch-missing')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ allowed: false, membership: { membershipId: 'm2' }, assignments: [] }),
           };
         }
         return {
@@ -76,22 +100,29 @@ test('runtime gateway enforcement for org/membership routes', async () => {
   const denied = await app.inject({
     method: 'GET',
     url: '/orgs/org-1',
-    headers: { authorization: 'Bearer deny-token' },
+    headers: { authorization: `Bearer ${deniedToken}` },
   });
   assert.equal(denied.statusCode, 403);
 
   const notMember = await app.inject({
     method: 'GET',
     url: '/orgs/org-1',
-    headers: { authorization: 'Bearer memberless-token' },
+    headers: { authorization: `Bearer ${memberlessToken}` },
   });
   assert.equal(notMember.statusCode, 403);
   assert.equal(notMember.json().message, 'Not a member of this organization');
 
+  const notBranchMember = await app.inject({
+    method: 'GET',
+    url: '/orgs/org-1/branches/branch-missing',
+    headers: { authorization: `Bearer ${branchMissToken}` },
+  });
+  assert.equal(notBranchMember.statusCode, 403);
+
   const orgCreate = await app.inject({
     method: 'POST',
     url: '/orgs',
-    headers: { authorization: 'Bearer allow-token' },
+    headers: { authorization: `Bearer ${allowToken}` },
     payload: { name: 'North Hospital', type: 'hospital', ownerNin: '90000000001' },
   });
   assert.equal(orgCreate.statusCode, 201);
@@ -99,7 +130,7 @@ test('runtime gateway enforcement for org/membership routes', async () => {
   const invite = await app.inject({
     method: 'POST',
     url: '/orgs/org-1/memberships/invite',
-    headers: { authorization: 'Bearer allow-token' },
+    headers: { authorization: `Bearer ${allowToken}` },
     payload: { nin: '90000000001', roles: ['doctor'], branchIds: ['b1'] },
   });
   assert.equal(invite.statusCode, 201);
@@ -107,7 +138,7 @@ test('runtime gateway enforcement for org/membership routes', async () => {
   const transfer = await app.inject({
     method: 'POST',
     url: '/orgs/org-1/members/member-1/transfer',
-    headers: { authorization: 'Bearer allow-token' },
+    headers: { authorization: `Bearer ${allowToken}` },
     payload: { fromBranchId: 'a', toBranchId: 'b' },
   });
   assert.equal(transfer.statusCode, 200);
@@ -115,7 +146,7 @@ test('runtime gateway enforcement for org/membership routes', async () => {
   const branchRead = await app.inject({
     method: 'GET',
     url: '/orgs/org-1/branches/branch-9',
-    headers: { authorization: 'Bearer allow-token' },
+    headers: { authorization: `Bearer ${allowToken}` },
   });
   assert.equal(branchRead.statusCode, 200);
 
@@ -124,7 +155,7 @@ test('runtime gateway enforcement for org/membership routes', async () => {
     !c.target.includes('/internal/') &&
     !c.target.includes('/memberships/me?')
   );
-  assert.equal(forwardedAuthCalls.every((c) => c.options.headers?.authorization === 'Bearer allow-token'), true);
+  assert.equal(forwardedAuthCalls.every((c) => c.options.headers?.authorization === `Bearer ${allowToken}`), true);
 
   const rbacBodies = calls
     .filter((c) => c.target.includes('/rbac/check'))
