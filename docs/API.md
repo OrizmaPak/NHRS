@@ -116,9 +116,11 @@
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|
 | POST | `/orgs` | Bearer | Create organization with owner as `ownerUserId` or `ownerNin` |
+| GET | `/orgs` | Bearer | List organizations (policy/RBAC-controlled) |
 | GET | `/orgs/:orgId` | Bearer | Read one organization |
 | PATCH | `/orgs/:orgId` | Bearer | Update organization metadata/status |
 | PATCH | `/orgs/:orgId/owner` | Bearer | Change owner with owner history tracking |
+| POST | `/orgs/:orgId/assign-owner` | Bearer | Assign owner by `ownerNin` |
 | GET | `/orgs/search` | Bearer | Search organizations |
 | POST | `/orgs/:orgId/branches` | Bearer | Create branch in org |
 | GET | `/orgs/:orgId/branches` | Bearer | List branches in org |
@@ -135,6 +137,13 @@
 | DELETE | `/orgs/:orgId/members/:memberId/branches/:assignmentId` | Bearer | Remove assignment (soft) |
 | POST | `/orgs/:orgId/members/:memberId/transfer` | Bearer | Transfer between branches with history event |
 | GET | `/orgs/:orgId/members/:memberId/history` | Bearer | Movement history timeline |
+| POST | `/orgs/:orgId/memberships/invite` | Bearer | Invite/add by NIN + optional roles/branchIds |
+| POST | `/orgs/:orgId/memberships/:membershipId/branches` | Bearer | Assign membership to multiple branches |
+| PATCH | `/orgs/:orgId/memberships/:membershipId/branches/:branchId` | Bearer | Update a branch assignment by branchId |
+| GET | `/orgs/:orgId/memberships` | Bearer | List memberships in org |
+| GET | `/orgs/:orgId/memberships/:membershipId` | Bearer | Read membership in org |
+| GET | `/users/:userId/memberships` | Bearer | Read memberships by user |
+| GET | `/users/:userId/movement-history` | Bearer | Chronological org/branch movement timeline |
 
 Multi-branch model:
 One membership can have multiple active `branch_assignments` with independent `roles`, `departments`, `coverageType`, and validity dates.

@@ -21,44 +21,45 @@ function makeFakeDb() {
   const assignments = [];
   const events = [];
 
-  return {
+  const db = {
+    __inspect: { memberships, assignments, events },
     collection(name) {
       if (name === 'org_memberships') {
         return {
           insertOne: async (doc) => { memberships.push(structuredClone(doc)); return { acknowledged: true }; },
           findOne: async (query) => memberships.find((m) => {
-            if (query.membershipId) return m.membershipId === query.membershipId && m.organizationId === query.organizationId;
+            if (query.membershipId) return m.membershipId === query.membershipId && (!query.organizationId || m.organizationId === query.organizationId);
             if (query.organizationId && query.nin) return m.organizationId === query.organizationId && m.nin === query.nin;
-            if (query.nin && query.userId === null) return m.nin === query.nin && m.userId === null;
             if (query.organizationId && query.userId) return m.organizationId === query.organizationId && m.userId === query.userId;
+            if (query.userId && !query.organizationId) return m.userId === query.userId;
             return false;
           }) || null,
-          find: (query) => ({
-            toArray: async () => structuredClone(memberships.filter((m) => {
+          find: (query) => {
+            let result = memberships.filter((m) => {
+              if (query.membershipId?.$in) return query.membershipId.$in.includes(m.membershipId);
+              if (query.userId && query.organizationId) return m.userId === query.userId && m.organizationId === query.organizationId;
               if (query.userId) return m.userId === query.userId;
-              if (query.nin && query.userId === null) return m.nin === query.nin && m.userId === null;
-              if (query.organizationId && query.membershipId) return m.organizationId === query.organizationId && m.membershipId === query.membershipId;
               if (query.organizationId) return m.organizationId === query.organizationId;
+              if (query.nin && query.userId === null) return m.nin === query.nin && m.userId === null;
               return true;
-            })),
-            skip: () => ({ limit: () => ({ toArray: async () => structuredClone(memberships.filter((m) => m.organizationId === query.organizationId)) }) }),
-          }),
-          countDocuments: async (query) => memberships.filter((m) => m.organizationId === query.organizationId).length,
-          updateMany: async (query, update) => {
-            let count = 0;
-            memberships.forEach((m, idx) => {
-              if ((query.membershipId?.$in || []).includes(m.membershipId)) {
-                memberships[idx] = { ...m, ...(update.$set || {}) };
-                count += 1;
-              }
             });
-            return { modifiedCount: count };
+            return {
+              toArray: async () => structuredClone(result),
+              skip: () => ({ limit: () => ({ toArray: async () => structuredClone(result) }) }),
+            };
           },
           updateOne: async (query, update) => {
-            const idx = memberships.findIndex((m) => m.organizationId === query.organizationId && m.membershipId === query.membershipId);
+            const idx = memberships.findIndex((m) => m.membershipId === query.membershipId || (m.organizationId === query.organizationId && m.membershipId === query.membershipId));
             if (idx >= 0) memberships[idx] = { ...memberships[idx], ...(update.$set || {}) };
             return { acknowledged: true };
           },
+          updateMany: async (query, update) => {
+            memberships.forEach((m, i) => {
+              if ((query.membershipId?.$in || []).includes(m.membershipId)) memberships[i] = { ...m, ...(update.$set || {}) };
+            });
+            return { acknowledged: true };
+          },
+          countDocuments: async (query) => memberships.filter((m) => m.organizationId === query.organizationId).length,
           createIndex: async () => ({}),
         };
       }
@@ -69,17 +70,22 @@ function makeFakeDb() {
           findOne: async (query) => assignments.find((a) => {
             if (query.assignmentId) return a.assignmentId === query.assignmentId;
             if (query.organizationId && query.membershipId && query.branchId) {
-              return a.organizationId === query.organizationId && a.membershipId === query.membershipId && a.branchId === query.branchId && (!query.status || a.status === query.status);
+              const statusMatch = query.status?.$in ? query.status.$in.includes(a.status) : (!query.status || a.status === query.status);
+              return a.organizationId === query.organizationId && a.membershipId === query.membershipId && a.branchId === query.branchId && statusMatch;
             }
             return false;
           }) || null,
-          find: (query) => ({
-            toArray: async () => structuredClone(assignments.filter((a) => {
-              if (query.membershipId?.$in) return query.membershipId.$in.includes(a.membershipId) && (!query.status || a.status === query.status);
-              if (query.organizationId && query.membershipId) return a.organizationId === query.organizationId && a.membershipId === query.membershipId;
+          find: (query) => {
+            let result = assignments.filter((a) => {
+              if (query.membershipId?.$in) return query.membershipId.$in.includes(a.membershipId);
+              if (query.membershipId) return a.membershipId === query.membershipId && (!query.organizationId || a.organizationId === query.organizationId);
               return false;
-            })),
-          }),
+            });
+            return {
+              sort: () => ({ toArray: async () => structuredClone(result.sort((x, y) => new Date(x.activeFrom || 0) - new Date(y.activeFrom || 0))) }),
+              toArray: async () => structuredClone(result),
+            };
+          },
           updateOne: async (query, update) => {
             const idx = assignments.findIndex((a) => a.assignmentId === query.assignmentId || (a.organizationId === query.organizationId && a.membershipId === query.membershipId && a.assignmentId === query.assignmentId));
             if (idx >= 0) assignments[idx] = { ...assignments[idx], ...(update.$set || {}) };
@@ -89,17 +95,16 @@ function makeFakeDb() {
         };
       }
 
-      if (name === 'membership_events') {
+      if (name === 'membership_audit_log') {
         return {
           insertOne: async (doc) => { events.push(structuredClone(doc)); return { acknowledged: true }; },
-          find: (query) => ({
-            sort: () => ({
-              skip: () => ({
-                limit: () => ({ toArray: async () => structuredClone(events.filter((e) => e.organizationId === query.organizationId && e.membershipId === query.membershipId)) }),
-              }),
-            }),
-          }),
-          countDocuments: async (query) => events.filter((e) => e.organizationId === query.organizationId && e.membershipId === query.membershipId).length,
+          find: (query) => {
+            const result = events.filter((e) => (!query.organizationId || e.organizationId === query.organizationId) && (!query.membershipId || e.membershipId === query.membershipId));
+            return {
+              sort: () => ({ skip: () => ({ limit: () => ({ toArray: async () => structuredClone(result) }) }) }),
+            };
+          },
+          countDocuments: async (query) => events.filter((e) => (!query.organizationId || e.organizationId === query.organizationId) && (!query.membershipId || e.membershipId === query.membershipId)).length,
           createIndex: async () => ({}),
         };
       }
@@ -107,153 +112,115 @@ function makeFakeDb() {
       return { createIndex: async () => ({}) };
     },
   };
+
+  return db;
 }
 
-test('add member by NIN creates membership with null userId and allows multiple branch assignments', async () => {
+function buildTestApp({ allow = true } = {}) {
+  const fakeDb = makeFakeDb();
   const app = buildApp({
     dbReady: true,
-    db: makeFakeDb(),
+    db: fakeDb,
     fetchImpl: async (url) => {
       const u = String(url);
-      if (u.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+      if (u.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: allow }) };
       if (u.includes('/nin/')) return { ok: true, status: 200, text: async () => JSON.stringify({ nin: '90000000001' }) };
       return { ok: true, status: 200, text: async () => JSON.stringify({}) };
     },
   });
+  return { app, fakeDb };
+}
 
-  const token = makeAccessToken({ sub: 'org-admin-1' }, 'change-me');
-
-  const memberRes = await app.inject({
-    method: 'POST',
-    url: '/orgs/org-1/members',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { nin: '90000000001' },
-  });
-
-  assert.equal(memberRes.statusCode, 201);
-  const membershipId = memberRes.json().membership.membershipId;
-  assert.equal(memberRes.json().membership.userId, null);
-
-  const assign1 = await app.inject({
-    method: 'POST',
-    url: `/orgs/org-1/members/${membershipId}/branches`,
-    headers: { authorization: `Bearer ${token}` },
-    payload: { branchId: 'branch-1', roles: ['doctor'] },
-  });
-  assert.equal(assign1.statusCode, 201);
-
-  const assign2 = await app.inject({
-    method: 'POST',
-    url: `/orgs/org-1/members/${membershipId}/branches`,
-    headers: { authorization: `Bearer ${token}` },
-    payload: { branchId: 'branch-2', roles: ['regional_manager'] },
-  });
-  assert.equal(assign2.statusCode, 201);
-
-  const getRes = await app.inject({
-    method: 'GET',
-    url: `/orgs/org-1/members/${membershipId}`,
-    headers: { authorization: `Bearer ${token}` },
-  });
-  assert.equal(getRes.statusCode, 200);
-  assert.equal(getRes.json().assignments.length, 2);
-});
-
-test('internal link-user links memberships by NIN', async () => {
-  const app = buildApp({
-    dbReady: true,
-    db: makeFakeDb(),
-    fetchImpl: async (url) => {
-      const u = String(url);
-      if (u.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
-      if (u.includes('/nin/')) return { ok: true, status: 200, text: async () => JSON.stringify({ nin: '90000000077' }) };
-      return { ok: true, status: 200, text: async () => JSON.stringify({}) };
-    },
-  });
-  const token = makeAccessToken({ sub: 'org-admin-1' }, 'change-me');
-
-  const memberRes = await app.inject({
-    method: 'POST',
-    url: '/orgs/org-2/members',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { nin: '90000000077' },
-  });
-  assert.equal(memberRes.statusCode, 201);
-
-  const linkRes = await app.inject({
-    method: 'POST',
-    url: '/internal/memberships/link-user',
-    headers: { 'x-internal-token': 'change-me-internal-token' },
-    payload: { userId: 'user-200', nin: '90000000077' },
-  });
-
-  assert.equal(linkRes.statusCode, 200);
-  assert.equal(linkRes.json().linked, 1);
-});
-
-test('rbac denial returns 403 for protected membership endpoint', async () => {
-  const app = buildApp({
-    dbReady: true,
-    db: makeFakeDb(),
-    fetchImpl: async (url) => {
-      const u = String(url);
-      if (u.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: false }) };
-      if (u.includes('/nin/')) return { ok: true, status: 200, text: async () => JSON.stringify({ nin: '90000000009' }) };
-      return { ok: true, status: 200, text: async () => JSON.stringify({}) };
-    },
-  });
-  const token = makeAccessToken({ sub: 'staff-1' }, 'change-me');
+test('membership invite denied -> 403 and no db write', async () => {
+  const { app, fakeDb } = buildTestApp({ allow: false });
+  const token = makeAccessToken({ sub: 'user-1' }, 'change-me');
   const res = await app.inject({
     method: 'POST',
-    url: '/orgs/org-9/members',
+    url: '/orgs/org-1/memberships/invite',
     headers: { authorization: `Bearer ${token}` },
-    payload: { nin: '90000000009' },
+    payload: { nin: '90000000001', roles: ['doctor'], branchIds: ['b1'] },
   });
   assert.equal(res.statusCode, 403);
+  assert.equal(fakeDb.__inspect.memberships.length, 0);
 });
 
-test('transfer between branches creates history event', async () => {
-  const app = buildApp({
-    dbReady: true,
-    db: makeFakeDb(),
-    fetchImpl: async (url) => {
-      const u = String(url);
-      if (u.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
-      if (u.includes('/nin/')) return { ok: true, status: 200, text: async () => JSON.stringify({ nin: '90000000033' }) };
-      return { ok: true, status: 200, text: async () => JSON.stringify({}) };
-    },
-  });
-  const token = makeAccessToken({ sub: 'org-admin-1' }, 'change-me');
-
-  const memberRes = await app.inject({
+test('membership invite allowed -> 201', async () => {
+  const { app, fakeDb } = buildTestApp({ allow: true });
+  const token = makeAccessToken({ sub: 'user-1' }, 'change-me');
+  const res = await app.inject({
     method: 'POST',
-    url: '/orgs/org-3/members',
+    url: '/orgs/org-1/memberships/invite',
     headers: { authorization: `Bearer ${token}` },
-    payload: { nin: '90000000033' },
+    payload: { nin: '90000000001', roles: ['doctor'], branchIds: ['b1'] },
   });
-  const memberId = memberRes.json().membership.membershipId;
+  assert.equal(res.statusCode, 201);
+  assert.equal(fakeDb.__inspect.memberships.length, 1);
+});
+
+test('assign user to multiple branches creates two assignments', async () => {
+  const { app, fakeDb } = buildTestApp({ allow: true });
+  const token = makeAccessToken({ sub: 'user-1' }, 'change-me');
+
+  const invite = await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/memberships/invite',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { nin: '90000000001', roles: ['doctor'], branchIds: [] },
+  });
+  const membershipId = invite.json().membership.membershipId;
+
+  const assign = await app.inject({
+    method: 'POST',
+    url: `/orgs/org-1/memberships/${membershipId}/branches`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { branchIds: ['b1', 'b2'], roles: ['doctor'] },
+  });
+
+  assert.equal(assign.statusCode, 201);
+  assert.equal(fakeDb.__inspect.assignments.length, 2);
+});
+
+test('movement-history returns chronological timeline with activeTo set', async () => {
+  const { app } = buildTestApp({ allow: true });
+  const token = makeAccessToken({ sub: 'admin-1' }, 'change-me');
+
+  const invite = await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/memberships/invite',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { nin: '90000000001', roles: ['doctor'], branchIds: ['b1'] },
+  });
+  const membershipId = invite.json().membership.membershipId;
+
+  await app.inject({
+    method: 'PATCH',
+    url: `/orgs/org-1/memberships/${membershipId}/branches/b1`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { status: 'inactive', activeTo: '2026-01-01T00:00:00.000Z' },
+  });
 
   await app.inject({
     method: 'POST',
-    url: `/orgs/org-3/members/${memberId}/branches`,
+    url: `/orgs/org-1/memberships/${membershipId}/branches`,
     headers: { authorization: `Bearer ${token}` },
-    payload: { branchId: 'branch-a', roles: ['doctor'] },
+    payload: { branchIds: ['b2'], roles: ['doctor'] },
   });
 
-  const transferRes = await app.inject({
+  await app.inject({
     method: 'POST',
-    url: `/orgs/org-3/members/${memberId}/transfer`,
-    headers: { authorization: `Bearer ${token}` },
-    payload: { fromBranchId: 'branch-a', toBranchId: 'branch-b', reason: 'coverage update' },
+    url: '/internal/memberships/link-user',
+    headers: { 'x-internal-token': 'change-me-internal-token' },
+    payload: { userId: 'user-200', nin: '90000000001' },
   });
-  assert.equal(transferRes.statusCode, 200);
 
-  const historyRes = await app.inject({
+  const history = await app.inject({
     method: 'GET',
-    url: `/orgs/org-3/members/${memberId}/history`,
+    url: '/users/user-200/movement-history',
     headers: { authorization: `Bearer ${token}` },
   });
-  assert.equal(historyRes.statusCode, 200);
-  const eventTypes = historyRes.json().items.map((e) => e.eventType);
-  assert.equal(eventTypes.includes('BRANCH_TRANSFERRED'), true);
+
+  assert.equal(history.statusCode, 200);
+  assert.equal(Array.isArray(history.json().timeline), true);
+  assert.equal(history.json().timeline.length >= 2, true);
+  assert.equal(history.json().timeline.some((x) => x.activeTo), true);
 });

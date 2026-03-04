@@ -21,7 +21,7 @@ let fetchClient = (...args) => fetch(...args);
 const collections = {
   memberships: () => db.collection('org_memberships'),
   assignments: () => db.collection('branch_assignments'),
-  events: () => db.collection('membership_events'),
+  events: () => db.collection('membership_audit_log'),
 };
 
 function now() {
@@ -97,14 +97,14 @@ async function requireInternalOrAuth(req, reply) {
   return requireAuth(req, reply);
 }
 
-async function enforcePermission(req, reply, permissionKey, organizationId = null) {
+async function enforcePermission(req, reply, permissionKey, organizationId = null, branchId = null) {
   const checked = await callJson(`${rbacApiBaseUrl}/rbac/check`, {
     method: 'POST',
     headers: {
       authorization: req.headers.authorization,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ permissionKey, organizationId }),
+    body: JSON.stringify({ permissionKey, organizationId, branchId }),
   });
 
   if (!checked.ok || !checked.body?.allowed) {
@@ -135,7 +135,7 @@ async function ensureNinExists(nin, authorization) {
 async function writeEvent(payload) {
   await collections.events().insertOne({
     eventId: crypto.randomUUID(),
-    timestamp: now(),
+    createdAt: now(),
     ...payload,
   });
 }
@@ -211,7 +211,7 @@ fastify.post('/orgs/:orgId/members', {
               departments: { type: 'array', items: { type: 'string' } },
               isPrimary: { type: 'boolean' },
               coverageType: { type: 'string', enum: ['primary', 'secondary', 'floating'] },
-              startDate: { type: 'string', format: 'date-time' },
+              activeFrom: { type: 'string', format: 'date-time' },
             },
           },
         },
@@ -248,8 +248,8 @@ fastify.post('/orgs/:orgId/members', {
     nin,
     addedByUserId: req.auth.userId,
     status: 'invited',
-    startDate: now(),
-    endDate: null,
+    activeFrom: now(),
+    activeTo: null,
     metadata: { notes: null, initialRoles: req.body.initialRoles || [] },
     createdAt: now(),
     updatedAt: now(),
@@ -268,8 +268,8 @@ fastify.post('/orgs/:orgId/members', {
       departments: Array.isArray(assignment.departments) ? assignment.departments : [],
       isPrimary: assignment.isPrimary === true,
       coverageType: validateCoverageType(assignment.coverageType) ? assignment.coverageType : 'secondary',
-      startDate: assignment.startDate ? new Date(assignment.startDate) : now(),
-      endDate: null,
+      activeFrom: assignment.startDate ? new Date(assignment.startDate) : now(),
+      activeTo: null,
       status: 'active',
       createdAt: now(),
       updatedAt: now(),
@@ -384,8 +384,8 @@ fastify.patch('/orgs/:orgId/members/:memberId', {
     body: {
       type: 'object',
       properties: {
-        startDate: { type: 'string', format: 'date-time' },
-        endDate: { type: 'string', format: 'date-time' },
+        activeFrom: { type: 'string', format: 'date-time' },
+        activeTo: { type: 'string', format: 'date-time' },
         metadata: { type: 'object', additionalProperties: true },
       },
     },
@@ -400,8 +400,8 @@ fastify.patch('/orgs/:orgId/members/:memberId', {
   if (!existing) return reply.code(404).send({ message: 'Membership not found' });
 
   const updates = { updatedAt: now() };
-  if (req.body?.startDate) updates.startDate = new Date(req.body.startDate);
-  if (req.body?.endDate) updates.endDate = new Date(req.body.endDate);
+  if (req.body?.startDate) updates.activeFrom = new Date(req.body.startDate);
+  if (req.body?.endDate) updates.activeTo = new Date(req.body.endDate);
   if (req.body?.metadata && typeof req.body.metadata === 'object') {
     updates.metadata = { ...(existing.metadata || {}), ...req.body.metadata };
   }
@@ -414,8 +414,8 @@ fastify.patch('/orgs/:orgId/members/:memberId', {
     userId: existing.userId || null,
     nin: existing.nin,
     eventType: 'ORG_MEMBER_STATUS_CHANGED',
-    from: { startDate: existing.startDate, endDate: existing.endDate, metadata: existing.metadata || {} },
-    to: { startDate: updates.startDate || existing.startDate, endDate: updates.endDate || existing.endDate, metadata: updates.metadata || existing.metadata || {} },
+    from: { activeFrom: existing.activeFrom, activeTo: existing.activeTo, metadata: existing.metadata || {} },
+    to: { activeFrom: updates.activeFrom || existing.activeFrom, activeTo: updates.activeTo || existing.activeTo, metadata: updates.metadata || existing.metadata || {} },
     performedByUserId: req.auth.userId,
     reason: 'member_update',
   });
@@ -469,7 +469,7 @@ fastify.patch('/orgs/:orgId/members/:memberId/status', {
     updatedAt: now(),
   };
   if (req.body.status === 'left') {
-    updates.endDate = now();
+    updates.activeTo = now();
   }
 
   await collections.memberships().updateOne({ organizationId: orgId, membershipId: req.params.memberId }, { $set: updates });
@@ -522,7 +522,7 @@ fastify.post('/orgs/:orgId/members/:memberId/branches', {
         departments: { type: 'array', items: { type: 'string' } },
         isPrimary: { type: 'boolean' },
         coverageType: { type: 'string', enum: ['primary', 'secondary', 'floating'] },
-        startDate: { type: 'string', format: 'date-time' },
+        activeFrom: { type: 'string', format: 'date-time' },
       },
     },
     response: { 201: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true }, 404: { type: 'object', additionalProperties: true } },
@@ -545,8 +545,8 @@ fastify.post('/orgs/:orgId/members/:memberId/branches', {
     departments: Array.isArray(req.body.departments) ? req.body.departments : [],
     isPrimary: req.body.isPrimary === true,
     coverageType: validateCoverageType(req.body.coverageType) ? req.body.coverageType : 'secondary',
-    startDate: req.body.startDate ? new Date(req.body.startDate) : now(),
-    endDate: null,
+    activeFrom: req.body.startDate ? new Date(req.body.startDate) : now(),
+    activeTo: null,
     status: 'active',
     createdAt: now(),
     updatedAt: now(),
@@ -626,7 +626,7 @@ fastify.patch('/orgs/:orgId/members/:memberId/branches/:assignmentId', {
   if (req.body.coverageType) updates.coverageType = req.body.coverageType;
   if (req.body.status) {
     updates.status = req.body.status;
-    if (req.body.status === 'inactive') updates.endDate = now();
+    if (req.body.status === 'inactive') updates.activeTo = now();
   }
 
   await collections.assignments().updateOne(
@@ -694,7 +694,7 @@ fastify.delete('/orgs/:orgId/members/:memberId/branches/:assignmentId', {
 
   await collections.assignments().updateOne(
     { organizationId: orgId, membershipId: req.params.memberId, assignmentId: req.params.assignmentId },
-    { $set: { status: 'inactive', endDate: now(), updatedAt: now() } }
+    { $set: { status: 'inactive', activeTo: now(), updatedAt: now() } }
   );
 
   const membership = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.memberId });
@@ -768,7 +768,7 @@ fastify.post('/orgs/:orgId/members/:memberId/transfer', {
 
   await collections.assignments().updateOne(
     { assignmentId: currentAssignment.assignmentId },
-    { $set: { status: 'inactive', endDate: now(), updatedAt: now() } }
+    { $set: { status: 'inactive', activeTo: now(), updatedAt: now() } }
   );
 
   const newAssignment = {
@@ -780,8 +780,8 @@ fastify.post('/orgs/:orgId/members/:memberId/transfer', {
     departments: Array.isArray(req.body.departments) ? req.body.departments : currentAssignment.departments,
     isPrimary: currentAssignment.isPrimary,
     coverageType: currentAssignment.coverageType,
-    startDate: now(),
-    endDate: null,
+    activeFrom: now(),
+    activeTo: null,
     status: 'active',
     createdAt: now(),
     updatedAt: now(),
@@ -949,6 +949,433 @@ fastify.get('/internal/memberships/summary/:userId', {
   });
 });
 
+fastify.post('/orgs/:orgId/memberships/invite', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Invite or upsert membership by NIN',
+    description: 'Creates membership if absent and creates active branch assignments for provided branchIds.',
+    security: [{ bearerAuth: [] }],
+    params: { type: 'object', required: ['orgId'], properties: { orgId: { type: 'string' } } },
+    body: {
+      type: 'object',
+      required: ['nin'],
+      properties: {
+        nin: { type: 'string', pattern: '^\\d{11}$' },
+        roles: { type: 'array', items: { type: 'string' } },
+        branchIds: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    response: {
+      201: { type: 'object', additionalProperties: true },
+      401: { type: 'object', additionalProperties: true },
+      403: { type: 'object', additionalProperties: true },
+      503: { type: 'object', additionalProperties: true },
+    },
+  },
+}, async (req, reply) => {
+  const orgId = req.params.orgId;
+  const denied = await enforcePermission(req, reply, 'org.member.invite', orgId);
+  if (denied) return;
+
+  const nin = String(req.body.nin);
+  const ninRecord = await ensureNinExists(nin, req.headers.authorization);
+  if (!ninRecord) {
+    return reply.code(503).send({ message: 'Fetching from NIN is currently not available.' });
+  }
+
+  let membership = await collections.memberships().findOne({ organizationId: orgId, nin });
+  if (!membership) {
+    membership = {
+      membershipId: crypto.randomUUID(),
+      userId: null,
+      nin,
+      organizationId: orgId,
+      status: 'invited',
+      roles: Array.isArray(req.body.roles) ? req.body.roles : [],
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    await collections.memberships().insertOne(membership);
+  } else if (Array.isArray(req.body.roles) && req.body.roles.length > 0) {
+    await collections.memberships().updateOne(
+      { membershipId: membership.membershipId },
+      { $set: { roles: req.body.roles, updatedAt: now() } }
+    );
+    membership.roles = req.body.roles;
+  }
+
+  const branchIds = Array.isArray(req.body.branchIds) ? req.body.branchIds : [];
+  const insertedAssignments = [];
+  for (const branchId of branchIds) {
+    const existingAssignment = await collections.assignments().findOne({
+      organizationId: orgId,
+      membershipId: membership.membershipId,
+      branchId,
+      status: 'active',
+    });
+    if (existingAssignment) continue;
+    const assignment = {
+      assignmentId: crypto.randomUUID(),
+      membershipId: membership.membershipId,
+      branchId,
+      organizationId: orgId,
+      roles: Array.isArray(req.body.roles) ? req.body.roles : [],
+      activeFrom: now(),
+      activeTo: null,
+      status: 'active',
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    await collections.assignments().insertOne(assignment);
+    insertedAssignments.push(assignment);
+  }
+
+  await writeEvent({
+    eventType: 'ORG_MEMBER_ADDED',
+    userId: membership.userId || null,
+    organizationId: orgId,
+    branchId: null,
+    metadata: { membershipId: membership.membershipId, branchCount: insertedAssignments.length, roles: membership.roles || [] },
+  });
+
+  emitAuditEvent({
+    userId: req.auth.userId,
+    organizationId: orgId,
+    eventType: 'ORG_MEMBER_ADDED',
+    action: 'org.member.invite',
+    permissionKey: 'org.member.invite',
+    resource: { type: 'membership', id: membership.membershipId },
+    ipAddress: getClientIp(req),
+    userAgent: req.headers['user-agent'] || null,
+    outcome: 'success',
+  });
+
+  return reply.code(201).send({ membership, assignmentsCreated: insertedAssignments.length });
+});
+
+fastify.post('/orgs/:orgId/memberships/:membershipId/branches', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Assign membership to multiple branches',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['orgId', 'membershipId'],
+      properties: { orgId: { type: 'string' }, membershipId: { type: 'string' } },
+    },
+    body: {
+      type: 'object',
+      required: ['branchIds'],
+      properties: {
+        branchIds: { type: 'array', items: { type: 'string' } },
+        roles: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    response: {
+      201: { type: 'object', additionalProperties: true },
+      401: { type: 'object', additionalProperties: true },
+      403: { type: 'object', additionalProperties: true },
+      404: { type: 'object', additionalProperties: true },
+    },
+  },
+}, async (req, reply) => {
+  const orgId = req.params.orgId;
+  const denied = await enforcePermission(req, reply, 'org.branch.assign', orgId);
+  if (denied) return;
+  const membership = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.membershipId });
+  if (!membership) return reply.code(404).send({ message: 'Membership not found' });
+
+  const branchIds = Array.isArray(req.body.branchIds) ? req.body.branchIds : [];
+  const roles = Array.isArray(req.body.roles) ? req.body.roles : [];
+  const created = [];
+  for (const branchId of branchIds) {
+    const active = await collections.assignments().findOne({
+      organizationId: orgId,
+      membershipId: req.params.membershipId,
+      branchId,
+      status: 'active',
+    });
+    if (active) continue;
+    const assignment = {
+      assignmentId: crypto.randomUUID(),
+      membershipId: req.params.membershipId,
+      branchId,
+      organizationId: orgId,
+      roles,
+      activeFrom: now(),
+      activeTo: null,
+      status: 'active',
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    await collections.assignments().insertOne(assignment);
+    created.push(assignment);
+  }
+  await writeEvent({
+    eventType: 'BRANCH_ASSIGNED',
+    userId: membership.userId || null,
+    organizationId: orgId,
+    branchId: null,
+    metadata: { membershipId: req.params.membershipId, branchIds, roles },
+  });
+  return reply.code(201).send({ assignments: created, count: created.length });
+});
+
+fastify.patch('/orgs/:orgId/memberships/:membershipId/branches/:branchId', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Update assignment for a branch in a membership',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['orgId', 'membershipId', 'branchId'],
+      properties: {
+        orgId: { type: 'string' },
+        membershipId: { type: 'string' },
+        branchId: { type: 'string' },
+      },
+    },
+    body: {
+      type: 'object',
+      properties: {
+        roles: { type: 'array', items: { type: 'string' } },
+        status: { type: 'string', enum: ['active', 'inactive'] },
+        activeTo: { type: 'string', format: 'date-time' },
+      },
+    },
+    response: {
+      200: { type: 'object', additionalProperties: true },
+      401: { type: 'object', additionalProperties: true },
+      403: { type: 'object', additionalProperties: true },
+      404: { type: 'object', additionalProperties: true },
+    },
+  },
+}, async (req, reply) => {
+  const orgId = req.params.orgId;
+  const denied = await enforcePermission(req, reply, 'org.branch.assignment.update', orgId);
+  if (denied) return;
+  const existing = await collections.assignments().findOne({
+    organizationId: orgId,
+    membershipId: req.params.membershipId,
+    branchId: req.params.branchId,
+    status: { $in: ['active', 'inactive'] },
+  });
+  if (!existing) return reply.code(404).send({ message: 'Assignment not found' });
+  const updates = { updatedAt: now() };
+  if (Array.isArray(req.body?.roles)) updates.roles = req.body.roles;
+  if (req.body?.status) updates.status = req.body.status;
+  if (req.body?.activeTo) updates.activeTo = new Date(req.body.activeTo);
+  if (req.body?.status === 'inactive' && !updates.activeTo) updates.activeTo = now();
+  await collections.assignments().updateOne({ assignmentId: existing.assignmentId }, { $set: updates });
+  await writeEvent({
+    eventType: 'ROLE_CHANGED',
+    userId: null,
+    organizationId: orgId,
+    branchId: req.params.branchId,
+    metadata: { membershipId: req.params.membershipId, updates },
+  });
+  return reply.send({ message: 'Assignment updated' });
+});
+
+fastify.get('/orgs/:orgId/memberships', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'List memberships in an organization',
+    security: [{ bearerAuth: [] }],
+    params: { type: 'object', required: ['orgId'], properties: { orgId: { type: 'string' } } },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const denied = await enforcePermission(req, reply, 'org.member.list', req.params.orgId);
+  if (denied) return;
+  const items = await collections.memberships().find({ organizationId: req.params.orgId }).toArray();
+  return reply.send({ items });
+});
+
+fastify.get('/orgs/:orgId/memberships/:membershipId', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Read one membership',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['orgId', 'membershipId'],
+      properties: { orgId: { type: 'string' }, membershipId: { type: 'string' } },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true }, 404: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const denied = await enforcePermission(req, reply, 'org.member.read', req.params.orgId);
+  if (denied) return;
+  const membership = await collections.memberships().findOne({ organizationId: req.params.orgId, membershipId: req.params.membershipId });
+  if (!membership) return reply.code(404).send({ message: 'Membership not found' });
+  const assignments = await collections.assignments().find({ membershipId: req.params.membershipId, organizationId: req.params.orgId }).toArray();
+  return reply.send({ membership, assignments });
+});
+
+fastify.get('/users/:userId/memberships', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Get memberships by userId',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['userId'],
+      properties: { userId: { type: 'string' } },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const denied = await enforcePermission(req, reply, 'membership.user.read');
+  if (denied) return;
+  const items = await collections.memberships().find({ userId: req.params.userId }).toArray();
+  return reply.send({ items });
+});
+
+fastify.get('/users/:userId/movement-history', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Get chronological user movement history',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['userId'],
+      properties: { userId: { type: 'string' } },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const denied = await enforcePermission(req, reply, 'membership.user.history.read');
+  if (denied) return;
+  const memberships = await collections.memberships().find({ userId: req.params.userId }).toArray();
+  const membershipIds = memberships.map((m) => m.membershipId);
+  const assignments = membershipIds.length
+    ? await collections.assignments().find({ membershipId: { $in: membershipIds } }).sort({ activeFrom: 1 }).toArray()
+    : [];
+  const timeline = assignments.map((a) => ({
+    membershipId: a.membershipId,
+    organizationId: a.organizationId,
+    branchId: a.branchId,
+    roles: a.roles || [],
+    activeFrom: a.activeFrom || null,
+    activeTo: a.activeTo || null,
+    status: a.status,
+  }));
+  return reply.send({ userId: req.params.userId, timeline });
+});
+
+fastify.post('/internal/memberships/access-check', {
+  preHandler: requireInternal,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Internal scoped membership access check',
+    body: {
+      type: 'object',
+      required: ['userId', 'organizationId'],
+      properties: {
+        userId: { type: 'string' },
+        organizationId: { type: 'string' },
+        branchId: { type: 'string' },
+      },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const { userId, organizationId, branchId = null } = req.body || {};
+  const membership = await collections.memberships().findOne({ userId: String(userId), organizationId: String(organizationId), status: { $in: ['active', 'invited'] } });
+  if (!membership) return reply.send({ allowed: false, reason: 'NO_ACTIVE_MEMBERSHIP' });
+  if (branchId) {
+    const activeAssignment = await collections.assignments().findOne({
+      membershipId: membership.membershipId,
+      organizationId: String(organizationId),
+      branchId: String(branchId),
+      status: 'active',
+    });
+    if (!activeAssignment) return reply.send({ allowed: false, reason: 'NO_ACTIVE_BRANCH_ASSIGNMENT' });
+  }
+  return reply.send({ allowed: true, membershipId: membership.membershipId });
+});
+
+fastify.post('/internal/memberships/bootstrap', {
+  preHandler: requireInternal,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Internal bootstrap of creator/owner memberships',
+    body: {
+      type: 'object',
+      required: ['organizationId'],
+      properties: {
+        organizationId: { type: 'string' },
+        createdByUserId: { type: 'string' },
+        ownerUserId: { type: 'string' },
+        ownerNin: { type: 'string' },
+      },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const { organizationId, createdByUserId = null, ownerUserId = null, ownerNin = null } = req.body || {};
+  const created = [];
+  if (createdByUserId) {
+    const exists = await collections.memberships().findOne({ organizationId, userId: String(createdByUserId) });
+    if (!exists) {
+      const membership = {
+        membershipId: crypto.randomUUID(),
+        userId: String(createdByUserId),
+        nin: null,
+        organizationId,
+        status: 'active',
+        roles: ['org_owner'],
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      await collections.memberships().insertOne(membership);
+      created.push(membership.membershipId);
+    }
+  }
+  if (ownerUserId) {
+    const exists = await collections.memberships().findOne({ organizationId, userId: String(ownerUserId) });
+    if (!exists) {
+      const membership = {
+        membershipId: crypto.randomUUID(),
+        userId: String(ownerUserId),
+        nin: null,
+        organizationId,
+        status: 'active',
+        roles: ['org_owner'],
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      await collections.memberships().insertOne(membership);
+      created.push(membership.membershipId);
+    }
+  } else if (ownerNin) {
+    const exists = await collections.memberships().findOne({ organizationId, nin: String(ownerNin) });
+    if (!exists) {
+      const membership = {
+        membershipId: crypto.randomUUID(),
+        userId: null,
+        nin: String(ownerNin),
+        organizationId,
+        status: 'invited',
+        roles: ['org_owner'],
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      await collections.memberships().insertOne(membership);
+      created.push(membership.membershipId);
+    }
+  }
+  return reply.send({ createdCount: created.length, membershipIds: created });
+});
+
 const start = async () => {
   try {
     await connect();
@@ -991,4 +1418,5 @@ module.exports = {
 if (require.main === module) {
   start();
 }
+
 

@@ -10,8 +10,11 @@ test('openapi spec contains organization and membership routes', () => {
 
   assert.ok(paths['/orgs']);
   assert.ok(paths['/orgs'].post);
+  assert.ok(paths['/orgs'].get);
   assert.ok(paths['/orgs/{orgId}']);
   assert.ok(paths['/orgs/{orgId}'].get);
+  assert.ok(paths['/orgs/{orgId}/assign-owner']);
+  assert.ok(paths['/orgs/{orgId}/assign-owner'].post);
   assert.ok(paths['/orgs/{orgId}/branches']);
   assert.ok(paths['/orgs/{orgId}/branches'].post);
   assert.ok(paths['/orgs/{orgId}/branches'].get);
@@ -36,4 +39,18 @@ test('openapi spec contains organization and membership routes', () => {
   assert.ok(paths['/orgs/{orgId}/members/{memberId}/transfer'].post);
   assert.ok(paths['/orgs/{orgId}/members/{memberId}/history']);
   assert.ok(paths['/orgs/{orgId}/members/{memberId}/history'].get);
+  assert.ok(paths['/orgs/{orgId}/memberships/invite']);
+  assert.ok(paths['/orgs/{orgId}/memberships/invite'].post);
+  assert.ok(paths['/orgs/{orgId}/memberships/{membershipId}/branches']);
+  assert.ok(paths['/orgs/{orgId}/memberships/{membershipId}/branches'].post);
+  assert.ok(paths['/orgs/{orgId}/memberships/{membershipId}/branches/{branchId}']);
+  assert.ok(paths['/orgs/{orgId}/memberships/{membershipId}/branches/{branchId}'].patch);
+  assert.ok(paths['/orgs/{orgId}/memberships']);
+  assert.ok(paths['/orgs/{orgId}/memberships'].get);
+  assert.ok(paths['/orgs/{orgId}/memberships/{membershipId}']);
+  assert.ok(paths['/orgs/{orgId}/memberships/{membershipId}'].get);
+  assert.ok(paths['/users/{userId}/memberships']);
+  assert.ok(paths['/users/{userId}/memberships'].get);
+  assert.ok(paths['/users/{userId}/movement-history']);
+  assert.ok(paths['/users/{userId}/movement-history'].get);
 });

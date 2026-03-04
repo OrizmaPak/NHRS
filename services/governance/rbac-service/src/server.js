@@ -45,6 +45,7 @@ const systemPermissions = [
   { key: 'profile.placeholder.create', name: 'Create profile placeholder', scope: 'org', module: 'profile', actions: ['create'], isSystem: true },
   { key: 'profile.nin.refresh.request', name: 'Request NIN refresh for profile', scope: 'app', module: 'profile', actions: ['create'], isSystem: true },
   { key: 'org.create', name: 'Create organization', scope: 'app', module: 'organization', actions: ['create'], isSystem: true },
+  { key: 'org.list', name: 'List organizations', scope: 'app', module: 'organization', actions: ['read'], isSystem: true },
   { key: 'org.read', name: 'Read organization', scope: 'app', module: 'organization', actions: ['read'], isSystem: true },
   { key: 'org.update', name: 'Update organization', scope: 'app', module: 'organization', actions: ['update'], isSystem: true },
   { key: 'org.owner.assign', name: 'Assign organization owner', scope: 'app', module: 'organization', actions: ['update'], isSystem: true },
@@ -54,14 +55,20 @@ const systemPermissions = [
   { key: 'org.branch.update', name: 'Update branch', scope: 'org', module: 'organization', actions: ['update'], isSystem: true },
   { key: 'org.branch.delete', name: 'Delete branch', scope: 'org', module: 'organization', actions: ['delete'], isSystem: true },
   { key: 'org.member.add', name: 'Add org member', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
+  { key: 'org.member.invite', name: 'Invite org member', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
   { key: 'org.member.read', name: 'Read org member', scope: 'org', module: 'membership', actions: ['read'], isSystem: true },
+  { key: 'org.member.list', name: 'List org members', scope: 'org', module: 'membership', actions: ['read'], isSystem: true },
   { key: 'org.member.update', name: 'Update org member', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
   { key: 'org.member.status.update', name: 'Change org member status', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
+  { key: 'org.branch.assign', name: 'Assign branches to membership', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
+  { key: 'org.branch.assignment.update', name: 'Update branch assignment', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
   { key: 'org.member.branch.assign', name: 'Assign member to branch', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
   { key: 'org.member.branch.update', name: 'Update member branch assignment', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
   { key: 'org.member.branch.remove', name: 'Remove member branch assignment', scope: 'org', module: 'membership', actions: ['delete'], isSystem: true },
   { key: 'org.member.transfer', name: 'Transfer member branch assignment', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
   { key: 'org.member.history.read', name: 'Read membership history', scope: 'org', module: 'membership', actions: ['read'], isSystem: true },
+  { key: 'membership.user.read', name: 'Read memberships by user', scope: 'app', module: 'membership', actions: ['read'], isSystem: true },
+  { key: 'membership.user.history.read', name: 'Read user movement history', scope: 'app', module: 'membership', actions: ['read'], isSystem: true },
 ];
 
 const systemRoles = [
@@ -117,6 +124,7 @@ const systemRoles = [
     isSystem: true,
     permissions: [
       { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.list', effect: 'allow' },
       { permissionKey: 'org.update', effect: 'allow' },
       { permissionKey: 'org.owner.assign', effect: 'allow' },
       { permissionKey: 'org.branch.create', effect: 'allow' },
@@ -124,9 +132,13 @@ const systemRoles = [
       { permissionKey: 'org.branch.update', effect: 'allow' },
       { permissionKey: 'org.branch.delete', effect: 'allow' },
       { permissionKey: 'org.member.add', effect: 'allow' },
+      { permissionKey: 'org.member.invite', effect: 'allow' },
       { permissionKey: 'org.member.read', effect: 'allow' },
+      { permissionKey: 'org.member.list', effect: 'allow' },
       { permissionKey: 'org.member.update', effect: 'allow' },
       { permissionKey: 'org.member.status.update', effect: 'allow' },
+      { permissionKey: 'org.branch.assign', effect: 'allow' },
+      { permissionKey: 'org.branch.assignment.update', effect: 'allow' },
       { permissionKey: 'org.member.branch.assign', effect: 'allow' },
       { permissionKey: 'org.member.branch.update', effect: 'allow' },
       { permissionKey: 'org.member.branch.remove', effect: 'allow' },
@@ -142,9 +154,13 @@ const systemRoles = [
     isSystem: true,
     permissions: [
       { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.list', effect: 'allow' },
       { permissionKey: 'org.branch.read', effect: 'allow' },
       { permissionKey: 'org.member.read', effect: 'allow' },
+      { permissionKey: 'org.member.list', effect: 'allow' },
       { permissionKey: 'org.member.history.read', effect: 'allow' },
+      { permissionKey: 'membership.user.read', effect: 'allow' },
+      { permissionKey: 'membership.user.history.read', effect: 'allow' },
     ],
   },
   {
@@ -157,6 +173,7 @@ const systemRoles = [
       { permissionKey: 'rbac.org.manage', effect: 'allow' },
       { permissionKey: 'org.manage', effect: 'allow' },
       { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.list', effect: 'allow' },
       { permissionKey: 'org.update', effect: 'allow' },
       { permissionKey: 'org.owner.assign', effect: 'allow' },
       { permissionKey: 'org.search', effect: 'allow' },
@@ -165,9 +182,13 @@ const systemRoles = [
       { permissionKey: 'org.branch.update', effect: 'allow' },
       { permissionKey: 'org.branch.delete', effect: 'allow' },
       { permissionKey: 'org.member.add', effect: 'allow' },
+      { permissionKey: 'org.member.invite', effect: 'allow' },
       { permissionKey: 'org.member.read', effect: 'allow' },
+      { permissionKey: 'org.member.list', effect: 'allow' },
       { permissionKey: 'org.member.update', effect: 'allow' },
       { permissionKey: 'org.member.status.update', effect: 'allow' },
+      { permissionKey: 'org.branch.assign', effect: 'allow' },
+      { permissionKey: 'org.branch.assignment.update', effect: 'allow' },
       { permissionKey: 'org.member.branch.assign', effect: 'allow' },
       { permissionKey: 'org.member.branch.update', effect: 'allow' },
       { permissionKey: 'org.member.branch.remove', effect: 'allow' },
@@ -435,11 +456,12 @@ async function getUserScopeArtifacts(userId, organizationId) {
   };
 }
 
-async function computeCheckResult({ userId, permissionKey, organizationId }) {
+async function computeCheckResult({ userId, permissionKey, organizationId, branchId = null }) {
   const orgId = normalizeOrgId(organizationId);
+  const branchScope = branchId ? String(branchId) : 'all';
 
   const cacheVersion = await getCacheVersion();
-  const cacheKey = `rbac:check:v${cacheVersion}:${userId}:${orgId || 'app'}:${permissionKey}`;
+  const cacheKey = `rbac:check:v${cacheVersion}:${userId}:${orgId || 'app'}:${branchScope}:${permissionKey}`;
   if (redisReady) {
     const cached = await redisClient.get(cacheKey);
     if (cached) {
@@ -465,6 +487,7 @@ async function computeCheckResult({ userId, permissionKey, organizationId }) {
       roleNames: [...artifacts.appRoles, ...artifacts.orgRoles].map((r) => r.name),
     },
     organizationId: orgId,
+    branchId: branchId ? String(branchId) : null,
   };
 
   if (redisReady) {
@@ -560,7 +583,7 @@ fastify.post('/rbac/check', { preHandler: requireAuth }, async (req, reply) => {
     return;
   }
 
-  const { permissionKey, organizationId = null, resource = null } = req.body || {};
+  const { permissionKey, organizationId = null, branchId = null, resource = null } = req.body || {};
   if (!permissionKey) {
     return reply.code(400).send({ message: 'permissionKey is required' });
   }
@@ -569,6 +592,7 @@ fastify.post('/rbac/check', { preHandler: requireAuth }, async (req, reply) => {
     userId: req.auth.userId,
     permissionKey,
     organizationId,
+    branchId,
   });
 
   return reply.send({

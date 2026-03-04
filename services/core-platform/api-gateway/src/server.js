@@ -18,6 +18,7 @@ const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-serv
 const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
 const organizationApiBaseUrl = process.env.ORGANIZATION_API_BASE_URL || 'http://organization-service:8093';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
+const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const docsExportPath = process.env.DOCS_EXPORT_PATH;
 
 let dbReady = false;
@@ -55,6 +56,7 @@ function authHeaderSchema(_required) {
     properties: {
       authorization: { type: 'string', pattern: '^Bearer\\s.+' },
       'x-org-id': { type: 'string' },
+      'x-branch-id': { type: 'string' },
     },
   };
 }
@@ -128,6 +130,9 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
   if (req.headers['x-org-id']) {
     headers['x-org-id'] = req.headers['x-org-id'];
   }
+  if (req.headers['x-branch-id']) {
+    headers['x-branch-id'] = req.headers['x-branch-id'];
+  }
 
   const response = await fetchClient(url, {
     method: req.method,
@@ -181,11 +186,15 @@ async function enforcePermission(req, reply) {
   }
 
   let organizationId = req.headers['x-org-id'] || null;
+  let branchId = req.headers['x-branch-id'] || null;
   if (typeof rule.orgFrom === 'string' && rule.orgFrom.startsWith('params.')) {
     const paramKey = rule.orgFrom.split('.')[1];
     if (paramKey && req.params?.[paramKey]) {
       organizationId = req.params[paramKey];
     }
+  }
+  if (!branchId && req.params?.branchId) {
+    branchId = req.params.branchId;
   }
 
   try {
@@ -198,6 +207,7 @@ async function enforcePermission(req, reply) {
       body: JSON.stringify({
         permissionKey: rule.permissionKey,
         organizationId,
+        branchId,
       }),
     });
 
@@ -228,6 +238,41 @@ async function enforcePermission(req, reply) {
 
     if (!decision.proceed) {
       return reply.code(decision.statusCode).send(decision.body);
+    }
+
+    if (organizationId) {
+      const accessCheck = await fetchClient(`${membershipApiBaseUrl}/internal/memberships/access-check`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': internalServiceToken,
+        },
+        body: JSON.stringify({
+          userId: checkBody?.userId || null,
+          organizationId,
+          branchId,
+        }),
+      });
+      const accessBody = await accessCheck.json();
+      if (!accessCheck.ok || !accessBody?.allowed) {
+        emitAuditEvent({
+          userId: checkBody?.userId || null,
+          organizationId,
+          eventType: 'RBAC_ACCESS_DENIED',
+          action: 'gateway.membership_scope_check',
+          permissionKey: rule.permissionKey,
+          ipAddress,
+          userAgent,
+          outcome: 'failure',
+          failureReason: accessBody?.reason || 'NO_ACTIVE_MEMBERSHIP',
+          metadata: {
+            method: req.method,
+            path: routePath,
+            branchId,
+          },
+        });
+        return reply.code(403).send({ message: 'Forbidden' });
+      }
     }
   } catch (err) {
     req.log.error({ err, routePath, permissionKey: rule.permissionKey }, 'RBAC enforcement failed');
@@ -595,10 +640,12 @@ function registerProfileRoutes() {
 function registerOrganizationMembershipRoutes() {
   const orgRoutes = [
     ['POST', '/orgs', '/orgs'],
+    ['GET', '/orgs', '/orgs'],
     ['GET', '/orgs/search', '/orgs/search'],
     ['GET', '/orgs/:orgId', '/orgs/:orgId'],
     ['PATCH', '/orgs/:orgId', '/orgs/:orgId'],
     ['PATCH', '/orgs/:orgId/owner', '/orgs/:orgId/owner'],
+    ['POST', '/orgs/:orgId/assign-owner', '/orgs/:orgId/assign-owner'],
     ['POST', '/orgs/:orgId/branches', '/orgs/:orgId/branches'],
     ['GET', '/orgs/:orgId/branches', '/orgs/:orgId/branches'],
     ['GET', '/orgs/:orgId/branches/:branchId', '/orgs/:orgId/branches/:branchId'],
@@ -643,6 +690,13 @@ function registerOrganizationMembershipRoutes() {
     ['DELETE', '/orgs/:orgId/members/:memberId/branches/:assignmentId', '/orgs/:orgId/members/:memberId/branches/:assignmentId'],
     ['POST', '/orgs/:orgId/members/:memberId/transfer', '/orgs/:orgId/members/:memberId/transfer'],
     ['GET', '/orgs/:orgId/members/:memberId/history', '/orgs/:orgId/members/:memberId/history'],
+    ['POST', '/orgs/:orgId/memberships/invite', '/orgs/:orgId/memberships/invite'],
+    ['POST', '/orgs/:orgId/memberships/:membershipId/branches', '/orgs/:orgId/memberships/:membershipId/branches'],
+    ['PATCH', '/orgs/:orgId/memberships/:membershipId/branches/:branchId', '/orgs/:orgId/memberships/:membershipId/branches/:branchId'],
+    ['GET', '/orgs/:orgId/memberships', '/orgs/:orgId/memberships'],
+    ['GET', '/orgs/:orgId/memberships/:membershipId', '/orgs/:orgId/memberships/:membershipId'],
+    ['GET', '/users/:userId/memberships', '/users/:userId/memberships'],
+    ['GET', '/users/:userId/movement-history', '/users/:userId/movement-history'],
   ];
 
   for (const [method, routePath, upstreamPath] of membershipRoutes) {

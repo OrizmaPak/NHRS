@@ -10,6 +10,7 @@ const dbName = process.env.DB_NAME || 'nhrs_organization_db';
 const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
+const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 
 let dbReady = false;
@@ -135,6 +136,26 @@ async function bootstrapOrgDefaults(_authorization, organizationId, ownerUserId)
   }
 }
 
+async function bootstrapInitialMembership(organizationId, createdByUserId, ownerUserId, ownerNin) {
+  try {
+    await callJson(`${membershipApiBaseUrl}/internal/memberships/bootstrap`, {
+      method: 'POST',
+      headers: {
+        'x-internal-token': internalServiceToken,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        organizationId,
+        createdByUserId: createdByUserId || null,
+        ownerUserId: ownerUserId || null,
+        ownerNin: ownerNin || null,
+      }),
+    });
+  } catch (err) {
+    fastify.log.warn({ err, organizationId }, 'Failed to bootstrap initial memberships');
+  }
+}
+
 async function connect() {
   if (!mongoUri) {
     fastify.log.warn('Missing MONGODB_URI; organization-service running in degraded mode');
@@ -197,10 +218,6 @@ fastify.post('/orgs', {
         ownerUserId: { type: 'string' },
         ownerNin: { type: 'string', pattern: '^\\d{11}$' },
       },
-      oneOf: [
-        { required: ['ownerUserId'] },
-        { required: ['ownerNin'] },
-      ],
     },
     response: {
       201: { type: 'object', additionalProperties: true },
@@ -228,7 +245,7 @@ fastify.post('/orgs', {
     name: String(name).trim(),
     type,
     createdByUserId: req.auth.userId,
-    ownerUserId: ownerUserId ? String(ownerUserId) : null,
+    ownerUserId: ownerUserId ? String(ownerUserId) : (!ownerNin ? req.auth.userId : null),
     ownerNin: ownerNin ? String(ownerNin) : null,
     status: 'active',
     createdAt: now(),
@@ -249,6 +266,7 @@ fastify.post('/orgs', {
   });
 
   bootstrapOrgDefaults(req.headers.authorization, organizationId, doc.ownerUserId);
+  bootstrapInitialMembership(organizationId, req.auth.userId, doc.ownerUserId, doc.ownerNin);
 
   emitAuditEvent({
     userId: req.auth.userId,
@@ -264,6 +282,38 @@ fastify.post('/orgs', {
   });
 
   return reply.code(201).send({ organization: doc });
+});
+
+fastify.get('/orgs', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Organization'],
+    summary: 'List organizations',
+    description: 'Lists organizations visible to the caller.',
+    security: [{ bearerAuth: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        page: { type: 'integer', minimum: 1 },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+    },
+    response: {
+      200: { type: 'object', additionalProperties: true },
+      401: { type: 'object', additionalProperties: true },
+      403: { type: 'object', additionalProperties: true },
+    },
+  },
+}, async (req, reply) => {
+  const denied = await enforcePermission(req, reply, 'org.list');
+  if (denied) return;
+  const page = Math.max(Number(req.query?.page) || 1, 1);
+  const limit = Math.min(Number(req.query?.limit) || 20, 100);
+  const [items, total] = await Promise.all([
+    collections.organizations().find({}).skip((page - 1) * limit).limit(limit).toArray(),
+    collections.organizations().countDocuments({}),
+  ]);
+  return reply.send({ page, limit, total, items });
 });
 
 fastify.get('/orgs/:orgId', {
@@ -436,6 +486,59 @@ fastify.patch('/orgs/:orgId/owner', {
   });
 
   return reply.send({ message: 'Owner updated' });
+});
+
+fastify.post('/orgs/:orgId/assign-owner', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Organization'],
+    summary: 'Assign organization owner by NIN',
+    description: 'Assigns owner using ownerNin and records owner history.',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['orgId'],
+      properties: { orgId: { type: 'string' } },
+    },
+    body: {
+      type: 'object',
+      required: ['ownerNin'],
+      properties: {
+        ownerNin: { type: 'string', pattern: '^\\d{11}$' },
+        reason: { type: 'string' },
+      },
+    },
+    response: {
+      200: { type: 'object', additionalProperties: true },
+      401: { type: 'object', additionalProperties: true },
+      403: { type: 'object', additionalProperties: true },
+      404: { type: 'object', additionalProperties: true },
+    },
+  },
+}, async (req, reply) => {
+  const denied = await enforcePermission(req, reply, 'org.owner.assign', req.params.orgId);
+  if (denied) return;
+  const existing = await collections.organizations().findOne({ organizationId: req.params.orgId });
+  if (!existing) return reply.code(404).send({ message: 'Organization not found' });
+
+  const ownerNin = String(req.body.ownerNin);
+  await collections.organizations().updateOne(
+    { organizationId: req.params.orgId },
+    { $set: { ownerNin, ownerUserId: null, updatedAt: now() } }
+  );
+  await collections.ownerHistory().insertOne({
+    eventId: crypto.randomUUID(),
+    organizationId: req.params.orgId,
+    fromOwnerUserId: existing.ownerUserId || null,
+    fromOwnerNin: existing.ownerNin || null,
+    toOwnerUserId: null,
+    toOwnerNin: ownerNin,
+    changedByUserId: req.auth.userId,
+    reason: req.body.reason || 'assign_owner_by_nin',
+    timestamp: now(),
+  });
+  bootstrapInitialMembership(req.params.orgId, null, null, ownerNin);
+  return reply.send({ message: 'Owner assigned' });
 });
 
 fastify.get('/orgs/search', {

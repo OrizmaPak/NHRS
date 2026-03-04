@@ -48,10 +48,12 @@ const permissionRegistry = [
   { method: 'GET', path: '/profile/by-nin/:nin', permissionKey: 'profile.user.read' },
   { method: 'POST', path: '/profile/create-placeholder', permissionKey: 'profile.placeholder.create' },
   { method: 'POST', path: '/orgs', permissionKey: 'org.create' },
+  { method: 'GET', path: '/orgs', permissionKey: 'org.list' },
   { method: 'GET', path: '/orgs/search', permissionKey: 'org.search' },
   { method: 'GET', path: '/orgs/:orgId', permissionKey: 'org.read', orgFrom: 'params.orgId' },
   { method: 'PATCH', path: '/orgs/:orgId', permissionKey: 'org.update', orgFrom: 'params.orgId' },
   { method: 'PATCH', path: '/orgs/:orgId/owner', permissionKey: 'org.owner.assign', orgFrom: 'params.orgId' },
+  { method: 'POST', path: '/orgs/:orgId/assign-owner', permissionKey: 'org.owner.assign', orgFrom: 'params.orgId' },
   { method: 'POST', path: '/orgs/:orgId/branches', permissionKey: 'org.branch.create', orgFrom: 'params.orgId' },
   { method: 'GET', path: '/orgs/:orgId/branches', permissionKey: 'org.branch.read', orgFrom: 'params.orgId' },
   { method: 'GET', path: '/orgs/:orgId/branches/:branchId', permissionKey: 'org.branch.read', orgFrom: 'params.orgId' },
@@ -67,6 +69,13 @@ const permissionRegistry = [
   { method: 'DELETE', path: '/orgs/:orgId/members/:memberId/branches/:assignmentId', permissionKey: 'org.member.branch.remove', orgFrom: 'params.orgId' },
   { method: 'POST', path: '/orgs/:orgId/members/:memberId/transfer', permissionKey: 'org.member.transfer', orgFrom: 'params.orgId' },
   { method: 'GET', path: '/orgs/:orgId/members/:memberId/history', permissionKey: 'org.member.history.read', orgFrom: 'params.orgId' },
+  { method: 'POST', path: '/orgs/:orgId/memberships/invite', permissionKey: 'org.member.invite', orgFrom: 'params.orgId' },
+  { method: 'POST', path: '/orgs/:orgId/memberships/:membershipId/branches', permissionKey: 'org.branch.assign', orgFrom: 'params.orgId' },
+  { method: 'PATCH', path: '/orgs/:orgId/memberships/:membershipId/branches/:branchId', permissionKey: 'org.branch.assignment.update', orgFrom: 'params.orgId' },
+  { method: 'GET', path: '/orgs/:orgId/memberships', permissionKey: 'org.member.list', orgFrom: 'params.orgId' },
+  { method: 'GET', path: '/orgs/:orgId/memberships/:membershipId', permissionKey: 'org.member.read', orgFrom: 'params.orgId' },
+  { method: 'GET', path: '/users/:userId/memberships', permissionKey: 'membership.user.read' },
+  { method: 'GET', path: '/users/:userId/movement-history', permissionKey: 'membership.user.history.read' },
 ];
 
 function pathMatches(pattern, actualPath) {

@@ -33,6 +33,14 @@ test('runtime gateway enforcement for org/membership routes', async () => {
         return rbacResponse(allowed);
       }
 
+      if (target.includes('/internal/memberships/access-check')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ allowed: true }),
+        };
+      }
+
       if (target.includes('/orgs') || target.includes('/members')) {
         if (target.endsWith('/orgs')) return downstreamResponse(201, { message: 'org created' });
         if (target.includes('/transfer')) return downstreamResponse(200, { message: 'transfer ok' });
@@ -66,13 +74,13 @@ test('runtime gateway enforcement for org/membership routes', async () => {
   });
   assert.equal(orgCreate.statusCode, 201);
 
-  const addMember = await app.inject({
+  const invite = await app.inject({
     method: 'POST',
-    url: '/orgs/org-1/members',
+    url: '/orgs/org-1/memberships/invite',
     headers: { authorization: 'Bearer allow-token' },
-    payload: { nin: '90000000001' },
+    payload: { nin: '90000000001', roles: ['doctor'], branchIds: ['b1'] },
   });
-  assert.equal(addMember.statusCode, 201);
+  assert.equal(invite.statusCode, 201);
 
   const transfer = await app.inject({
     method: 'POST',
@@ -82,6 +90,8 @@ test('runtime gateway enforcement for org/membership routes', async () => {
   });
   assert.equal(transfer.statusCode, 200);
 
-  const forwardedAuthCalls = calls.filter((c) => c.target.includes('/orgs') || c.target.includes('/members'));
+  const forwardedAuthCalls = calls.filter((c) =>
+    (c.target.includes('/orgs') || c.target.includes('/members')) && !c.target.includes('/internal/')
+  );
   assert.equal(forwardedAuthCalls.every((c) => c.options.headers?.authorization === 'Bearer allow-token'), true);
 });

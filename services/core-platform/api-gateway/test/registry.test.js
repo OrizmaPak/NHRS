@@ -32,6 +32,11 @@ test('organization search route resolves org.search permission', () => {
   assert.equal(rule.permissionKey, 'org.search');
 });
 
+test('organization list route resolves org.list permission', () => {
+  const rule = findPermissionRule('GET', '/orgs');
+  assert.equal(rule.permissionKey, 'org.list');
+});
+
 test('membership transfer route resolves permission', () => {
   const rule = findPermissionRule('POST', '/orgs/org-1/members/member-1/transfer');
   assert.equal(rule.permissionKey, 'org.member.transfer');
@@ -40,6 +45,11 @@ test('membership transfer route resolves permission', () => {
 test('membership status route resolves updated status permission key', () => {
   const rule = findPermissionRule('PATCH', '/orgs/org-1/members/member-1/status');
   assert.equal(rule.permissionKey, 'org.member.status.update');
+});
+
+test('membership invite route resolves org.member.invite permission', () => {
+  const rule = findPermissionRule('POST', '/orgs/org-1/memberships/invite');
+  assert.equal(rule.permissionKey, 'org.member.invite');
 });
 
 test('unknown route has no permission mapping', () => {
