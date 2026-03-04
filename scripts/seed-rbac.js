@@ -30,7 +30,7 @@ const permissions = [
   { key: 'org.member.add', name: 'Add org member', module: 'membership', scope: 'org', actions: ['create'] },
   { key: 'org.member.read', name: 'Read org member', module: 'membership', scope: 'org', actions: ['read'] },
   { key: 'org.member.update', name: 'Update org member', module: 'membership', scope: 'org', actions: ['update'] },
-  { key: 'org.member.status.change', name: 'Change org member status', module: 'membership', scope: 'org', actions: ['update'] },
+  { key: 'org.member.status.update', name: 'Change org member status', module: 'membership', scope: 'org', actions: ['update'] },
   { key: 'org.member.branch.assign', name: 'Assign member to branch', module: 'membership', scope: 'org', actions: ['create'] },
   { key: 'org.member.branch.update', name: 'Update member branch assignment', module: 'membership', scope: 'org', actions: ['update'] },
   { key: 'org.member.branch.remove', name: 'Remove member branch assignment', module: 'membership', scope: 'org', actions: ['delete'] },
@@ -49,10 +49,14 @@ const roles = [
       { permissionKey: 'auth.contact.phone.write', effect: 'allow' },
       { permissionKey: 'auth.contact.email.write', effect: 'allow' },
       { permissionKey: 'nin.profile.read', effect: 'allow' },
-      { permissionKey: 'org.create', effect: 'allow' },
-      { permissionKey: 'org.read', effect: 'allow' },
-      { permissionKey: 'org.search', effect: 'allow' },
     ],
+    isSystem: true,
+  },
+  {
+    name: 'app_admin',
+    scope: 'app',
+    organizationId: null,
+    permissions: [{ permissionKey: '*', effect: 'allow' }],
     isSystem: true,
   },
   {
@@ -67,6 +71,41 @@ const roles = [
     scope: 'app',
     organizationId: null,
     permissions: [{ permissionKey: 'audit.read', effect: 'allow' }],
+    isSystem: true,
+  },
+  {
+    name: 'org_owner',
+    scope: 'org',
+    organizationId: '__template__',
+    permissions: [
+      { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.update', effect: 'allow' },
+      { permissionKey: 'org.owner.assign', effect: 'allow' },
+      { permissionKey: 'org.branch.create', effect: 'allow' },
+      { permissionKey: 'org.branch.read', effect: 'allow' },
+      { permissionKey: 'org.branch.update', effect: 'allow' },
+      { permissionKey: 'org.branch.delete', effect: 'allow' },
+      { permissionKey: 'org.member.add', effect: 'allow' },
+      { permissionKey: 'org.member.read', effect: 'allow' },
+      { permissionKey: 'org.member.update', effect: 'allow' },
+      { permissionKey: 'org.member.status.update', effect: 'allow' },
+      { permissionKey: 'org.member.branch.assign', effect: 'allow' },
+      { permissionKey: 'org.member.branch.update', effect: 'allow' },
+      { permissionKey: 'org.member.branch.remove', effect: 'allow' },
+      { permissionKey: 'org.member.transfer', effect: 'allow' },
+      { permissionKey: 'org.member.history.read', effect: 'allow' },
+    ],
+    isSystem: true,
+  },
+  {
+    name: 'org_staff',
+    scope: 'org',
+    organizationId: '__template__',
+    permissions: [
+      { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.branch.read', effect: 'allow' },
+      { permissionKey: 'org.member.read', effect: 'allow' },
+    ],
     isSystem: true,
   },
 ];
@@ -131,3 +170,4 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+

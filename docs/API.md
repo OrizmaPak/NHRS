@@ -128,6 +128,7 @@
 | POST | `/orgs/:orgId/members` | Bearer | Add member by NIN; creates membership even when user is not registered |
 | GET | `/orgs/:orgId/members` | Bearer | List members (paginated) |
 | GET | `/orgs/:orgId/members/:memberId` | Bearer | Get member with assignments |
+| PATCH | `/orgs/:orgId/members/:memberId` | Bearer | Update membership metadata/start/end dates |
 | PATCH | `/orgs/:orgId/members/:memberId/status` | Bearer | Change member status |
 | POST | `/orgs/:orgId/members/:memberId/branches` | Bearer | Assign to a branch (supports multi-branch) |
 | PATCH | `/orgs/:orgId/members/:memberId/branches/:assignmentId` | Bearer | Update assignment roles/departments/status |

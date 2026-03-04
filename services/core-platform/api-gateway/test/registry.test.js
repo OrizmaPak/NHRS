@@ -37,6 +37,11 @@ test('membership transfer route resolves permission', () => {
   assert.equal(rule.permissionKey, 'org.member.transfer');
 });
 
+test('membership status route resolves updated status permission key', () => {
+  const rule = findPermissionRule('PATCH', '/orgs/org-1/members/member-1/status');
+  assert.equal(rule.permissionKey, 'org.member.status.update');
+});
+
 test('unknown route has no permission mapping', () => {
   const rule = findPermissionRule('GET', '/unknown/path');
   assert.equal(rule, undefined);

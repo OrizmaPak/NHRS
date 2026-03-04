@@ -56,7 +56,7 @@ const systemPermissions = [
   { key: 'org.member.add', name: 'Add org member', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
   { key: 'org.member.read', name: 'Read org member', scope: 'org', module: 'membership', actions: ['read'], isSystem: true },
   { key: 'org.member.update', name: 'Update org member', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
-  { key: 'org.member.status.change', name: 'Change org member status', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
+  { key: 'org.member.status.update', name: 'Change org member status', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
   { key: 'org.member.branch.assign', name: 'Assign member to branch', scope: 'org', module: 'membership', actions: ['create'], isSystem: true },
   { key: 'org.member.branch.update', name: 'Update member branch assignment', scope: 'org', module: 'membership', actions: ['update'], isSystem: true },
   { key: 'org.member.branch.remove', name: 'Remove member branch assignment', scope: 'org', module: 'membership', actions: ['delete'], isSystem: true },
@@ -80,10 +80,15 @@ const systemRoles = [
       { permissionKey: 'profile.me.read', effect: 'allow' },
       { permissionKey: 'profile.me.update', effect: 'allow' },
       { permissionKey: 'profile.nin.refresh.request', effect: 'allow' },
-      { permissionKey: 'org.create', effect: 'allow' },
-      { permissionKey: 'org.read', effect: 'allow' },
-      { permissionKey: 'org.search', effect: 'allow' },
     ],
+  },
+  {
+    name: 'app_admin',
+    description: 'Application administrator',
+    scope: 'app',
+    organizationId: null,
+    isSystem: true,
+    permissions: [{ permissionKey: '*', effect: 'allow' }],
   },
   {
     name: 'platform_admin',
@@ -102,6 +107,44 @@ const systemRoles = [
     permissions: [
       { permissionKey: 'audit.read', effect: 'allow' },
       { permissionKey: 'nin.profile.read', effect: 'allow' },
+    ],
+  },
+  {
+    name: 'org_owner',
+    description: 'Organization owner',
+    scope: 'org',
+    organizationId: '__template__',
+    isSystem: true,
+    permissions: [
+      { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.update', effect: 'allow' },
+      { permissionKey: 'org.owner.assign', effect: 'allow' },
+      { permissionKey: 'org.branch.create', effect: 'allow' },
+      { permissionKey: 'org.branch.read', effect: 'allow' },
+      { permissionKey: 'org.branch.update', effect: 'allow' },
+      { permissionKey: 'org.branch.delete', effect: 'allow' },
+      { permissionKey: 'org.member.add', effect: 'allow' },
+      { permissionKey: 'org.member.read', effect: 'allow' },
+      { permissionKey: 'org.member.update', effect: 'allow' },
+      { permissionKey: 'org.member.status.update', effect: 'allow' },
+      { permissionKey: 'org.member.branch.assign', effect: 'allow' },
+      { permissionKey: 'org.member.branch.update', effect: 'allow' },
+      { permissionKey: 'org.member.branch.remove', effect: 'allow' },
+      { permissionKey: 'org.member.transfer', effect: 'allow' },
+      { permissionKey: 'org.member.history.read', effect: 'allow' },
+    ],
+  },
+  {
+    name: 'org_staff',
+    description: 'Organization staff',
+    scope: 'org',
+    organizationId: '__template__',
+    isSystem: true,
+    permissions: [
+      { permissionKey: 'org.read', effect: 'allow' },
+      { permissionKey: 'org.branch.read', effect: 'allow' },
+      { permissionKey: 'org.member.read', effect: 'allow' },
+      { permissionKey: 'org.member.history.read', effect: 'allow' },
     ],
   },
   {
@@ -124,7 +167,7 @@ const systemRoles = [
       { permissionKey: 'org.member.add', effect: 'allow' },
       { permissionKey: 'org.member.read', effect: 'allow' },
       { permissionKey: 'org.member.update', effect: 'allow' },
-      { permissionKey: 'org.member.status.change', effect: 'allow' },
+      { permissionKey: 'org.member.status.update', effect: 'allow' },
       { permissionKey: 'org.member.branch.assign', effect: 'allow' },
       { permissionKey: 'org.member.branch.update', effect: 'allow' },
       { permissionKey: 'org.member.branch.remove', effect: 'allow' },
@@ -545,8 +588,8 @@ fastify.post('/internal/rbac/bootstrap-org/:organizationId', { preHandler: requi
   const roles = await ensureDefaultOrgRoles(organizationId);
 
   if (ownerUserId) {
-    const orgAdminRole = roles.find((r) => r.name === 'org_admin');
-    if (orgAdminRole?._id) {
+    const ownerRole = roles.find((r) => r.name === 'org_owner') || roles.find((r) => r.name === 'org_admin');
+    if (ownerRole?._id) {
       await collections.roleAssignments().updateOne(
         { userId: ownerUserId, scope: 'org', organizationId },
         {
@@ -554,7 +597,7 @@ fastify.post('/internal/rbac/bootstrap-org/:organizationId', { preHandler: requi
             userId: ownerUserId,
             scope: 'org',
             organizationId,
-            roleIds: [String(orgAdminRole._id)],
+            roleIds: [String(ownerRole._id)],
             updatedAt: new Date(),
           },
           $setOnInsert: { createdAt: new Date() },
@@ -1150,3 +1193,4 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 start();
+

@@ -22,6 +22,8 @@ const docsExportPath = process.env.DOCS_EXPORT_PATH;
 
 let dbReady = false;
 let mongoClient;
+let fetchClient = (...args) => fetch(...args);
+let routesRegistered = false;
 
 const errorMessageSchema = {
   type: 'object',
@@ -47,14 +49,13 @@ const unauthorizedSchema = {
   },
 };
 
-function authHeaderSchema(required) {
+function authHeaderSchema(_required) {
   return {
     type: 'object',
     properties: {
       authorization: { type: 'string', pattern: '^Bearer\\s.+' },
       'x-org-id': { type: 'string' },
     },
-    ...(required ? { required: ['authorization'] } : {}),
   };
 }
 
@@ -82,7 +83,7 @@ function emitAuditEvent(event) {
   const payload = buildAuditPayload(event);
   setImmediate(async () => {
     try {
-      await fetch(`${auditApiBaseUrl}/internal/audit/events`, {
+      await fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
@@ -128,7 +129,7 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
     headers['x-org-id'] = req.headers['x-org-id'];
   }
 
-  const response = await fetch(url, {
+  const response = await fetchClient(url, {
     method: req.method,
     headers,
     body: req.body ? JSON.stringify(req.body) : undefined,
@@ -180,12 +181,15 @@ async function enforcePermission(req, reply) {
   }
 
   let organizationId = req.headers['x-org-id'] || null;
-  if (rule.orgFrom === 'params.organizationId' && req.params?.organizationId) {
-    organizationId = req.params.organizationId;
+  if (typeof rule.orgFrom === 'string' && rule.orgFrom.startsWith('params.')) {
+    const paramKey = rule.orgFrom.split('.')[1];
+    if (paramKey && req.params?.[paramKey]) {
+      organizationId = req.params[paramKey];
+    }
   }
 
   try {
-    const checkResponse = await fetch(`${rbacApiBaseUrl}/rbac/check`, {
+    const checkResponse = await fetchClient(`${rbacApiBaseUrl}/rbac/check`, {
       method: 'POST',
       headers: {
         authorization,
@@ -632,6 +636,7 @@ function registerOrganizationMembershipRoutes() {
     ['POST', '/orgs/:orgId/members', '/orgs/:orgId/members'],
     ['GET', '/orgs/:orgId/members', '/orgs/:orgId/members'],
     ['GET', '/orgs/:orgId/members/:memberId', '/orgs/:orgId/members/:memberId'],
+    ['PATCH', '/orgs/:orgId/members/:memberId', '/orgs/:orgId/members/:memberId'],
     ['PATCH', '/orgs/:orgId/members/:memberId/status', '/orgs/:orgId/members/:memberId/status'],
     ['POST', '/orgs/:orgId/members/:memberId/branches', '/orgs/:orgId/members/:memberId/branches'],
     ['PATCH', '/orgs/:orgId/members/:memberId/branches/:assignmentId', '/orgs/:orgId/members/:memberId/branches/:assignmentId'],
@@ -729,16 +734,22 @@ fastify.get('/health', {
   },
 }, async () => ({ status: 'ok', service: serviceName, dbReady, dbName: dbName || null }));
 
+async function registerGatewayRoutes() {
+  if (routesRegistered) return;
+  await registerDocs();
+  registerAuthRoutes();
+  registerNinRoutes();
+  registerRbacRoutes();
+  registerAuditRoutes();
+  registerProfileRoutes();
+  registerOrganizationMembershipRoutes();
+  routesRegistered = true;
+}
+
 const start = async () => {
   try {
     await connectToMongo();
-    await registerDocs();
-    registerAuthRoutes();
-    registerNinRoutes();
-    registerRbacRoutes();
-    registerAuditRoutes();
-    registerProfileRoutes();
-    registerOrganizationMembershipRoutes();
+    await registerGatewayRoutes();
 
     if (docsExportPath) {
       await fastify.ready();
@@ -770,4 +781,24 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-start();
+async function buildApp(options = {}) {
+  if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {
+    dbReady = !!options.dbReady;
+  }
+  if (options.fetchImpl) {
+    fetchClient = options.fetchImpl;
+  }
+  if (options.registerRoutes !== false) {
+    await registerGatewayRoutes();
+  }
+  return fastify;
+}
+
+module.exports = {
+  buildApp,
+  start,
+};
+
+if (require.main === module) {
+  start();
+}

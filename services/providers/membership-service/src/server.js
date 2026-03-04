@@ -370,6 +370,71 @@ fastify.get('/orgs/:orgId/members/:memberId', {
   return reply.send({ membership, assignments });
 });
 
+fastify.patch('/orgs/:orgId/members/:memberId', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Update member details',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['orgId', 'memberId'],
+      properties: { orgId: { type: 'string' }, memberId: { type: 'string' } },
+    },
+    body: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', format: 'date-time' },
+        endDate: { type: 'string', format: 'date-time' },
+        metadata: { type: 'object', additionalProperties: true },
+      },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true }, 404: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const orgId = req.params.orgId;
+  const denied = await enforcePermission(req, reply, 'org.member.update', orgId);
+  if (denied) return;
+
+  const existing = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.memberId });
+  if (!existing) return reply.code(404).send({ message: 'Membership not found' });
+
+  const updates = { updatedAt: now() };
+  if (req.body?.startDate) updates.startDate = new Date(req.body.startDate);
+  if (req.body?.endDate) updates.endDate = new Date(req.body.endDate);
+  if (req.body?.metadata && typeof req.body.metadata === 'object') {
+    updates.metadata = { ...(existing.metadata || {}), ...req.body.metadata };
+  }
+
+  await collections.memberships().updateOne({ organizationId: orgId, membershipId: req.params.memberId }, { $set: updates });
+
+  await writeEvent({
+    organizationId: orgId,
+    membershipId: req.params.memberId,
+    userId: existing.userId || null,
+    nin: existing.nin,
+    eventType: 'ORG_MEMBER_STATUS_CHANGED',
+    from: { startDate: existing.startDate, endDate: existing.endDate, metadata: existing.metadata || {} },
+    to: { startDate: updates.startDate || existing.startDate, endDate: updates.endDate || existing.endDate, metadata: updates.metadata || existing.metadata || {} },
+    performedByUserId: req.auth.userId,
+    reason: 'member_update',
+  });
+
+  emitAuditEvent({
+    userId: req.auth.userId,
+    organizationId: orgId,
+    eventType: 'ORG_MEMBER_STATUS_CHANGED',
+    action: 'org.member.update',
+    permissionKey: 'org.member.update',
+    resource: { type: 'membership', id: req.params.memberId },
+    ipAddress: getClientIp(req),
+    userAgent: req.headers['user-agent'] || null,
+    outcome: 'success',
+  });
+
+  return reply.send({ message: 'Membership updated' });
+});
+
 fastify.patch('/orgs/:orgId/members/:memberId/status', {
   preHandler: requireAuth,
   schema: {
@@ -393,7 +458,7 @@ fastify.patch('/orgs/:orgId/members/:memberId/status', {
   },
 }, async (req, reply) => {
   const orgId = req.params.orgId;
-  const denied = await enforcePermission(req, reply, 'org.member.status.change', orgId);
+  const denied = await enforcePermission(req, reply, 'org.member.status.update', orgId);
   if (denied) return;
 
   const existing = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.memberId });
@@ -425,8 +490,8 @@ fastify.patch('/orgs/:orgId/members/:memberId/status', {
     userId: req.auth.userId,
     organizationId: orgId,
     eventType: 'ORG_MEMBER_STATUS_CHANGED',
-    action: 'org.member.status.change',
-    permissionKey: 'org.member.status.change',
+    action: 'org.member.status.update',
+    permissionKey: 'org.member.status.update',
     resource: { type: 'membership', id: req.params.memberId },
     ipAddress: getClientIp(req),
     userAgent: req.headers['user-agent'] || null,
