@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
+process.env.NODE_ENV = 'development';
+process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'true';
 const { buildApp } = require('../src/server');
 const { resolveTaskforceUnit } = require('../src/routes/taskforce');
 

@@ -20,6 +20,7 @@ const processedEventIds = new Map();
 
 const collections = {
   auditEvents: () => db.collection('audit_events'),
+  processedEvents: () => db.collection('audit_processed_events'),
 };
 
 function parseBearerToken(req) {
@@ -64,6 +65,16 @@ async function flushEvents() {
 
   try {
     await collections.auditEvents().insertMany(batch, { ordered: false });
+    const processedWrites = batch.map((event) => ({
+      updateOne: {
+        filter: { eventId: event.eventId },
+        update: { $setOnInsert: { eventId: event.eventId, createdAt: new Date() } },
+        upsert: true,
+      },
+    }));
+    if (processedWrites.length > 0) {
+      await collections.processedEvents().bulkWrite(processedWrites, { ordered: false });
+    }
   } catch (err) {
     fastify.log.error({ err, batchSize: batch.length }, 'Audit event batch insert failed');
   }
@@ -116,6 +127,8 @@ const connectToMongo = async () => {
       collections.auditEvents().createIndex({ eventType: 1, createdAt: -1 }),
       collections.auditEvents().createIndex({ userId: 1, createdAt: -1 }),
       collections.auditEvents().createIndex({ organizationId: 1, createdAt: -1 }),
+      collections.processedEvents().createIndex({ eventId: 1 }, { unique: true }),
+      collections.processedEvents().createIndex({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7 }),
     ]);
 
     fastify.log.info({ dbName }, 'MongoDB connection established');

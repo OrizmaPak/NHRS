@@ -3,6 +3,9 @@ const { MongoClient, ServerApiVersion } = require('mongodb');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { buildEventEnvelope, createOutboxRepository, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
+const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
+const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
+const { setStandardErrorHandler } = require('../../../../libs/shared/src/errors');
 
 const serviceName = 'membership-service';
 const port = Number(process.env.PORT) || 8103;
@@ -13,6 +16,7 @@ const authApiBaseUrl = process.env.AUTH_API_BASE_URL || 'http://auth-api:8081';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
 const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
 const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
@@ -241,6 +245,11 @@ fastify.addHook('onRequest', async (req, reply) => {
     return reply.code(503).send({ message: 'Membership storage unavailable' });
   }
 });
+
+fastify.addHook('onRequest', createContextVerificationHook({
+  secret: nhrsContextSecret,
+  requiredMatcher: (req) => req.url.startsWith('/orgs/') || req.url.startsWith('/users/'),
+}));
 
 fastify.get('/health', async () => ({
   status: 'ok',
@@ -1561,6 +1570,13 @@ fastify.post('/internal/memberships/bootstrap', {
 
 const start = async () => {
   try {
+    enforceProductionSecrets({
+      nodeEnv: process.env.NODE_ENV,
+      internalServiceToken,
+      jwtSecret,
+      nhrsContextSecret,
+      mongodbUri: mongoUri,
+    });
     await connect();
     startOutboxWorker();
     await fastify.listen({ port, host: '0.0.0.0' });
@@ -1581,6 +1597,8 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+setStandardErrorHandler(fastify);
 
 function buildApp(options = {}) {
   if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {

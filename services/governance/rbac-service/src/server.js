@@ -3,6 +3,9 @@ const { MongoClient, ObjectId, ServerApiVersion } = require('mongodb');
 const { createClient } = require('redis');
 const jwt = require('jsonwebtoken');
 const { evaluatePermission, mergeRules } = require('./engine');
+const { buildEventEnvelope, createOutboxRepository, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
+const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
+const { setStandardErrorHandler } = require('../../../../libs/shared/src/errors');
 
 const serviceName = 'rbac-service';
 const port = Number(process.env.PORT) || 8090;
@@ -13,12 +16,18 @@ const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const cacheTtlSec = Number(process.env.RBAC_CACHE_TTL_SEC) || 60;
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
+const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
+const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 50;
+const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
 
 let dbReady = false;
 let redisReady = false;
 let mongoClient;
 let redisClient;
 let db;
+let outboxRepo = null;
+let outboxTimer = null;
 
 const collections = {
   permissions: () => db.collection('permissions'),
@@ -360,16 +369,22 @@ const systemRoles = [
 ];
 
 function emitAuditEvent(event) {
-  setImmediate(async () => {
-    try {
-      await fetch(`${auditApiBaseUrl}/internal/audit/events`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(event),
-      });
-    } catch (err) {
-      fastify.log.warn({ err, eventType: event?.eventType }, 'RBAC audit emit failed');
-    }
+  if (!outboxRepo) return;
+  outboxRepo.enqueueOutboxEvent(buildEventEnvelope({
+    eventType: event.eventType || 'AUDIT_EVENT',
+    sourceService: serviceName,
+    aggregateType: event.resource?.type || 'rbac',
+    aggregateId: event.resource?.id || event.userId || null,
+    payload: event,
+    trace: {
+      requestId: event.metadata?.requestId || null,
+      userId: event.userId || null,
+      orgId: event.organizationId || null,
+      branchId: event.metadata?.branchId || null,
+    },
+    destination: 'audit',
+  })).catch((err) => {
+    fastify.log.warn({ err, eventType: event?.eventType }, 'RBAC outbox enqueue failed');
   });
 }
 
@@ -443,6 +458,7 @@ async function connect() {
     db = mongoClient.db(dbName);
     await db.command({ ping: 1 });
     dbReady = true;
+    outboxRepo = createOutboxRepository(db);
   } catch (err) {
     fastify.log.warn({ err }, 'MongoDB connection failed; RBAC service in degraded mode');
   }
@@ -465,6 +481,7 @@ async function connect() {
     collections.roles().createIndex({ name: 1, scope: 1, organizationId: 1 }, { unique: true }),
     collections.userAccess().createIndex({ userId: 1, scope: 1, organizationId: 1 }, { unique: true }),
     collections.roleAssignments().createIndex({ userId: 1, scope: 1, organizationId: 1 }, { unique: true }),
+    outboxRepo.createIndexes(),
   ]);
 
   for (const perm of systemPermissions) {
@@ -512,6 +529,31 @@ async function connect() {
   }
 
   fastify.log.info({ dbName, redisReady }, 'RBAC service initialized');
+}
+
+async function flushOutboxOnce() {
+  if (!outboxRepo) return;
+  await deliverOutboxBatch({
+    outboxRepo,
+    logger: fastify.log,
+    batchSize: outboxBatchSize,
+    maxAttempts: outboxMaxAttempts,
+    handlers: {
+      audit: async (event) => {
+        const res = await fetch(`${auditApiBaseUrl}/internal/audit/events`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ eventId: event.eventId, ...event.payload, createdAt: event.createdAt }),
+        });
+        if (!res.ok) throw new Error(`audit delivery failed: ${res.status}`);
+      },
+    },
+  });
+}
+
+function startOutboxWorker() {
+  if (outboxTimer) return;
+  outboxTimer = setInterval(() => { void flushOutboxOnce(); }, outboxIntervalMs);
 }
 
 function assertDependencyReady(reply) {
@@ -1316,7 +1358,15 @@ fastify.get('/rbac/org/:organizationId/users/:userId/access', { preHandler: requ
 
 const start = async () => {
   try {
+    enforceProductionSecrets({
+      nodeEnv: process.env.NODE_ENV,
+      internalServiceToken,
+      jwtSecret,
+      nhrsContextSecret,
+      mongodbUri: mongoUri,
+    });
     await connect();
+    startOutboxWorker();
     await fastify.listen({ port, host: '0.0.0.0' });
   } catch (err) {
     fastify.log.error(err);
@@ -1326,6 +1376,9 @@ const start = async () => {
 
 const shutdown = async () => {
   try {
+    if (outboxTimer) {
+      clearInterval(outboxTimer);
+    }
     if (redisClient) {
       await redisClient.quit();
     }
@@ -1339,6 +1392,8 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+setStandardErrorHandler(fastify);
 
 start();
 

@@ -3,13 +3,16 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const { createClient } = require('redis');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { buildEventEnvelope, createOutboxRepository, deliverOutboxBatch } = require('../../../../../libs/shared/src/outbox');
+const { enforceProductionSecrets } = require('../../../../../libs/shared/src/env');
+const { setStandardErrorHandler } = require('../../../../../libs/shared/src/errors');
 const {
   computeOnboarding,
   pickEditableProfileFields,
   buildProfileUpsertFromEnsure,
   mergeProfileView,
 } = require('./profile-logic');
-const { callJson, checkPermission, emitAuditEvent } = require('./integration');
+const { callJson, checkPermission } = require('./integration');
 
 const serviceName = 'profile-service';
 const port = Number(process.env.PORT) || 8092;
@@ -22,6 +25,10 @@ const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:809
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || '';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
+const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
+const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
+const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
 
 const searchWindowSec = 60;
 const searchMaxPerWindow = 30;
@@ -32,6 +39,8 @@ let dbReady = false;
 let redisReady = false;
 let db;
 let fetchClient = (...args) => fetch(...args);
+let outboxRepo = null;
+let outboxTimer = null;
 
 const collections = {
   profiles: () => db.collection('user_profiles'),
@@ -122,6 +131,28 @@ async function enforcePermission(req, reply, permissionKey, organizationId) {
   return false;
 }
 
+function emitAuditEvent(event, req = null) {
+  if (!outboxRepo) return;
+  const orgIdFromHeaders = req?.headers ? (req.headers['x-org-id'] || null) : null;
+  const branchIdFromHeaders = req?.headers ? (req.headers['x-branch-id'] || null) : null;
+  outboxRepo.enqueueOutboxEvent(buildEventEnvelope({
+    eventType: event.eventType || 'AUDIT_EVENT',
+    sourceService: serviceName,
+    aggregateType: event.resource?.type || 'profile',
+    aggregateId: event.resource?.id || event.userId || null,
+    payload: event,
+    trace: {
+      requestId: req?.headers?.['x-request-id'] || event.metadata?.requestId || null,
+      userId: req?.auth?.userId || event.userId || null,
+      orgId: event.organizationId || orgIdFromHeaders,
+      branchId: event.metadata?.branchId || branchIdFromHeaders,
+    },
+    destination: 'audit',
+  })).catch((err) => {
+    fastify.log.warn({ err, eventType: event?.eventType }, 'profile outbox enqueue failed');
+  });
+}
+
 async function applySearchRateLimit(req, reply) {
   if (!redisReady || !req.auth?.userId) {
     return;
@@ -157,6 +188,7 @@ async function connect() {
     db = mongoClient.db(dbName);
     await db.command({ ping: 1 });
     dbReady = true;
+    outboxRepo = createOutboxRepository(db);
   } catch (err) {
     fastify.log.warn({ err }, 'MongoDB connection failed');
   }
@@ -178,8 +210,34 @@ async function connect() {
       collections.profiles().createIndex({ email: 1 }, { unique: true, sparse: true }),
       collections.profiles().createIndex({ lastName: 'text', firstName: 'text', displayName: 'text' }),
       collections.placeholders().createIndex({ nin: 1 }),
+      outboxRepo.createIndexes(),
     ]);
   }
+}
+
+async function flushOutboxOnce() {
+  if (!outboxRepo) return;
+  await deliverOutboxBatch({
+    outboxRepo,
+    logger: fastify.log,
+    batchSize: outboxBatchSize,
+    maxAttempts: outboxMaxAttempts,
+    handlers: {
+      audit: async (event) => {
+        const res = await fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ eventId: event.eventId, ...event.payload, createdAt: event.createdAt }),
+        });
+        if (!res.ok) throw new Error(`audit delivery failed: ${res.status}`);
+      },
+    },
+  });
+}
+
+function startOutboxWorker() {
+  if (outboxTimer) return;
+  outboxTimer = setInterval(() => { void flushOutboxOnce(); }, outboxIntervalMs);
 }
 
 fastify.addHook('onRequest', async (req, reply) => {
@@ -343,7 +401,7 @@ fastify.get('/profile/me', {
     fetchMembershipSummary(req.auth.userId, req.headers.authorization),
   ]);
   if (membershipApiBaseUrl && membershipSummary === null) {
-    emitAuditEvent(fetchClient, auditApiBaseUrl, {
+    emitAuditEvent({
       userId: req.auth.userId,
       eventType: 'PROFILE_MEMBERSHIP_LOOKUP_FAILED',
       action: 'profile.membership.lookup',
@@ -351,18 +409,18 @@ fastify.get('/profile/me', {
       userAgent: req.headers['user-agent'] || null,
       outcome: 'failure',
       failureReason: 'MEMBERSHIP_SERVICE_UNAVAILABLE',
-    });
+    }, req);
   }
 
   const merged = mergeProfileView({ profile, ninSummary, rolesSummary, membershipSummary });
-  emitAuditEvent(fetchClient, auditApiBaseUrl, {
+  emitAuditEvent({
     userId: req.auth.userId,
     eventType: 'PROFILE_VIEWED_SELF',
     action: 'profile.me.read',
     ipAddress: getClientIp(req),
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
-  });
+  }, req);
   return reply.send(merged);
 });
 
@@ -396,7 +454,7 @@ fastify.patch('/profile/me', {
     { $set: { 'onboarding.completedSteps': onboarding.completedSteps, 'onboarding.completenessScore': onboarding.completenessScore } }
   );
 
-  emitAuditEvent(fetchClient, auditApiBaseUrl, {
+  emitAuditEvent({
     userId: req.auth.userId,
     eventType: 'PROFILE_UPDATED_SELF',
     action: 'profile.me.update',
@@ -404,7 +462,7 @@ fastify.patch('/profile/me', {
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
     metadata: { updatedKeys: Object.keys(editable) },
-  });
+  }, req);
   return reply.send({ message: 'Profile updated', profile: await collections.profiles().findOne({ userId: req.auth.userId }) });
 });
 
@@ -422,7 +480,7 @@ fastify.post('/profile/me/request-nin-refresh', { preHandler: requireAuth }, asy
     headers: { authorization: req.headers.authorization, 'content-type': 'application/json' },
   });
 
-  emitAuditEvent(fetchClient, auditApiBaseUrl, {
+  emitAuditEvent({
     userId: req.auth.userId,
     eventType: 'PROFILE_NIN_REFRESH_REQUESTED',
     action: 'profile.nin.refresh.request',
@@ -431,7 +489,7 @@ fastify.post('/profile/me/request-nin-refresh', { preHandler: requireAuth }, asy
     outcome: response.ok ? 'success' : 'failure',
     failureReason: response.ok ? null : 'NIN_REFRESH_UNAVAILABLE',
     metadata: { nin: profile.nin },
-  });
+  }, req);
 
   return reply.code(response.status).send(response.body || { message: 'Request failed' });
 });
@@ -546,7 +604,7 @@ fastify.get('/profile/search', {
     collections.profiles().countDocuments(filter),
   ]);
 
-  emitAuditEvent(fetchClient, auditApiBaseUrl, {
+  emitAuditEvent({
     userId: req.auth.userId,
     eventType: 'PROFILE_SEARCHED',
     action: 'profile.search',
@@ -554,7 +612,7 @@ fastify.get('/profile/search', {
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
     metadata: { hasQ: !!q, page: safePage, limit: safeLimit },
-  });
+  }, req);
   return reply.send({ page: safePage, limit: safeLimit, total, items });
 });
 
@@ -589,7 +647,7 @@ fastify.get('/profile/:userId', {
   const profile = await collections.profiles().findOne({ userId: String(userId) });
   if (!profile) return reply.code(404).send({ message: 'Profile not found' });
 
-  emitAuditEvent(fetchClient, auditApiBaseUrl, {
+  emitAuditEvent({
     userId: req.auth.userId,
     eventType: 'PROFILE_VIEWED_ADMIN',
     action: 'profile.user.read',
@@ -597,7 +655,7 @@ fastify.get('/profile/:userId', {
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
     metadata: { targetUserId: userId },
-  });
+  }, req);
   return reply.send({ profile });
 });
 
@@ -670,7 +728,7 @@ fastify.post('/profile/create-placeholder', {
     createdAt: new Date(),
   });
 
-  emitAuditEvent(fetchClient, auditApiBaseUrl, {
+  emitAuditEvent({
     userId: req.auth.userId,
     eventType: 'PROFILE_PLACEHOLDER_CREATED',
     action: 'profile.placeholder.create',
@@ -678,7 +736,7 @@ fastify.post('/profile/create-placeholder', {
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
     metadata: { nin, placeholderId },
-  });
+  }, req);
 
   return reply.code(201).send({ placeholderId, registered: false, ninSummary });
 });
@@ -740,7 +798,15 @@ fastify.post('/internal/profile/sync-contact', {
 
 const start = async () => {
   try {
+    enforceProductionSecrets({
+      nodeEnv: process.env.NODE_ENV,
+      internalServiceToken,
+      jwtSecret,
+      nhrsContextSecret,
+      mongodbUri: mongoUri,
+    });
     await connect();
+    startOutboxWorker();
     await fastify.listen({ port, host: '0.0.0.0' });
   } catch (err) {
     fastify.log.error(err);
@@ -750,6 +816,7 @@ const start = async () => {
 
 const shutdown = async () => {
   try {
+    if (outboxTimer) clearInterval(outboxTimer);
     if (redisClient) await redisClient.quit();
     if (mongoClient) await mongoClient.close();
   } finally {
@@ -759,6 +826,8 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+setStandardErrorHandler(fastify);
 
 function buildApp(options = {}) {
   if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {

@@ -2,6 +2,10 @@ const fastify = require('fastify')({ logger: true });
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { buildEventEnvelope, createOutboxRepository, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
+const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
+const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
+const { setStandardErrorHandler } = require('../../../../libs/shared/src/errors');
 
 const serviceName = 'organization-service';
 const port = Number(process.env.PORT) || 8093;
@@ -12,11 +16,17 @@ const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:809
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
+const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
+const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
+const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
 
 let dbReady = false;
 let mongoClient;
 let db;
 let fetchClient = (...args) => fetch(...args);
+let outboxRepo = null;
+let outboxTimer = null;
 
 const collections = {
   organizations: () => db.collection('organizations'),
@@ -74,17 +84,23 @@ async function callJson(url, options = {}) {
   return { ok: res.ok, status: res.status, body };
 }
 
-function emitAuditEvent(event) {
-  setImmediate(async () => {
-    try {
-      await fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(event),
-      });
-    } catch (err) {
-      fastify.log.warn({ err, eventType: event?.eventType }, 'Organization audit emit failed');
-    }
+function emitAuditEvent(event, req = null) {
+  if (!outboxRepo) return;
+  outboxRepo.enqueueOutboxEvent(buildEventEnvelope({
+    eventType: event.eventType || 'AUDIT_EVENT',
+    sourceService: serviceName,
+    aggregateType: event.resource?.type || 'organization',
+    aggregateId: event.resource?.id || event.organizationId || null,
+    payload: event,
+    trace: {
+      requestId: req?.headers?.['x-request-id'] || null,
+      userId: req?.auth?.userId || event.userId || null,
+      orgId: event.organizationId || req?.headers?.['x-org-id'] || null,
+      branchId: req?.headers?.['x-branch-id'] || null,
+    },
+    destination: 'audit',
+  })).catch((err) => {
+    fastify.log.warn({ err, eventType: event?.eventType }, 'Organization outbox enqueue failed');
   });
 }
 
@@ -174,6 +190,7 @@ async function connect() {
     db = mongoClient.db(dbName);
     await db.command({ ping: 1 });
     dbReady = true;
+    outboxRepo = createOutboxRepository(db);
 
     await Promise.all([
       collections.organizations().createIndex({ organizationId: 1 }, { unique: true }),
@@ -183,6 +200,7 @@ async function connect() {
       collections.branches().createIndex({ branchId: 1 }, { unique: true }),
       collections.branches().createIndex({ organizationId: 1, code: 1 }, { unique: true }),
       collections.ownerHistory().createIndex({ organizationId: 1, timestamp: -1 }),
+      outboxRepo.createIndexes(),
     ]);
   } catch (err) {
     fastify.log.warn({ err }, 'MongoDB connection failed');
@@ -195,6 +213,36 @@ fastify.addHook('onRequest', async (req, reply) => {
     return reply.code(503).send({ message: 'Organization storage unavailable' });
   }
 });
+
+fastify.addHook('onRequest', createContextVerificationHook({
+  secret: nhrsContextSecret,
+  requiredMatcher: (req) => req.url.startsWith('/orgs/'),
+}));
+
+async function flushOutboxOnce() {
+  if (!outboxRepo) return;
+  await deliverOutboxBatch({
+    outboxRepo,
+    logger: fastify.log,
+    batchSize: outboxBatchSize,
+    maxAttempts: outboxMaxAttempts,
+    handlers: {
+      audit: async (event) => {
+        const res = await fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ eventId: event.eventId, ...event.payload, createdAt: event.createdAt }),
+        });
+        if (!res.ok) throw new Error(`audit delivery failed: ${res.status}`);
+      },
+    },
+  });
+}
+
+function startOutboxWorker() {
+  if (outboxTimer) return;
+  outboxTimer = setInterval(() => { void flushOutboxOnce(); }, outboxIntervalMs);
+}
 
 fastify.get('/health', async () => ({
   status: 'ok',
@@ -843,7 +891,15 @@ fastify.delete('/orgs/:orgId/branches/:branchId', {
 
 const start = async () => {
   try {
+    enforceProductionSecrets({
+      nodeEnv: process.env.NODE_ENV,
+      internalServiceToken,
+      jwtSecret,
+      nhrsContextSecret,
+      mongodbUri: mongoUri,
+    });
     await connect();
+    startOutboxWorker();
     await fastify.listen({ port, host: '0.0.0.0' });
   } catch (err) {
     fastify.log.error(err);
@@ -853,6 +909,7 @@ const start = async () => {
 
 const shutdown = async () => {
   try {
+    if (outboxTimer) clearInterval(outboxTimer);
     if (mongoClient) await mongoClient.close();
   } finally {
     process.exit(0);
@@ -861,6 +918,8 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+setStandardErrorHandler(fastify);
 
 function buildApp(options = {}) {
   if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {
