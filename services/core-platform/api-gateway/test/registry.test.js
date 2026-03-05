@@ -93,3 +93,19 @@ test('emergency route mappings resolve expected permissions', () => {
   assert.equal(findPermissionRule('PUT', '/emergency/inventory/me').permissionKey, 'emergency.inventory.upsert');
   assert.equal(findPermissionRule('GET', '/emergency/inventory/search').permissionKey, 'emergency.inventory.search');
 });
+
+test('governance taskforce route mappings resolve expected permissions', () => {
+  assert.equal(findPermissionRule('POST', '/taskforce/units').permissionKey, 'taskforce.unit.create');
+  assert.equal(findPermissionRule('GET', '/taskforce/units').permissionKey, 'taskforce.unit.read');
+  assert.equal(findPermissionRule('PATCH', '/taskforce/units/u-1').permissionKey, 'taskforce.unit.update');
+  assert.equal(findPermissionRule('POST', '/taskforce/units/u-1/members').permissionKey, 'taskforce.member.manage');
+  assert.equal(findPermissionRule('POST', '/cases').permissionKey, 'governance.case.create');
+  assert.equal(findPermissionRule('GET', '/cases').permissionKey, 'governance.case.read');
+  assert.equal(findPermissionRule('PATCH', '/cases/c-1/status').permissionKey, 'governance.case.update_status');
+  assert.equal(findPermissionRule('POST', '/cases/c-1/corrections/propose').permissionKey, 'governance.correction.propose');
+  assert.equal(findPermissionRule('POST', '/cases/c-1/corrections/approve').permissionKey, 'governance.correction.approve');
+  assert.equal(findPermissionRule('POST', '/cases/c-1/corrections/reject').permissionKey, 'governance.correction.reject');
+  assert.equal(findPermissionRule('GET', '/cases/c-1/room').permissionKey, 'governance.case.room.read');
+  assert.equal(findPermissionRule('POST', '/case-rooms/room-1/messages').permissionKey, 'governance.case.room.message.create');
+  assert.equal(findPermissionRule('POST', '/cases/c-1/escalate').permissionKey, 'governance.case.escalate');
+});

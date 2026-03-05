@@ -208,6 +208,27 @@ When a citizen with matching NIN logs in, auth calls `POST /internal/memberships
 | PUT | `/emergency/inventory/me` | Bearer + `x-org-id` | Upsert provider inventory for discovery |
 | GET | `/emergency/inventory/search` | Bearer | Search inventory by item/scope |
 
+### Governance Taskforce Module
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| POST | `/taskforce/units` | Bearer | Create taskforce unit (NATIONAL/REGION/STATE/LGA) |
+| GET | `/taskforce/units` | Bearer | List units by level/coverage filters |
+| PATCH | `/taskforce/units/:unitId` | Bearer | Update unit metadata/status |
+| POST | `/taskforce/units/:unitId/members` | Bearer | Add taskforce member with roles (`reviewer`,`approver`,`dispatcher`) |
+| GET | `/taskforce/units/:unitId/members` | Bearer | List unit members |
+| DELETE | `/taskforce/units/:unitId/members/:memberId` | Bearer | Remove member from unit |
+| POST | `/cases` | Bearer | Create case, auto-route by location, auto-create case room, notify assigned unit |
+| GET | `/cases` | Bearer | List cases by status/type/assigned unit |
+| GET | `/cases/:caseId` | Bearer | Case details + recent actions + room id |
+| PATCH | `/cases/:caseId/status` | Bearer | Validate transition and append action |
+| POST | `/cases/:caseId/corrections/propose` | Bearer | Reviewer proposes correction; status -> `awaiting_approval` |
+| POST | `/cases/:caseId/corrections/approve` | Bearer | Approver/NATIONAL approves and appends amendment to records index |
+| POST | `/cases/:caseId/corrections/reject` | Bearer | Approver/NATIONAL rejects correction |
+| GET | `/cases/:caseId/room` | Bearer | Get case room |
+| POST | `/case-rooms/:roomId/messages` | Bearer | Send case room message |
+| GET | `/case-rooms/:roomId/messages` | Bearer | Paginated room messages |
+| POST | `/cases/:caseId/escalate` | Bearer | Escalate case up hierarchy and add next-unit participants |
+
 ### Tokens
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|

@@ -299,3 +299,81 @@ test('permission checks: missing auth is 401 and missing x-org-id on provider ro
   });
   assert.equal(missingOrg.statusCode, 400);
 });
+
+test('inventory upsert requires x-org-id and persists inventory', async () => {
+  const { app, db } = makeContext(async (url) => {
+    if (String(url).includes('/rbac/check')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    }
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+
+  const token = makeToken({ sub: 'provider-inv' });
+
+  const missingOrg = await app.inject({
+    method: 'PUT',
+    url: '/emergency/inventory/me',
+    headers: { authorization: `Bearer ${token}` },
+    payload: {
+      location: { state: 'Lagos', lga: 'Ikeja' },
+      items: [{ itemType: 'drug', name: 'Oxygen', quantityStatus: 'in_stock' }],
+    },
+  });
+  assert.equal(missingOrg.statusCode, 400);
+
+  const ok = await app.inject({
+    method: 'PUT',
+    url: '/emergency/inventory/me',
+    headers: { authorization: `Bearer ${token}`, 'x-org-id': 'org-inv', 'x-branch-id': 'branch-inv' },
+    payload: {
+      location: { state: 'Lagos', lga: 'Ikeja' },
+      items: [
+        { itemType: 'drug', name: 'Oxygen', quantityStatus: 'in_stock' },
+        { itemType: 'blood', name: 'A+', quantityStatus: 'low', metadata: { blood_group: 'A+' } },
+      ],
+    },
+  });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(db.__stores.provider_inventory.items.length, 1);
+  assert.equal(db.__stores.provider_inventory.items[0].providerOrgId, 'org-inv');
+  assert.equal(db.__stores.provider_inventory.items[0].items.length, 2);
+});
+
+test('inventory search returns scope and query matched providers', async () => {
+  const { app, db } = makeContext(async (url) => {
+    if (String(url).includes('/rbac/check')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    }
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+
+  await db.collection('provider_inventory').insertOne({
+    inventoryId: 'inv-lagos',
+    providerOrgId: 'org-lagos',
+    providerBranchId: 'b1',
+    location: { state: 'Lagos', lga: 'Ikeja', region: 'SOUTH_WEST' },
+    items: [{ itemType: 'drug', name: 'Oxygen Cylinder', quantityStatus: 'in_stock' }],
+    updatedAt: new Date(),
+  });
+  await db.collection('provider_inventory').insertOne({
+    inventoryId: 'inv-kano',
+    providerOrgId: 'org-kano',
+    providerBranchId: 'b2',
+    location: { state: 'Kano', lga: 'Nassarawa', region: 'NORTH_WEST' },
+    items: [{ itemType: 'drug', name: 'Oxygen Mask', quantityStatus: 'in_stock' }],
+    updatedAt: new Date(),
+  });
+
+  const token = makeToken({ sub: 'dispatcher-1' });
+  const res = await app.inject({
+    method: 'GET',
+    url: '/emergency/inventory/search?itemType=drug&q=oxygen&scopeLevel=STATE&state=Lagos',
+    headers: { authorization: `Bearer ${token}` },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().total, 1);
+  assert.equal(res.json().items[0].providerOrgId, 'org-lagos');
+  assert.equal(Array.isArray(res.json().items[0].items), true);
+  assert.equal(res.json().items[0].items.length, 1);
+});

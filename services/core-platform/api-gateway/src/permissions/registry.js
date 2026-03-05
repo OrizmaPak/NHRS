@@ -105,6 +105,23 @@ const permissionRegistry = [
   { method: 'GET', path: '/emergency/rooms/:roomId/messages', permissionKey: 'emergency.room.read' },
   { method: 'PUT', path: '/emergency/inventory/me', permissionKey: 'emergency.inventory.upsert', requireOrgScope: true },
   { method: 'GET', path: '/emergency/inventory/search', permissionKey: 'emergency.inventory.search' },
+  { method: 'POST', path: '/taskforce/units', permissionKey: 'taskforce.unit.create' },
+  { method: 'GET', path: '/taskforce/units', permissionKey: 'taskforce.unit.read' },
+  { method: 'PATCH', path: '/taskforce/units/:unitId', permissionKey: 'taskforce.unit.update' },
+  { method: 'POST', path: '/taskforce/units/:unitId/members', permissionKey: 'taskforce.member.manage' },
+  { method: 'GET', path: '/taskforce/units/:unitId/members', permissionKey: 'taskforce.unit.read' },
+  { method: 'DELETE', path: '/taskforce/units/:unitId/members/:memberId', permissionKey: 'taskforce.member.manage' },
+  { method: 'POST', path: '/cases', permissionKey: 'governance.case.create' },
+  { method: 'GET', path: '/cases', permissionKey: 'governance.case.read' },
+  { method: 'GET', path: '/cases/:caseId', permissionKey: 'governance.case.read' },
+  { method: 'PATCH', path: '/cases/:caseId/status', permissionKey: 'governance.case.update_status' },
+  { method: 'POST', path: '/cases/:caseId/corrections/propose', permissionKey: 'governance.correction.propose' },
+  { method: 'POST', path: '/cases/:caseId/corrections/approve', permissionKey: 'governance.correction.approve' },
+  { method: 'POST', path: '/cases/:caseId/corrections/reject', permissionKey: 'governance.correction.reject' },
+  { method: 'GET', path: '/cases/:caseId/room', permissionKey: 'governance.case.room.read' },
+  { method: 'POST', path: '/case-rooms/:roomId/messages', permissionKey: 'governance.case.room.message.create' },
+  { method: 'GET', path: '/case-rooms/:roomId/messages', permissionKey: 'governance.case.room.read' },
+  { method: 'POST', path: '/cases/:caseId/escalate', permissionKey: 'governance.case.escalate' },
 ];
 
 function pathMatches(pattern, actualPath) {

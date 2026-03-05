@@ -24,6 +24,8 @@ const clinicalEncounterApiBaseUrl = process.env.CLINICAL_ENCOUNTER_API_BASE_URL 
 const laboratoryResultApiBaseUrl = process.env.LABORATORY_RESULT_API_BASE_URL || 'http://laboratory-result-service:8106';
 const pharmacyDispenseApiBaseUrl = process.env.PHARMACY_DISPENSE_API_BASE_URL || 'http://pharmacy-dispense-service:8107';
 const emergencyInventoryApiBaseUrl = process.env.EMERGENCY_INVENTORY_API_BASE_URL || 'http://emergency-inventory-service:8108';
+const taskforceDirectoryApiBaseUrl = process.env.TASKFORCE_DIRECTORY_API_BASE_URL || 'http://taskforce-directory-service:8109';
+const caseApiBaseUrl = process.env.CASE_API_BASE_URL || 'http://case-service:8110';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL_SEC) || 60;
@@ -951,6 +953,54 @@ function registerEmergencyRoutes() {
   }
 }
 
+function registerGovernanceTaskforceRoutes() {
+  const routeDefs = [
+    ['POST', '/taskforce/units', taskforceDirectoryApiBaseUrl, '/taskforce/units'],
+    ['GET', '/taskforce/units', taskforceDirectoryApiBaseUrl, '/taskforce/units'],
+    ['PATCH', '/taskforce/units/:unitId', taskforceDirectoryApiBaseUrl, '/taskforce/units/:unitId'],
+    ['POST', '/taskforce/units/:unitId/members', taskforceDirectoryApiBaseUrl, '/taskforce/units/:unitId/members'],
+    ['GET', '/taskforce/units/:unitId/members', taskforceDirectoryApiBaseUrl, '/taskforce/units/:unitId/members'],
+    ['DELETE', '/taskforce/units/:unitId/members/:memberId', taskforceDirectoryApiBaseUrl, '/taskforce/units/:unitId/members/:memberId'],
+    ['POST', '/cases', caseApiBaseUrl, '/cases'],
+    ['GET', '/cases', caseApiBaseUrl, '/cases'],
+    ['GET', '/cases/:caseId', caseApiBaseUrl, '/cases/:caseId'],
+    ['PATCH', '/cases/:caseId/status', caseApiBaseUrl, '/cases/:caseId/status'],
+    ['POST', '/cases/:caseId/corrections/propose', caseApiBaseUrl, '/cases/:caseId/corrections/propose'],
+    ['POST', '/cases/:caseId/corrections/approve', caseApiBaseUrl, '/cases/:caseId/corrections/approve'],
+    ['POST', '/cases/:caseId/corrections/reject', caseApiBaseUrl, '/cases/:caseId/corrections/reject'],
+    ['GET', '/cases/:caseId/room', caseApiBaseUrl, '/cases/:caseId/room'],
+    ['POST', '/case-rooms/:roomId/messages', caseApiBaseUrl, '/case-rooms/:roomId/messages'],
+    ['GET', '/case-rooms/:roomId/messages', caseApiBaseUrl, '/case-rooms/:roomId/messages'],
+    ['POST', '/cases/:caseId/escalate', caseApiBaseUrl, '/cases/:caseId/escalate'],
+  ];
+
+  for (const [method, routePath, targetBase, upstreamPath] of routeDefs) {
+    registerProxyRoute({
+      method,
+      url: routePath,
+      targetBase,
+      targetPath: (req) => {
+        let p = upstreamPath;
+        for (const [k, v] of Object.entries(req.params || {})) {
+          p = p.replace(`:${k}`, encodeURIComponent(String(v)));
+        }
+        return p;
+      },
+      schema: {
+        tags: ['Governance'],
+        summary: `Proxy ${method} ${routePath}`,
+        description: 'Taskforce directory, case lifecycle, correction workflow, and case room endpoints.',
+        security: [{ bearerAuth: [] }],
+        headers: authHeaderSchema(true),
+        params: { type: 'object', additionalProperties: true },
+        querystring: { type: 'object', additionalProperties: true },
+        body: { type: 'object', additionalProperties: true },
+        response: standardResponses({ 200: { type: 'object' }, 201: { type: 'object' } }),
+      },
+    });
+  }
+}
+
 async function registerDocs() {
   await fastify.register(swagger, {
     openapi: {
@@ -977,6 +1027,7 @@ async function registerDocs() {
         { name: 'Health Records', description: 'Citizen/provider timeline metadata endpoints' },
         { name: 'Provider Records', description: 'Provider clinical content modules (encounters, labs, pharmacy)' },
         { name: 'Emergency', description: 'Emergency requests, provider responses, incident rooms, and inventory discovery' },
+        { name: 'Governance', description: 'Taskforce directory, cases, correction workflow, and escalation' },
       ],
       components: {
         securitySchemes: {
@@ -1028,6 +1079,7 @@ async function registerGatewayRoutes() {
   registerHealthRecordsRoutes();
   registerProviderRecordsRoutes();
   registerEmergencyRoutes();
+  registerGovernanceTaskforceRoutes();
   routesRegistered = true;
 }
 
