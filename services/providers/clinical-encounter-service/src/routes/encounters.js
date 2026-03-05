@@ -7,11 +7,11 @@ function now() {
 }
 
 function emitAudit(deps, req, event) {
-  deps.emitAuditEvent({
+  return deps.emitAuditEvent({
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'] || null,
     ...event,
-  });
+  }, req);
 }
 
 function registerRoutes(fastify, deps) {
@@ -124,7 +124,7 @@ function registerRoutes(fastify, deps) {
     });
     if (!indexResult.ok) {
       await deps.repository.deleteEncounter(encounter.encounterId);
-      emitAudit(deps, req, {
+      await emitAudit(deps, req, {
         userId: req.auth.userId,
         organizationId,
         eventType: 'INDEX_REGISTRATION_FAILED',
@@ -135,7 +135,7 @@ function registerRoutes(fastify, deps) {
       return reply.code(502).send({ message: 'Failed to register timeline index entry' });
     }
 
-    emitAudit(deps, req, {
+    await emitAudit(deps, req, {
       userId: req.auth.userId,
       organizationId,
       eventType: 'ENCOUNTER_CREATED',
@@ -188,7 +188,7 @@ function registerRoutes(fastify, deps) {
     const to = req.query?.to ? new Date(req.query.to) : null;
     const { items, total } = await deps.repository.listEncountersByNin(String(req.params.nin), from, to, page, limit);
 
-    emitAudit(deps, req, {
+    await emitAudit(deps, req, {
       userId: req.auth.userId,
       organizationId,
       eventType: 'PROVIDER_RECORD_VIEWED',
@@ -274,7 +274,7 @@ function registerRoutes(fastify, deps) {
       return reply.code(403).send({ message: 'Only the creator can edit this record' });
     }
     if (existing.editableUntil && new Date(existing.editableUntil).getTime() < Date.now()) {
-      emitAudit(deps, req, {
+      await emitAudit(deps, req, {
         userId: req.auth.userId,
         organizationId,
         eventType: 'CORRECTION_REQUEST_CREATED',
@@ -288,7 +288,7 @@ function registerRoutes(fastify, deps) {
     const setDoc = { ...req.body, updatedAt: now() };
     await deps.repository.updateEncounter(existing.encounterId, setDoc);
     const updated = await deps.repository.getEncounterById(existing.encounterId);
-    emitAudit(deps, req, {
+    await emitAudit(deps, req, {
       userId: req.auth.userId,
       organizationId,
       eventType: 'ENCOUNTER_UPDATED',

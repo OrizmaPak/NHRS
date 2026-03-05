@@ -52,3 +52,7 @@
 - `emergency-inventory-service`
 - `case-service`
 - `doctor-registry-service`
+- `clinical-encounter-service`
+- `laboratory-result-service`
+- `pharmacy-dispense-service`
+- `membership-service`

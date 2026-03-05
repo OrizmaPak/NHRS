@@ -2,6 +2,7 @@ const fastifyFactory = require('fastify');
 const jwt = require('jsonwebtoken');
 const { connectMongo, createRepository } = require('./db');
 const { buildEventEnvelope, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
+const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
 const { registerCaseRoutes } = require('./routes/cases');
 const { registerRoomRoutes } = require('./routes/rooms');
 const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
@@ -18,7 +19,6 @@ const taskforceDirectoryApiBaseUrl = process.env.TASKFORCE_DIRECTORY_API_BASE_UR
 const healthRecordsIndexApiBaseUrl = process.env.HEALTH_RECORDS_INDEX_API_BASE_URL || 'http://health-records-index-service:8104';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
-const nhrsContextAllowLegacy = String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'true') === 'true';
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
 const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
 const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
@@ -126,10 +126,9 @@ function createApp(options = {}) {
 
   fastify.addHook('onRequest', createContextVerificationHook({
     secret: nhrsContextSecret,
-    allowLegacy: nhrsContextAllowLegacy,
     requiredMatcher: (req) => {
       const p = req.url.split('?')[0];
-      return p.endsWith('/corrections/approve') || p.endsWith('/corrections/reject');
+      return p.startsWith('/cases/') || p === '/cases' || p.startsWith('/case-rooms/');
     },
   }));
 
@@ -216,6 +215,11 @@ const app = createApp();
 
 async function start() {
   try {
+    enforceProductionSecrets({
+      env: process.env,
+      required: ['INTERNAL_SERVICE_TOKEN', 'JWT_SECRET', 'NHRS_CONTEXT_HMAC_SECRET', 'MONGODB_URI'],
+      secrets: ['INTERNAL_SERVICE_TOKEN', 'JWT_SECRET', 'NHRS_CONTEXT_HMAC_SECRET'],
+    });
     await app.connect();
     await app.startOutboxWorker();
     await app.listen({ host: '0.0.0.0', port });
@@ -231,3 +235,4 @@ process.on('SIGTERM', async () => { await app.closeService(); process.exit(0); }
 module.exports = { buildApp: createApp, start };
 
 if (require.main === module) start();
+

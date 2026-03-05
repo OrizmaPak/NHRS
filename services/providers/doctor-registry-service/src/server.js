@@ -6,6 +6,7 @@ const { registerDoctorRoutes } = require('./routes/doctors');
 const { registerLicenseRoutes } = require('./routes/licenses');
 const { buildEventEnvelope, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
 const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
+const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
 
 const serviceName = 'doctor-registry-service';
 const port = Number(process.env.PORT) || 8094;
@@ -17,7 +18,6 @@ const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-serv
 const notificationApiBaseUrl = process.env.NOTIFICATION_API_BASE_URL || 'http://notification-service:8101';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
-const nhrsContextAllowLegacy = String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'true') === 'true';
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
 const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
 const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
@@ -105,7 +105,6 @@ function createApp(options = {}) {
 
   fastify.addHook('onRequest', createContextVerificationHook({
     secret: nhrsContextSecret,
-    allowLegacy: nhrsContextAllowLegacy,
     requiredMatcher: (req) => req.url.startsWith('/licenses'),
   }));
 
@@ -224,6 +223,11 @@ const app = createApp();
 
 async function start() {
   try {
+    enforceProductionSecrets({
+      env: process.env,
+      required: ['INTERNAL_SERVICE_TOKEN', 'JWT_SECRET', 'NHRS_CONTEXT_HMAC_SECRET', 'MONGODB_URI'],
+      secrets: ['INTERNAL_SERVICE_TOKEN', 'JWT_SECRET', 'NHRS_CONTEXT_HMAC_SECRET'],
+    });
     await app.connect();
     await app.startOutboxWorker();
     await app.listen({ host: '0.0.0.0', port });
@@ -241,4 +245,5 @@ module.exports = { buildApp: createApp, start };
 if (require.main === module) {
   start();
 }
+
 

@@ -1,5 +1,8 @@
+const { createOutboxRepository } = require('../../../../../libs/shared/src/outbox');
+
 function createRepository(db) {
   const encounters = () => db.collection('encounters');
+  const outbox = createOutboxRepository(db);
 
   async function createIndexes() {
     await Promise.all([
@@ -7,6 +10,7 @@ function createRepository(db) {
       encounters().createIndex({ nin: 1, createdAt: -1 }),
       encounters().createIndex({ providerUserId: 1, createdAt: -1 }),
       encounters().createIndex({ organizationId: 1, branchId: 1, createdAt: -1 }),
+      outbox.createIndexes(),
     ]);
   }
 
@@ -49,6 +53,10 @@ function createRepository(db) {
     listEncountersByNin,
     updateEncounter,
     deleteEncounter,
+    enqueueOutboxEvent: outbox.enqueueOutboxEvent,
+    fetchPendingOutboxEvents: outbox.fetchPendingOutboxEvents,
+    markOutboxDelivered: outbox.markDelivered,
+    markOutboxFailed: outbox.markFailed,
   };
 }
 

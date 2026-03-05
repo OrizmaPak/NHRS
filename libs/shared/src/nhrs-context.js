@@ -71,17 +71,27 @@ function verifySignedContext({ encodedContext, signature, secret, now = new Date
 
 function createContextVerificationHook({
   secret,
-  allowLegacy = true,
+  allowLegacy,
   requiredMatcher = () => false,
 }) {
   return async function nhrsContextHook(req, reply) {
+    const resolvedAllowLegacy = typeof allowLegacy === 'boolean'
+      ? allowLegacy
+      : (
+        process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test'
+          ? String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'false') === 'true'
+          : false
+      );
     const encodedContext = req.headers[CONTEXT_HEADER];
     const signature = req.headers[CONTEXT_SIGNATURE_HEADER];
     const required = !!requiredMatcher(req);
 
     if (!encodedContext || !signature) {
-      if (required && !allowLegacy) {
-        return reply.code(401).send({ message: 'MISSING_TRUST_CONTEXT' });
+      if (required && !resolvedAllowLegacy) {
+        return reply.code(401).send({
+          message: 'MISSING_TRUST_CONTEXT',
+          code: 'MISSING_TRUST_CONTEXT',
+        });
       }
       return;
     }
@@ -92,14 +102,19 @@ function createContextVerificationHook({
       secret,
     });
     if (!verified.ok) {
-      return reply.code(401).send({ message: verified.code });
+      return reply.code(401).send({
+        message: verified.code,
+        code: verified.code,
+      });
     }
 
     req.nhrs = verified.context;
 
     // Trust context over raw headers.
     if (verified.context.orgId) req.headers['x-org-id'] = verified.context.orgId;
+    else delete req.headers['x-org-id'];
     if (verified.context.branchId) req.headers['x-branch-id'] = verified.context.branchId;
+    else delete req.headers['x-branch-id'];
     if (verified.context.requestId) req.headers['x-request-id'] = verified.context.requestId;
     if (!req.auth && verified.context.userId) {
       req.auth = {

@@ -16,7 +16,6 @@ const notificationApiBaseUrl = process.env.NOTIFICATION_API_BASE_URL || 'http://
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
-const nhrsContextAllowLegacy = String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'true') === 'true';
 
 function getClientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
@@ -101,7 +100,6 @@ function createApp(options = {}) {
 
   fastify.addHook('onRequest', createContextVerificationHook({
     secret: nhrsContextSecret,
-    allowLegacy: nhrsContextAllowLegacy,
     requiredMatcher: (req) => req.url.startsWith('/taskforce/'),
   }));
 
@@ -156,3 +154,4 @@ process.on('SIGTERM', async () => { await app.closeService(); process.exit(0); }
 module.exports = { buildApp: createApp, start };
 
 if (require.main === module) start();
+

@@ -1,5 +1,8 @@
+const { createOutboxRepository } = require('../../../../../libs/shared/src/outbox');
+
 function createRepository(db) {
   const dispenses = () => db.collection('pharmacy_dispenses');
+  const outbox = createOutboxRepository(db);
 
   async function createIndexes() {
     await Promise.all([
@@ -7,6 +10,7 @@ function createRepository(db) {
       dispenses().createIndex({ nin: 1, createdAt: -1 }),
       dispenses().createIndex({ providerUserId: 1, createdAt: -1 }),
       dispenses().createIndex({ organizationId: 1, branchId: 1, createdAt: -1 }),
+      outbox.createIndexes(),
     ]);
   }
 
@@ -30,7 +34,18 @@ function createRepository(db) {
     return { items, total };
   }
 
-  return { createIndexes, insertDispense, getDispenseById, deleteDispense, updateDispense, listDispensesByNin };
+  return {
+    createIndexes,
+    insertDispense,
+    getDispenseById,
+    deleteDispense,
+    updateDispense,
+    listDispensesByNin,
+    enqueueOutboxEvent: outbox.enqueueOutboxEvent,
+    fetchPendingOutboxEvents: outbox.fetchPendingOutboxEvents,
+    markOutboxDelivered: outbox.markDelivered,
+    markOutboxFailed: outbox.markFailed,
+  };
 }
 
 module.exports = { createRepository };

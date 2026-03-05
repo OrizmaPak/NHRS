@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
+process.env.NODE_ENV = 'test';
+process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'true';
 const { buildApp } = require('../src/server');
 
 function b64(s) { return Buffer.from(s).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_'); }
@@ -14,9 +16,19 @@ function token(payload, secret = 'change-me') {
 
 function makeDb() {
   const lab_results = [];
+  const outbox_events = [];
   return {
-    __inspect: { lab_results },
+    __inspect: { lab_results, outbox_events },
     collection(name) {
+      if (name === 'outbox_events') {
+        return {
+          createIndex: async () => ({}),
+          insertOne: async (d) => { outbox_events.push(structuredClone(d)); return { acknowledged: true }; },
+          updateOne: async () => ({ acknowledged: true }),
+          findOneAndUpdate: async () => null,
+          find: () => ({ toArray: async () => [] }),
+        };
+      }
       if (name !== 'lab_results') return { createIndex: async () => ({}) };
       return {
         createIndex: async () => ({}),

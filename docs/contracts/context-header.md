@@ -43,6 +43,11 @@ Failure responses:
 - Invalid signature: `401 { "message": "INVALID_TRUST_CONTEXT" }`
 - Expired: `401 { "message": "EXPIRED_TRUST_CONTEXT" }`
 
-## Rollout Mode
-- `NHRS_CONTEXT_ALLOW_LEGACY=true` enables JWT/header fallback when context is absent.
-- Set to `false` to enforce signed context strictly on protected endpoints.
+## Enforcement Mode
+- Non-dev default: legacy fallback is disabled.
+- In `development`/`test`, fallback can be enabled with:
+  - `NHRS_CONTEXT_ALLOW_LEGACY=true`
+- Protected routes return:
+  - `401 MISSING_TRUST_CONTEXT`
+  - `401 INVALID_TRUST_CONTEXT`
+  - `401 EXPIRED_TRUST_CONTEXT`

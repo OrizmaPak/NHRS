@@ -2,6 +2,7 @@ const fastify = require('fastify')({ logger: true });
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { buildEventEnvelope, createOutboxRepository, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
 
 const serviceName = 'membership-service';
 const port = Number(process.env.PORT) || 8103;
@@ -12,11 +13,16 @@ const authApiBaseUrl = process.env.AUTH_API_BASE_URL || 'http://auth-api:8081';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
+const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
+const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
+const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
 
 let dbReady = false;
 let mongoClient;
 let db;
 let fetchClient = (...args) => fetch(...args);
+let outboxRepo = null;
+let outboxTimer = null;
 
 const collections = {
   memberships: () => db.collection('org_memberships'),
@@ -57,16 +63,22 @@ async function callJson(url, options = {}) {
 }
 
 function emitAuditEvent(event) {
-  setImmediate(async () => {
-    try {
-      await fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(event),
-      });
-    } catch (err) {
-      fastify.log.warn({ err, eventType: event?.eventType }, 'Membership audit emit failed');
-    }
+  if (!outboxRepo) return;
+  outboxRepo.enqueueOutboxEvent(buildEventEnvelope({
+    eventType: event.eventType || 'AUDIT_EVENT',
+    sourceService: serviceName,
+    aggregateType: event.resource?.type || 'membership',
+    aggregateId: event.resource?.id || event.metadata?.membershipId || null,
+    payload: event,
+    trace: {
+      requestId: event.metadata?.requestId || null,
+      userId: event.userId || null,
+      orgId: event.organizationId || null,
+      branchId: event.metadata?.branchId || null,
+    },
+    destination: 'audit',
+  })).catch((err) => {
+    fastify.log.warn({ err, eventType: event?.eventType }, 'Membership outbox enqueue failed');
   });
 }
 
@@ -181,6 +193,7 @@ async function connect() {
     db = mongoClient.db(dbName);
     await db.command({ ping: 1 });
     dbReady = true;
+    outboxRepo = createOutboxRepository(db);
 
     await Promise.all([
       collections.memberships().createIndex({ membershipId: 1 }, { unique: true }),
@@ -190,10 +203,36 @@ async function connect() {
       collections.assignments().createIndex({ organizationId: 1, membershipId: 1 }),
       collections.events().createIndex({ membershipId: 1, timestamp: -1 }),
       collections.events().createIndex({ organizationId: 1, timestamp: -1 }),
+      outboxRepo.createIndexes(),
     ]);
   } catch (err) {
     fastify.log.warn({ err }, 'MongoDB connection failed');
   }
+}
+
+async function flushOutboxOnce() {
+  if (!outboxRepo) return;
+  await deliverOutboxBatch({
+    outboxRepo,
+    logger: fastify.log,
+    batchSize: outboxBatchSize,
+    maxAttempts: outboxMaxAttempts,
+    handlers: {
+      audit: async (event) => {
+        const res = await fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ eventId: event.eventId, ...event.payload, createdAt: event.createdAt }),
+        });
+        if (!res.ok) throw new Error(`audit delivery failed: ${res.status}`);
+      },
+    },
+  });
+}
+
+function startOutboxWorker() {
+  if (outboxTimer) return;
+  outboxTimer = setInterval(() => { void flushOutboxOnce(); }, outboxIntervalMs);
 }
 
 fastify.addHook('onRequest', async (req, reply) => {
@@ -1523,6 +1562,7 @@ fastify.post('/internal/memberships/bootstrap', {
 const start = async () => {
   try {
     await connect();
+    startOutboxWorker();
     await fastify.listen({ port, host: '0.0.0.0' });
   } catch (err) {
     fastify.log.error(err);
@@ -1532,6 +1572,7 @@ const start = async () => {
 
 const shutdown = async () => {
   try {
+    if (outboxTimer) clearInterval(outboxTimer);
     if (mongoClient) await mongoClient.close();
   } finally {
     process.exit(0);

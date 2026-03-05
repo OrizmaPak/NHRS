@@ -3,7 +3,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 function now() { return new Date(); }
 
 function emitAudit(deps, req, event) {
-  deps.emitAuditEvent({ ipAddress: req.ip, userAgent: req.headers['user-agent'] || null, ...event });
+  return deps.emitAuditEvent({ ipAddress: req.ip, userAgent: req.headers['user-agent'] || null, ...event }, req);
 }
 
 function registerRoutes(fastify, deps) {
@@ -73,11 +73,11 @@ function registerRoutes(fastify, deps) {
     });
     if (!indexResult.ok) {
       await deps.repository.deleteDispense(dispense.dispenseId);
-      emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'INDEX_REGISTRATION_FAILED', action: 'pharmacy.create', outcome: 'failure', metadata: { dispenseId: dispense.dispenseId, nin: dispense.nin } });
+      await emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'INDEX_REGISTRATION_FAILED', action: 'pharmacy.create', outcome: 'failure', metadata: { dispenseId: dispense.dispenseId, nin: dispense.nin } });
       return reply.code(502).send({ message: 'Failed to register timeline index entry' });
     }
 
-    emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'PHARMACY_DISPENSE_CREATED', action: 'pharmacy.create', outcome: 'success', metadata: { dispenseId: dispense.dispenseId, nin: dispense.nin } });
+    await emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'PHARMACY_DISPENSE_CREATED', action: 'pharmacy.create', outcome: 'success', metadata: { dispenseId: dispense.dispenseId, nin: dispense.nin } });
     return reply.code(201).send({ dispense });
   });
 
@@ -106,7 +106,7 @@ function registerRoutes(fastify, deps) {
     const to = req.query?.to ? new Date(req.query.to) : null;
     const { items, total } = await deps.repository.listDispensesByNin(String(req.params.nin), from, to, page, limit);
 
-    emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'PROVIDER_RECORD_VIEWED', action: 'pharmacy.read', outcome: 'success', metadata: { nin: String(req.params.nin), count: items.length } });
+    await emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'PROVIDER_RECORD_VIEWED', action: 'pharmacy.read', outcome: 'success', metadata: { nin: String(req.params.nin), count: items.length } });
     return reply.send({ page, limit, total, items });
   });
 
@@ -156,13 +156,13 @@ function registerRoutes(fastify, deps) {
     if (!existing) return reply.code(404).send({ message: 'Dispense record not found' });
     if (String(existing.providerUserId) !== req.auth.userId) return reply.code(403).send({ message: 'Only the creator can edit this record' });
     if (existing.editableUntil && new Date(existing.editableUntil).getTime() < Date.now()) {
-      emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'CORRECTION_REQUEST_CREATED', action: 'pharmacy.update', outcome: 'failure', metadata: { dispenseId: existing.dispenseId, reason: 'edit_window_expired' } });
+      await emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'CORRECTION_REQUEST_CREATED', action: 'pharmacy.update', outcome: 'failure', metadata: { dispenseId: existing.dispenseId, reason: 'edit_window_expired' } });
       return reply.code(403).send({ message: 'EDIT_WINDOW_EXPIRED_USE_TASKFORCE_WORKFLOW' });
     }
 
     await deps.repository.updateDispense(existing.dispenseId, { ...req.body, updatedAt: now() });
     const updated = await deps.repository.getDispenseById(existing.dispenseId);
-    emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'PHARMACY_DISPENSE_UPDATED', action: 'pharmacy.update', outcome: 'success', metadata: { dispenseId: existing.dispenseId } });
+    await emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'PHARMACY_DISPENSE_UPDATED', action: 'pharmacy.update', outcome: 'success', metadata: { dispenseId: existing.dispenseId } });
     return reply.send({ dispense: updated });
   });
 }

@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
+process.env.NODE_ENV = 'test';
+process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'true';
 const { buildApp } = require('../src/server');
 const { buildSignedContext, encodeContext, signEncodedContext } = require('../../../../libs/shared/src/nhrs-context');
 
@@ -18,9 +20,19 @@ function makeToken(payload, secret = 'change-me') {
 
 function makeDb() {
   const encounters = [];
+  const outbox = [];
   return {
-    __inspect: { encounters },
+    __inspect: { encounters, outbox },
     collection(name) {
+      if (name === 'outbox_events') {
+        return {
+          createIndex: async () => ({}),
+          insertOne: async (doc) => { outbox.push(structuredClone(doc)); return { acknowledged: true }; },
+          updateOne: async () => ({ acknowledged: true }),
+          findOneAndUpdate: async () => null,
+          find: () => ({ toArray: async () => [] }),
+        };
+      }
       if (name !== 'encounters') return { createIndex: async () => ({}) };
       return {
         createIndex: async () => ({}),
@@ -264,4 +276,55 @@ test('accepts valid trusted context and populates req.auth from context', async 
   assert.equal(res.statusCode, 201);
   assert.equal(res.json().encounter.providerUserId, 'provider-from-context');
   assert.equal(res.json().encounter.organizationId, 'org-ctx');
+});
+
+test('rejects missing trusted context when legacy fallback is disabled', async () => {
+  process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'false';
+  const { app } = ctx(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) }));
+  const token = makeToken({ sub: 'provider-ctx-missing' });
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/encounters/90000000010',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'x-org-id': 'org-1',
+    },
+    payload: { visitType: 'outpatient', chiefComplaint: 'Body pain' },
+  });
+  assert.ok([401, 403].includes(res.statusCode));
+  process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'true';
+});
+
+test('rejects expired trusted context', async () => {
+  process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'false';
+  const { app } = ctx(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) }));
+  const now = new Date();
+  const payload = buildSignedContext({
+    requestId: 'req-expired-ctx',
+    userId: 'provider-expired',
+    roles: ['doctor'],
+    orgId: 'org-1',
+    branchId: 'b-1',
+    permissionsChecked: ['encounters.create'],
+    membershipChecked: true,
+    ttlSeconds: 1,
+    now: new Date(now.getTime() - 5000),
+  });
+  const encoded = encodeContext(payload);
+  const signature = signEncodedContext(encoded, process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret');
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/encounters/90000000011',
+    headers: {
+      authorization: 'Bearer invalid.token',
+      'x-nhrs-context': encoded,
+      'x-nhrs-context-signature': signature,
+    },
+    payload: { visitType: 'outpatient', chiefComplaint: 'Pain' },
+  });
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.json().message, 'EXPIRED_TRUST_CONTEXT');
+  process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'true';
 });

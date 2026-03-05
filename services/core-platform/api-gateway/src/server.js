@@ -9,6 +9,8 @@ const swaggerUi = require('@fastify/swagger-ui');
 const { findPermissionRule } = require('./permissions/registry');
 const { evaluateAuthzResponse } = require('./authz');
 const { buildAuditPayload } = require('./audit-utils');
+const { setStandardErrorHandler } = require('../../../../libs/shared/src/errors');
+const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
 const {
   CONTEXT_HEADER,
   CONTEXT_SIGNATURE_HEADER,
@@ -41,6 +43,7 @@ const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
 const nhrsContextTtlSeconds = Number(process.env.NHRS_CONTEXT_TTL_SECONDS) || 60;
 const docsExportPath = process.env.DOCS_EXPORT_PATH;
+const gatewayRateLimitWindowSec = Number(process.env.GATEWAY_RATE_LIMIT_WINDOW_SEC) || 60;
 
 let dbReady = false;
 let mongoClient;
@@ -48,6 +51,8 @@ let redisClient;
 let redisReady = false;
 let fetchClient = (...args) => fetch(...args);
 let routesRegistered = false;
+const memoryRateLimitBuckets = new Map();
+const memoryIdempotency = new Map();
 
 const errorMessageSchema = {
   type: 'object',
@@ -131,6 +136,141 @@ function parseTokenPayload(authorization) {
   }
 }
 
+function getRequestId(req) {
+  return String(req.headers['x-request-id'] || req.id || crypto.randomUUID());
+}
+
+function getTokenIdentity(req) {
+  const payload = parseTokenPayload(req.headers.authorization || '');
+  return {
+    userId: payload?.sub ? String(payload.sub) : null,
+    roles: Array.isArray(payload?.roles) ? payload.roles.map((r) => String(r)) : [],
+  };
+}
+
+function rateLimitPolicy(req) {
+  const routePath = req.routeOptions?.url || req.url.split('?')[0];
+  if (routePath.startsWith('/auth/')) {
+    return [{ key: `ip:${getClientIp(req)}:auth`, max: 10, windowSec: 60 }];
+  }
+  if (routePath === '/emergency/requests' && req.method === 'POST') {
+    const { userId } = getTokenIdentity(req);
+    const rules = [{ key: `ip:${getClientIp(req)}:emergency`, max: 60, windowSec: 60 }];
+    if (userId) rules.push({ key: `user:${userId}:emergency`, max: 30, windowSec: 60 });
+    return rules;
+  }
+  if ((routePath === '/doctors/search' || routePath === '/emergency/inventory/search') && req.method === 'GET') {
+    return [{ key: `ip:${getClientIp(req)}:search`, max: 60, windowSec: 60 }];
+  }
+  const { userId } = getTokenIdentity(req);
+  if (userId) {
+    return [{ key: `user:${userId}:general`, max: 300, windowSec: gatewayRateLimitWindowSec }];
+  }
+  return [{ key: `ip:${getClientIp(req)}:general`, max: 300, windowSec: gatewayRateLimitWindowSec }];
+}
+
+async function consumeRateLimitBucket(key, max, windowSec) {
+  if (redisReady && redisClient) {
+    const redisKey = `gateway:rl:${key}`;
+    const count = await redisClient.incr(redisKey);
+    if (count === 1) {
+      await redisClient.expire(redisKey, windowSec);
+    }
+    if (count > max) {
+      const ttl = await redisClient.ttl(redisKey);
+      return { allowed: false, retryAfterSeconds: Math.max(ttl, 1) };
+    }
+    return { allowed: true, retryAfterSeconds: 0 };
+  }
+
+  const nowMs = Date.now();
+  const current = memoryRateLimitBuckets.get(key);
+  if (!current || current.resetAt <= nowMs) {
+    memoryRateLimitBuckets.set(key, { count: 1, resetAt: nowMs + (windowSec * 1000) });
+    return { allowed: true, retryAfterSeconds: 0 };
+  }
+  current.count += 1;
+  if (current.count > max) {
+    return { allowed: false, retryAfterSeconds: Math.max(Math.ceil((current.resetAt - nowMs) / 1000), 1) };
+  }
+  return { allowed: true, retryAfterSeconds: 0 };
+}
+
+async function applyRateLimit(req, reply) {
+  const rules = rateLimitPolicy(req);
+  for (const rule of rules) {
+    const decision = await consumeRateLimitBucket(rule.key, rule.max, rule.windowSec);
+    if (!decision.allowed) {
+      return reply.code(429).send({
+        message: 'RATE_LIMITED',
+        code: 'RATE_LIMITED',
+        retryAfterSeconds: decision.retryAfterSeconds,
+      });
+    }
+  }
+}
+
+function isIdempotentProtectedRoute(method, routePath) {
+  if (method !== 'POST') return false;
+  if (routePath === '/emergency/requests') return true;
+  if (/^\/records\/[^/]+\/entries$/.test(routePath)) return true;
+  if (/^\/encounters\/[^/]+$/.test(routePath)) return true;
+  if (/^\/labs\/[^/]+\/results$/.test(routePath)) return true;
+  if (/^\/pharmacy\/[^/]+\/dispenses$/.test(routePath)) return true;
+  if (routePath === '/cases') return true;
+  if (/^\/licenses\/[^/]+\/(verify|suspend|revoke|reinstate)$/.test(routePath)) return true;
+  return false;
+}
+
+function computeBodyHash(body) {
+  return crypto.createHash('sha256').update(JSON.stringify(body || {})).digest('hex');
+}
+
+function idempotencyMemKey(routePath, scope, key) {
+  return `${routePath}:${scope}:${key}`;
+}
+
+async function applyIdempotency(req, reply) {
+  const routePath = req.routeOptions?.url || req.url.split('?')[0];
+  if (!isIdempotentProtectedRoute(req.method, routePath)) return;
+  const idempotencyKey = req.headers['idempotency-key'];
+  if (!idempotencyKey) return;
+  const identity = getTokenIdentity(req);
+  const scope = identity.userId || `ip:${getClientIp(req)}`;
+  const requestHash = computeBodyHash(req.body);
+  const key = String(idempotencyKey);
+
+  if (!dbReady || !mongoClient) {
+    const memKey = idempotencyMemKey(routePath, scope, key);
+    const existing = memoryIdempotency.get(memKey);
+    if (existing) {
+      if (existing.requestHash !== requestHash) {
+        return reply.code(409).send({ message: 'IDEMPOTENCY_KEY_REUSED', code: 'IDEMPOTENCY_KEY_REUSED' });
+      }
+      reply.header('x-idempotency-replayed', 'true');
+      return reply.code(existing.responseStatus).send(existing.responseBody);
+    }
+    req.idempotencyContext = { memKey, requestHash };
+    return;
+  }
+
+  const col = mongoClient.db(dbName).collection('idempotency_keys');
+  const existing = await col.findOne({ key, scope, route: routePath });
+  if (existing) {
+    if (existing.requestHash !== requestHash) {
+      return reply.code(409).send({ message: 'IDEMPOTENCY_KEY_REUSED', code: 'IDEMPOTENCY_KEY_REUSED' });
+    }
+    reply.header('x-idempotency-replayed', 'true');
+    return reply.code(existing.responseStatus).send(existing.responseBody);
+  }
+  req.idempotencyContext = {
+    key,
+    scope,
+    route: routePath,
+    requestHash,
+  };
+}
+
 function emitAuditEvent(event) {
   const payload = buildAuditPayload(event);
   setImmediate(async () => {
@@ -163,6 +303,10 @@ async function connectToMongo() {
   try {
     await mongoClient.connect();
     await mongoClient.db('admin').command({ ping: 1 });
+    await mongoClient.db(dbName).collection('idempotency_keys').createIndexes([
+      { key: { key: 1, scope: 1, route: 1 }, unique: true },
+      { key: { createdAt: 1 }, expireAfterSeconds: 24 * 60 * 60 },
+    ]);
     dbReady = true;
     fastify.log.info({ dbName }, 'MongoDB connection established');
   } catch (err) {
@@ -299,18 +443,19 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
 
   const raw = await response.text();
   const contentType = response.headers.get('content-type') || 'application/json';
-  reply.code(response.status);
-  reply.header('content-type', contentType);
-
-  if (!raw) {
-    return reply.send();
+  let parsedBody = null;
+  if (raw) {
+    try {
+      parsedBody = JSON.parse(raw);
+    } catch (_err) {
+      parsedBody = raw;
+    }
   }
-
-  try {
-    return reply.send(JSON.parse(raw));
-  } catch (_err) {
-    return reply.send(raw);
-  }
+  return {
+    statusCode: response.status,
+    contentType,
+    body: parsedBody,
+  };
 }
 
 async function enforcePermission(req, reply) {
@@ -402,7 +547,17 @@ async function enforcePermission(req, reply) {
       }),
     });
 
-    const checkBody = await checkResponse.json();
+    let checkBody = null;
+    try {
+      if (typeof checkResponse.text === 'function') {
+        const raw = await checkResponse.text();
+        checkBody = raw ? JSON.parse(raw) : null;
+      } else if (typeof checkResponse.json === 'function') {
+        checkBody = await checkResponse.json();
+      }
+    } catch (_err) {
+      checkBody = null;
+    }
     const decision = evaluateAuthzResponse({
       rule,
       hasBearerToken,
@@ -456,13 +611,36 @@ function registerProxyRoute({ method, publicRoute = false, url, targetBase, targ
     url,
     schema: routeSchema,
     config: { publicRoute },
-    preHandler: enforcePermission,
+    preHandler: [applyRateLimit, applyIdempotency, enforcePermission],
     handler: async (req, reply) => {
       try {
-        return await forwardRequest(targetBase, req, reply, typeof targetPath === 'function' ? targetPath(req) : targetPath);
+        const result = await forwardRequest(targetBase, req, reply, typeof targetPath === 'function' ? targetPath(req) : targetPath);
+        if (req.idempotencyContext && result.statusCode >= 200 && result.statusCode < 500) {
+          if (dbReady && mongoClient) {
+            await mongoClient.db(dbName).collection('idempotency_keys').insertOne({
+              key: req.idempotencyContext.key,
+              scope: req.idempotencyContext.scope,
+              route: req.idempotencyContext.route,
+              requestHash: req.idempotencyContext.requestHash,
+              responseStatus: result.statusCode,
+              responseBody: result.body,
+              createdAt: new Date(),
+            });
+          } else {
+            memoryIdempotency.set(req.idempotencyContext.memKey, {
+              requestHash: req.idempotencyContext.requestHash,
+              responseStatus: result.statusCode,
+              responseBody: result.body,
+              createdAt: Date.now(),
+            });
+          }
+        }
+        reply.code(result.statusCode).header('content-type', result.contentType);
+        if (typeof result.body === 'undefined' || result.body === null) return reply.send();
+        return reply.send(result.body);
       } catch (err) {
         req.log.error({ err, url }, 'Downstream request failed');
-        return reply.code(502).send({ message: 'Downstream service unavailable' });
+        return reply.code(502).send({ message: 'Downstream service unavailable', code: 'DOWNSTREAM_UNAVAILABLE' });
       }
     },
   });
@@ -1184,8 +1362,24 @@ async function registerGatewayRoutes() {
   routesRegistered = true;
 }
 
+fastify.addHook('onRequest', async (req) => {
+  req.headers['x-request-id'] = getRequestId(req);
+});
+
+fastify.addHook('onSend', async (req, reply, payload) => {
+  reply.header('x-request-id', req.headers['x-request-id'] || getRequestId(req));
+  return payload;
+});
+
+setStandardErrorHandler(fastify);
+
 const start = async () => {
   try {
+    enforceProductionSecrets({
+      env: process.env,
+      required: ['INTERNAL_SERVICE_TOKEN', 'NHRS_CONTEXT_HMAC_SECRET', 'JWT_SECRET'],
+      secrets: ['INTERNAL_SERVICE_TOKEN', 'NHRS_CONTEXT_HMAC_SECRET', 'JWT_SECRET'],
+    });
     await connectToMongo();
     await connectToRedis();
     await registerGatewayRoutes();
@@ -1224,6 +1418,10 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 async function buildApp(options = {}) {
+  if (options.resetState !== false) {
+    memoryRateLimitBuckets.clear();
+    memoryIdempotency.clear();
+  }
   if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {
     dbReady = !!options.dbReady;
   }

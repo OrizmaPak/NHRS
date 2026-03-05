@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
+process.env.NODE_ENV = 'test';
+process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'true';
 const { buildApp } = require('../src/server');
 
 function b64(input) { return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_'); }
@@ -246,4 +248,22 @@ test('escalation reassigns higher unit and adds participants, logs action', asyn
   assert.equal(room.participants.some((p) => p.userId === 'state-reviewer'), true);
   const escalatedAction = db.__stores.case_actions.items.find((x) => x.caseId === 'case-3' && x.actionType === 'ESCALATED');
   assert.equal(Boolean(escalatedAction), true);
+});
+
+test('missing trusted context is rejected on protected governance routes when legacy fallback disabled', async () => {
+  process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'false';
+  const { app } = setup(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) }));
+  const token = makeToken({ sub: 'user-ctx' });
+  const res = await app.inject({
+    method: 'POST',
+    url: '/cases',
+    headers: { authorization: `Bearer ${token}` },
+    payload: {
+      caseType: 'CITIZEN_COMPLAINT',
+      subject: 'Need support',
+      description: 'Missing context test',
+    },
+  });
+  assert.ok([401, 403].includes(res.statusCode));
+  process.env.NHRS_CONTEXT_ALLOW_LEGACY = 'true';
 });

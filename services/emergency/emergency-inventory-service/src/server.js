@@ -7,6 +7,7 @@ const { registerResponseRoutes } = require('./routes/responses');
 const { registerRoomRoutes } = require('./routes/rooms');
 const { registerInventoryRoutes } = require('./routes/inventory');
 const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
+const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
 
 const serviceName = 'emergency-inventory-service';
 const port = Number(process.env.PORT) || 8108;
@@ -17,7 +18,6 @@ const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:809
 const notificationApiBaseUrl = process.env.NOTIFICATION_API_BASE_URL || 'http://notification-service:8101';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
-const nhrsContextAllowLegacy = String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'true') === 'true';
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
 const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
 const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
@@ -136,7 +136,6 @@ function createApp(options = {}) {
 
   fastify.addHook('onRequest', createContextVerificationHook({
     secret: nhrsContextSecret,
-    allowLegacy: nhrsContextAllowLegacy,
     requiredMatcher: (req) => {
       const p = req.url.split('?')[0];
       return p.endsWith('/responses') || p === '/emergency/inventory/me';
@@ -230,6 +229,11 @@ const app = createApp();
 
 async function start() {
   try {
+    enforceProductionSecrets({
+      env: process.env,
+      required: ['JWT_SECRET', 'NHRS_CONTEXT_HMAC_SECRET', 'MONGODB_URI'],
+      secrets: ['JWT_SECRET', 'NHRS_CONTEXT_HMAC_SECRET'],
+    });
     await app.connect();
     await app.startOutboxWorker();
     await app.listen({ host: '0.0.0.0', port });
@@ -250,3 +254,4 @@ module.exports = {
 if (require.main === module) {
   start();
 }
+
