@@ -6,23 +6,6 @@ function emitAudit(deps, req, event) {
   deps.emitAuditEvent({ ipAddress: req.ip, userAgent: req.headers['user-agent'] || null, ...event });
 }
 
-async function registerIndexEntry(deps, req, nin, dispense) {
-  return deps.callJson(`${deps.healthRecordsIndexApiBaseUrl}/records/${encodeURIComponent(nin)}/entries`, {
-    method: 'POST',
-    headers: {
-      authorization: req.headers.authorization,
-      'x-org-id': req.headers['x-org-id'],
-      'x-branch-id': req.headers['x-branch-id'] || '',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      entryType: 'pharmacy_dispense',
-      payload: { itemCount: Array.isArray(dispense.items) ? dispense.items.length : 0 },
-      pointers: { service: 'pharmacy-dispense-service', resourceId: dispense.dispenseId },
-    }),
-  });
-}
-
 function registerRoutes(fastify, deps) {
   const err = { type: 'object', required: ['message'], properties: { message: { type: 'string' } } };
 
@@ -64,13 +47,30 @@ function registerRoutes(fastify, deps) {
       items: Array.isArray(req.body?.items) ? req.body.items : [],
       instructions: req.body?.instructions || null,
       notes: req.body?.notes || null,
+      pointers: {
+        service: 'pharmacy-dispense-service',
+        resourceId: null,
+      },
       createdAt: now(),
       updatedAt: now(),
       editableUntil: new Date(Date.now() + DAY_MS),
     };
+    dispense.pointers.resourceId = dispense.dispenseId;
 
     await deps.repository.insertDispense(dispense);
-    const indexResult = await registerIndexEntry(deps, req, dispense.nin, dispense);
+    const indexResult = await deps.registerIndexEntry({
+      callJson: deps.callJson,
+      baseUrl: deps.healthRecordsIndexApiBaseUrl,
+      nin: dispense.nin,
+      entryType: 'pharmacy_dispense',
+      pointers: dispense.pointers,
+      token: req.headers.authorization,
+      orgId: req.headers['x-org-id'],
+      branchId: req.headers['x-branch-id'] || '',
+      payload: {
+        itemCount: Array.isArray(dispense.items) ? dispense.items.length : 0,
+      },
+    });
     if (!indexResult.ok) {
       await deps.repository.deleteDispense(dispense.dispenseId);
       emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'INDEX_REGISTRATION_FAILED', action: 'pharmacy.create', outcome: 'failure', metadata: { dispenseId: dispense.dispenseId, nin: dispense.nin } });

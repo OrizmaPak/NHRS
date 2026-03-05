@@ -23,6 +23,7 @@ const healthRecordsIndexApiBaseUrl = process.env.HEALTH_RECORDS_INDEX_API_BASE_U
 const clinicalEncounterApiBaseUrl = process.env.CLINICAL_ENCOUNTER_API_BASE_URL || 'http://clinical-encounter-service:8105';
 const laboratoryResultApiBaseUrl = process.env.LABORATORY_RESULT_API_BASE_URL || 'http://laboratory-result-service:8106';
 const pharmacyDispenseApiBaseUrl = process.env.PHARMACY_DISPENSE_API_BASE_URL || 'http://pharmacy-dispense-service:8107';
+const emergencyInventoryApiBaseUrl = process.env.EMERGENCY_INVENTORY_API_BASE_URL || 'http://emergency-inventory-service:8108';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL_SEC) || 60;
@@ -908,6 +909,48 @@ function registerProviderRecordsRoutes() {
   }
 }
 
+function registerEmergencyRoutes() {
+  const routeDefs = [
+    ['POST', '/emergency/requests', '/emergency/requests'],
+    ['GET', '/emergency/requests', '/emergency/requests'],
+    ['GET', '/emergency/requests/:requestId', '/emergency/requests/:requestId'],
+    ['PATCH', '/emergency/requests/:requestId/status', '/emergency/requests/:requestId/status'],
+    ['POST', '/emergency/requests/:requestId/responses', '/emergency/requests/:requestId/responses'],
+    ['GET', '/emergency/requests/:requestId/responses', '/emergency/requests/:requestId/responses'],
+    ['GET', '/emergency/requests/:requestId/room', '/emergency/requests/:requestId/room'],
+    ['POST', '/emergency/rooms/:roomId/messages', '/emergency/rooms/:roomId/messages'],
+    ['GET', '/emergency/rooms/:roomId/messages', '/emergency/rooms/:roomId/messages'],
+    ['PUT', '/emergency/inventory/me', '/emergency/inventory/me'],
+    ['GET', '/emergency/inventory/search', '/emergency/inventory/search'],
+  ];
+
+  for (const [method, routePath, upstreamPath] of routeDefs) {
+    registerProxyRoute({
+      method,
+      url: routePath,
+      targetBase: emergencyInventoryApiBaseUrl,
+      targetPath: (req) => {
+        let p = upstreamPath;
+        for (const [k, v] of Object.entries(req.params || {})) {
+          p = p.replace(`:${k}`, encodeURIComponent(String(v)));
+        }
+        return p;
+      },
+      schema: {
+        tags: ['Emergency'],
+        summary: `Proxy ${method} ${routePath}`,
+        description: 'Emergency requests, provider responses, incident rooms, and inventory discovery endpoints.',
+        security: [{ bearerAuth: [] }],
+        headers: authHeaderSchema(true),
+        params: { type: 'object', additionalProperties: true },
+        querystring: { type: 'object', additionalProperties: true },
+        body: { type: 'object', additionalProperties: true },
+        response: standardResponses({ 200: { type: 'object' }, 201: { type: 'object' } }),
+      },
+    });
+  }
+}
+
 async function registerDocs() {
   await fastify.register(swagger, {
     openapi: {
@@ -933,6 +976,7 @@ async function registerDocs() {
         { name: 'Membership', description: 'Membership and branch assignment endpoints' },
         { name: 'Health Records', description: 'Citizen/provider timeline metadata endpoints' },
         { name: 'Provider Records', description: 'Provider clinical content modules (encounters, labs, pharmacy)' },
+        { name: 'Emergency', description: 'Emergency requests, provider responses, incident rooms, and inventory discovery' },
       ],
       components: {
         securitySchemes: {
@@ -983,6 +1027,7 @@ async function registerGatewayRoutes() {
   registerOrganizationMembershipRoutes();
   registerHealthRecordsRoutes();
   registerProviderRecordsRoutes();
+  registerEmergencyRoutes();
   routesRegistered = true;
 }
 

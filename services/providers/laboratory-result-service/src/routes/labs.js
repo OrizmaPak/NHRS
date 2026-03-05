@@ -7,23 +7,6 @@ function emitAudit(deps, req, event) {
   deps.emitAuditEvent({ ipAddress: req.ip, userAgent: req.headers['user-agent'] || null, ...event });
 }
 
-async function registerIndexEntry(deps, req, nin, result) {
-  return deps.callJson(`${deps.healthRecordsIndexApiBaseUrl}/records/${encodeURIComponent(nin)}/entries`, {
-    method: 'POST',
-    headers: {
-      authorization: req.headers.authorization,
-      'x-org-id': req.headers['x-org-id'],
-      'x-branch-id': req.headers['x-branch-id'] || '',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      entryType: 'lab_result',
-      payload: { testName: result.testName, testCode: result.testCode },
-      pointers: { service: 'laboratory-result-service', resourceId: result.resultId },
-    }),
-  });
-}
-
 function registerRoutes(fastify, deps) {
   const baseError = { type: 'object', required: ['message'], properties: { message: { type: 'string' } } };
 
@@ -70,13 +53,31 @@ function registerRoutes(fastify, deps) {
       values: Array.isArray(req.body.values) ? req.body.values : [],
       interpretation: req.body.interpretation || null,
       notes: req.body.notes || null,
+      pointers: {
+        service: 'laboratory-result-service',
+        resourceId: null,
+      },
       createdAt: now(),
       updatedAt: now(),
       editableUntil: new Date(Date.now() + DAY_MS),
     };
+    result.pointers.resourceId = result.resultId;
 
     await deps.repository.insertResult(result);
-    const indexResult = await registerIndexEntry(deps, req, result.nin, result);
+    const indexResult = await deps.registerIndexEntry({
+      callJson: deps.callJson,
+      baseUrl: deps.healthRecordsIndexApiBaseUrl,
+      nin: result.nin,
+      entryType: 'lab_result',
+      pointers: result.pointers,
+      token: req.headers.authorization,
+      orgId: req.headers['x-org-id'],
+      branchId: req.headers['x-branch-id'] || '',
+      payload: {
+        testName: result.testName,
+        testCode: result.testCode,
+      },
+    });
     if (!indexResult.ok) {
       await deps.repository.deleteResult(result.resultId);
       emitAudit(deps, req, { userId: req.auth.userId, organizationId, eventType: 'INDEX_REGISTRATION_FAILED', action: 'labs.create', outcome: 'failure', metadata: { resultId: result.resultId, nin: result.nin } });

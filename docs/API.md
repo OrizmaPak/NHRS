@@ -193,6 +193,21 @@ When a citizen with matching NIN logs in, auth calls `POST /internal/memberships
 | GET | `/pharmacy/dispenses/id/:dispenseId` | Bearer + `x-org-id` | Read one dispense |
 | PATCH | `/pharmacy/dispenses/id/:dispenseId` | Bearer + `x-org-id` | Creator-only update within 24h |
 
+### Emergency Inventory Module
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| POST | `/emergency/requests` | Bearer | Create emergency request, auto-create incident room, route scope alerts |
+| GET | `/emergency/requests` | Bearer | List requests with filters (`status,scopeLevel,state,lga,page,limit`) |
+| GET | `/emergency/requests/:requestId` | Bearer | Read request + roomId + responses summary |
+| PATCH | `/emergency/requests/:requestId/status` | Bearer | Update status and add room system message |
+| POST | `/emergency/requests/:requestId/responses` | Bearer + `x-org-id` | Provider response with availability/ETA/transfer options |
+| GET | `/emergency/requests/:requestId/responses` | Bearer | List provider responses |
+| GET | `/emergency/requests/:requestId/room` | Bearer | Incident room details and participants |
+| POST | `/emergency/rooms/:roomId/messages` | Bearer | Post incident room message |
+| GET | `/emergency/rooms/:roomId/messages` | Bearer | Paginated room messages (newest last) |
+| PUT | `/emergency/inventory/me` | Bearer + `x-org-id` | Upsert provider inventory for discovery |
+| GET | `/emergency/inventory/search` | Bearer | Search inventory by item/scope |
+
 ### Tokens
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|

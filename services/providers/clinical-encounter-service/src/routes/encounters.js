@@ -14,33 +14,6 @@ function emitAudit(deps, req, event) {
   });
 }
 
-async function registerIndexEntry(deps, req, nin, encounter) {
-  const indexPayload = {
-    entryType: 'encounter',
-    payload: {
-      visitType: encounter.visitType,
-      chiefComplaint: encounter.chiefComplaint,
-    },
-    pointers: {
-      service: 'clinical-encounter-service',
-      resourceId: encounter.encounterId,
-    },
-  };
-
-  const response = await deps.callJson(`${deps.healthRecordsIndexApiBaseUrl}/records/${encodeURIComponent(nin)}/entries`, {
-    method: 'POST',
-    headers: {
-      authorization: req.headers.authorization,
-      'x-org-id': req.headers['x-org-id'],
-      'x-branch-id': req.headers['x-branch-id'] || '',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(indexPayload),
-  });
-
-  return response;
-}
-
 function registerRoutes(fastify, deps) {
   const baseError = {
     type: 'object',
@@ -110,13 +83,31 @@ function registerRoutes(fastify, deps) {
       vitals: req.body.vitals || {},
       diagnosisCodes: Array.isArray(req.body.diagnosisCodes) ? req.body.diagnosisCodes : [],
       diagnosisText: req.body.diagnosisText || null,
+      pointers: {
+        service: 'clinical-encounter-service',
+        resourceId: null,
+      },
       createdAt: now(),
       updatedAt: now(),
       editableUntil: new Date(Date.now() + DAY_MS),
     };
+    encounter.pointers.resourceId = encounter.encounterId;
 
     await deps.repository.insertEncounter(encounter);
-    const indexResult = await registerIndexEntry(deps, req, encounter.nin, encounter);
+    const indexResult = await deps.registerIndexEntry({
+      callJson: deps.callJson,
+      baseUrl: deps.healthRecordsIndexApiBaseUrl,
+      nin: encounter.nin,
+      entryType: 'encounter',
+      pointers: encounter.pointers,
+      token: req.headers.authorization,
+      orgId: req.headers['x-org-id'],
+      branchId: req.headers['x-branch-id'] || '',
+      payload: {
+        visitType: encounter.visitType,
+        chiefComplaint: encounter.chiefComplaint,
+      },
+    });
     if (!indexResult.ok) {
       await deps.repository.deleteEncounter(encounter.encounterId);
       emitAudit(deps, req, {

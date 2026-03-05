@@ -48,6 +48,8 @@ test('create dispense registers index and read works', async () => {
   const create = await app.inject({ method: 'POST', url: '/pharmacy/90000000111/dispenses', headers: { authorization: `Bearer ${tk}`, 'x-org-id': 'org-1' }, payload: { items: [{ drugName: 'Paracetamol' }] } });
   assert.equal(create.statusCode, 201);
   assert.equal(indexCalls, 1);
+  assert.equal(create.json().dispense.pointers?.service, 'pharmacy-dispense-service');
+  assert.equal(create.json().dispense.pointers?.resourceId, create.json().dispense.dispenseId);
 
   const read = await app.inject({ method: 'GET', url: '/pharmacy/90000000111/dispenses', headers: { authorization: `Bearer ${tk}`, 'x-org-id': 'org-1' } });
   assert.equal(read.statusCode, 200);
@@ -85,4 +87,20 @@ test('missing org header and index failure errors are consistent', async () => {
   const idxFail = await app.inject({ method: 'POST', url: '/pharmacy/90000000113/dispenses', headers: { authorization: `Bearer ${tk}`, 'x-org-id': 'org-1' }, payload: { items: [] } });
   assert.equal(idxFail.statusCode, 502);
   assert.ok(idxFail.json().message);
+});
+
+test('creator-only edit is enforced for dispenses', async () => {
+  const { app } = setup(async (url) => {
+    const t = String(url);
+    if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/records/90000000114/entries')) return { ok: true, status: 201, text: async () => JSON.stringify({}) };
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+  const creator = token({ sub: 'pharm-owner' });
+  const other = token({ sub: 'pharm-other' });
+  const created = await app.inject({ method: 'POST', url: '/pharmacy/90000000114/dispenses', headers: { authorization: `Bearer ${creator}`, 'x-org-id': 'org-1' }, payload: { items: [{ drugName: 'Azithromycin' }] } });
+  const dispenseId = created.json().dispense.dispenseId;
+  const denied = await app.inject({ method: 'PATCH', url: `/pharmacy/dispenses/id/${dispenseId}`, headers: { authorization: `Bearer ${other}`, 'x-org-id': 'org-1' }, payload: { notes: 'tamper' } });
+  assert.equal(denied.statusCode, 403);
+  assert.equal(denied.json().message, 'Only the creator can edit this record');
 });

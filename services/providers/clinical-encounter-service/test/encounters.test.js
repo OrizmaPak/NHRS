@@ -64,6 +64,8 @@ test('create encounter registers index pointer', async () => {
   assert.equal(res.statusCode, 201);
   assert.equal(indexCalls, 1);
   assert.equal(db.__inspect.encounters.length, 1);
+  assert.equal(db.__inspect.encounters[0].pointers?.service, 'clinical-encounter-service');
+  assert.equal(db.__inspect.encounters[0].pointers?.resourceId, db.__inspect.encounters[0].encounterId);
 });
 
 test('edit within 24h allowed and after 24h denied', async () => {
@@ -124,4 +126,30 @@ test('index registration failure returns 502 and rolls back write', async () => 
   });
   assert.equal(res.statusCode, 502);
   assert.equal(db.__inspect.encounters.length, 0);
+});
+
+test('creator-only edit is enforced', async () => {
+  const { app } = ctx(async (url) => {
+    const t = String(url);
+    if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/records/90000000005/entries')) return { ok: true, status: 201, text: async () => JSON.stringify({}) };
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+  const creator = makeToken({ sub: 'provider-creator' });
+  const other = makeToken({ sub: 'provider-other' });
+  const created = await app.inject({
+    method: 'POST',
+    url: '/encounters/90000000005',
+    headers: { authorization: `Bearer ${creator}`, 'x-org-id': 'org-1' },
+    payload: { visitType: 'outpatient', chiefComplaint: 'Cough' },
+  });
+  const id = created.json().encounter.encounterId;
+  const denied = await app.inject({
+    method: 'PATCH',
+    url: `/encounters/id/${id}`,
+    headers: { authorization: `Bearer ${other}`, 'x-org-id': 'org-1' },
+    payload: { notes: 'attempted edit' },
+  });
+  assert.equal(denied.statusCode, 403);
+  assert.equal(denied.json().message, 'Only the creator can edit this record');
 });

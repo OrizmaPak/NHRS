@@ -1,6 +1,8 @@
 const fastifyFactory = require('fastify');
-const { MongoClient, ServerApiVersion } = require('mongodb');
 const jwt = require('jsonwebtoken');
+const { connectMongo } = require('./db');
+const { checkPermission } = require('./integrations/rbacClient');
+const { registerIndexEntry } = require('./integrations/indexClient');
 const { createRepository } = require('./db/repository');
 const { registerRoutes } = require('./routes/labs');
 
@@ -53,12 +55,15 @@ function createApp(options = {}) {
   }
 
   async function enforcePermission(req, reply, permissionKey, organizationId = null, branchId = null) {
-    const checked = await callJson(`${rbacApiBaseUrl}/rbac/check`, {
-      method: 'POST',
-      headers: { authorization: req.headers.authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ permissionKey, organizationId, branchId }),
+    const checked = await checkPermission({
+      callJson,
+      baseUrl: rbacApiBaseUrl,
+      authorization: req.headers.authorization,
+      permissionKey,
+      organizationId,
+      branchId,
     });
-    if (!checked.ok || !checked.body?.allowed) {
+    if (!checked.allowed) {
       reply.code(checked.status === 401 ? 401 : 403).send({ message: 'Forbidden' });
       return true;
     }
@@ -87,6 +92,7 @@ function createApp(options = {}) {
     requireAuth,
     enforcePermission,
     callJson,
+    registerIndexEntry,
     emitAuditEvent,
     healthRecordsIndexApiBaseUrl,
   });
@@ -98,13 +104,15 @@ function createApp(options = {}) {
       return;
     }
     try {
-      state.mongoClient = new MongoClient(mongoUri, { serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true } });
-      await state.mongoClient.connect();
-      state.db = state.mongoClient.db(dbName);
-      await state.db.command({ ping: 1 });
+      const connected = await connectMongo({ mongoUri, dbName, log: fastify.log });
+      state.mongoClient = connected.mongoClient;
+      state.db = connected.db;
+      state.dbReady = connected.dbReady;
+      if (!state.dbReady || !state.db) {
+        return;
+      }
       state.repository = createRepository(state.db);
       await state.repository.createIndexes();
-      state.dbReady = true;
     } catch (err) {
       fastify.log.warn({ err }, 'MongoDB connection failed');
     }

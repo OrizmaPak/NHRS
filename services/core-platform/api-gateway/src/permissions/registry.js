@@ -94,6 +94,17 @@ const permissionRegistry = [
   { method: 'GET', path: '/pharmacy/:nin/dispenses', permissionKey: 'pharmacy.read', requireOrgScope: true },
   { method: 'GET', path: '/pharmacy/dispenses/id/:dispenseId', permissionKey: 'pharmacy.read', requireOrgScope: true },
   { method: 'PATCH', path: '/pharmacy/dispenses/id/:dispenseId', permissionKey: 'pharmacy.update', requireOrgScope: true },
+  { method: 'POST', path: '/emergency/requests', permissionKey: 'emergency.request.create' },
+  { method: 'GET', path: '/emergency/requests', permissionKey: 'emergency.request.read' },
+  { method: 'GET', path: '/emergency/requests/:requestId', permissionKey: 'emergency.request.read' },
+  { method: 'PATCH', path: '/emergency/requests/:requestId/status', permissionKey: 'emergency.request.update_status' },
+  { method: 'POST', path: '/emergency/requests/:requestId/responses', permissionKey: 'emergency.response.create', requireOrgScope: true },
+  { method: 'GET', path: '/emergency/requests/:requestId/responses', permissionKey: 'emergency.request.read' },
+  { method: 'GET', path: '/emergency/requests/:requestId/room', permissionKey: 'emergency.room.read' },
+  { method: 'POST', path: '/emergency/rooms/:roomId/messages', permissionKey: 'emergency.room.message.create' },
+  { method: 'GET', path: '/emergency/rooms/:roomId/messages', permissionKey: 'emergency.room.read' },
+  { method: 'PUT', path: '/emergency/inventory/me', permissionKey: 'emergency.inventory.upsert', requireOrgScope: true },
+  { method: 'GET', path: '/emergency/inventory/search', permissionKey: 'emergency.inventory.search' },
 ];
 
 function pathMatches(pattern, actualPath) {

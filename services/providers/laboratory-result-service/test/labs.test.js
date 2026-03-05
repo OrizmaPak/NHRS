@@ -48,6 +48,8 @@ test('create lab result registers index and supports read', async () => {
   const create = await app.inject({ method: 'POST', url: '/labs/90000000011/results', headers: { authorization: `Bearer ${tk}`, 'x-org-id': 'org-1' }, payload: { testName: 'FBC' } });
   assert.equal(create.statusCode, 201);
   assert.equal(indexCalls, 1);
+  assert.equal(create.json().result.pointers?.service, 'laboratory-result-service');
+  assert.equal(create.json().result.pointers?.resourceId, create.json().result.resultId);
 
   const read = await app.inject({ method: 'GET', url: '/labs/90000000011/results', headers: { authorization: `Bearer ${tk}`, 'x-org-id': 'org-1' } });
   assert.equal(read.statusCode, 200);
@@ -85,4 +87,20 @@ test('missing org header and index failure return consistent errors', async () =
   const idxFail = await app.inject({ method: 'POST', url: '/labs/90000000013/results', headers: { authorization: `Bearer ${tk}`, 'x-org-id': 'org-1' }, payload: { testName: 'CRP' } });
   assert.equal(idxFail.statusCode, 502);
   assert.ok(idxFail.json().message);
+});
+
+test('creator-only edit is enforced for lab results', async () => {
+  const { app } = setup(async (url) => {
+    const t = String(url);
+    if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/records/90000000014/entries')) return { ok: true, status: 201, text: async () => JSON.stringify({}) };
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+  const creator = token({ sub: 'lab-owner' });
+  const other = token({ sub: 'lab-other' });
+  const created = await app.inject({ method: 'POST', url: '/labs/90000000014/results', headers: { authorization: `Bearer ${creator}`, 'x-org-id': 'org-1' }, payload: { testName: 'LFT' } });
+  const resultId = created.json().result.resultId;
+  const denied = await app.inject({ method: 'PATCH', url: `/labs/results/id/${resultId}`, headers: { authorization: `Bearer ${other}`, 'x-org-id': 'org-1' }, payload: { notes: 'tamper' } });
+  assert.equal(denied.statusCode, 403);
+  assert.equal(denied.json().message, 'Only the creator can edit this record');
 });

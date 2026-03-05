@@ -82,3 +82,14 @@ test('provider module route mappings resolve expected permissions', () => {
   assert.equal(findPermissionRule('GET', '/pharmacy/dispenses/id/d-1').permissionKey, 'pharmacy.read');
   assert.equal(findPermissionRule('PATCH', '/pharmacy/dispenses/id/d-1').permissionKey, 'pharmacy.update');
 });
+
+test('emergency route mappings resolve expected permissions', () => {
+  assert.equal(findPermissionRule('POST', '/emergency/requests').permissionKey, 'emergency.request.create');
+  assert.equal(findPermissionRule('GET', '/emergency/requests').permissionKey, 'emergency.request.read');
+  assert.equal(findPermissionRule('PATCH', '/emergency/requests/r-1/status').permissionKey, 'emergency.request.update_status');
+  assert.equal(findPermissionRule('POST', '/emergency/requests/r-1/responses').permissionKey, 'emergency.response.create');
+  assert.equal(findPermissionRule('GET', '/emergency/requests/r-1/room').permissionKey, 'emergency.room.read');
+  assert.equal(findPermissionRule('POST', '/emergency/rooms/room-1/messages').permissionKey, 'emergency.room.message.create');
+  assert.equal(findPermissionRule('PUT', '/emergency/inventory/me').permissionKey, 'emergency.inventory.upsert');
+  assert.equal(findPermissionRule('GET', '/emergency/inventory/search').permissionKey, 'emergency.inventory.search');
+});
