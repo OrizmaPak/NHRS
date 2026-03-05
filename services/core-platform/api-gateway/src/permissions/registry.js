@@ -82,6 +82,18 @@ const permissionRegistry = [
   { method: 'POST', path: '/records/:nin/entries', permissionKey: 'records.entry.create' },
   { method: 'PATCH', path: '/records/entries/:entryId', permissionKey: 'records.entry.update' },
   { method: 'POST', path: '/records/entries/:entryId/hide', permissionKey: 'records.entry.hide' },
+  { method: 'POST', path: '/encounters/:nin', permissionKey: 'encounters.create', requireOrgScope: true },
+  { method: 'GET', path: '/encounters/:nin', permissionKey: 'encounters.read', requireOrgScope: true },
+  { method: 'GET', path: '/encounters/id/:encounterId', permissionKey: 'encounters.read', requireOrgScope: true },
+  { method: 'PATCH', path: '/encounters/id/:encounterId', permissionKey: 'encounters.update', requireOrgScope: true },
+  { method: 'POST', path: '/labs/:nin/results', permissionKey: 'labs.create', requireOrgScope: true },
+  { method: 'GET', path: '/labs/:nin/results', permissionKey: 'labs.read', requireOrgScope: true },
+  { method: 'GET', path: '/labs/results/id/:resultId', permissionKey: 'labs.read', requireOrgScope: true },
+  { method: 'PATCH', path: '/labs/results/id/:resultId', permissionKey: 'labs.update', requireOrgScope: true },
+  { method: 'POST', path: '/pharmacy/:nin/dispenses', permissionKey: 'pharmacy.create', requireOrgScope: true },
+  { method: 'GET', path: '/pharmacy/:nin/dispenses', permissionKey: 'pharmacy.read', requireOrgScope: true },
+  { method: 'GET', path: '/pharmacy/dispenses/id/:dispenseId', permissionKey: 'pharmacy.read', requireOrgScope: true },
+  { method: 'PATCH', path: '/pharmacy/dispenses/id/:dispenseId', permissionKey: 'pharmacy.update', requireOrgScope: true },
 ];
 
 function pathMatches(pattern, actualPath) {

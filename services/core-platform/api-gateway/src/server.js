@@ -20,6 +20,9 @@ const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profi
 const organizationApiBaseUrl = process.env.ORGANIZATION_API_BASE_URL || 'http://organization-service:8093';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
 const healthRecordsIndexApiBaseUrl = process.env.HEALTH_RECORDS_INDEX_API_BASE_URL || 'http://health-records-index-service:8104';
+const clinicalEncounterApiBaseUrl = process.env.CLINICAL_ENCOUNTER_API_BASE_URL || 'http://clinical-encounter-service:8105';
+const laboratoryResultApiBaseUrl = process.env.LABORATORY_RESULT_API_BASE_URL || 'http://laboratory-result-service:8106';
+const pharmacyDispenseApiBaseUrl = process.env.PHARMACY_DISPENSE_API_BASE_URL || 'http://pharmacy-dispense-service:8107';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL_SEC) || 60;
@@ -299,6 +302,9 @@ async function enforcePermission(req, reply) {
   const tokenUserId = getUserIdFromAuthorization(authorization);
 
   try {
+    if (rule.requireOrgScope && !organizationId) {
+      return reply.code(400).send({ message: 'x-org-id header is required' });
+    }
     if (organizationId) {
       if (!tokenUserId) {
         return reply.code(401).send({ message: 'Unauthorized' });
@@ -859,6 +865,49 @@ function registerHealthRecordsRoutes() {
   }
 }
 
+function registerProviderRecordsRoutes() {
+  const routeDefs = [
+    ['POST', '/encounters/:nin', clinicalEncounterApiBaseUrl, '/encounters/:nin'],
+    ['GET', '/encounters/:nin', clinicalEncounterApiBaseUrl, '/encounters/:nin'],
+    ['GET', '/encounters/id/:encounterId', clinicalEncounterApiBaseUrl, '/encounters/id/:encounterId'],
+    ['PATCH', '/encounters/id/:encounterId', clinicalEncounterApiBaseUrl, '/encounters/id/:encounterId'],
+    ['POST', '/labs/:nin/results', laboratoryResultApiBaseUrl, '/labs/:nin/results'],
+    ['GET', '/labs/:nin/results', laboratoryResultApiBaseUrl, '/labs/:nin/results'],
+    ['GET', '/labs/results/id/:resultId', laboratoryResultApiBaseUrl, '/labs/results/id/:resultId'],
+    ['PATCH', '/labs/results/id/:resultId', laboratoryResultApiBaseUrl, '/labs/results/id/:resultId'],
+    ['POST', '/pharmacy/:nin/dispenses', pharmacyDispenseApiBaseUrl, '/pharmacy/:nin/dispenses'],
+    ['GET', '/pharmacy/:nin/dispenses', pharmacyDispenseApiBaseUrl, '/pharmacy/:nin/dispenses'],
+    ['GET', '/pharmacy/dispenses/id/:dispenseId', pharmacyDispenseApiBaseUrl, '/pharmacy/dispenses/id/:dispenseId'],
+    ['PATCH', '/pharmacy/dispenses/id/:dispenseId', pharmacyDispenseApiBaseUrl, '/pharmacy/dispenses/id/:dispenseId'],
+  ];
+
+  for (const [method, routePath, targetBase, upstreamPath] of routeDefs) {
+    registerProxyRoute({
+      method,
+      url: routePath,
+      targetBase,
+      targetPath: (req) => {
+        let p = upstreamPath;
+        for (const [k, v] of Object.entries(req.params || {})) {
+          p = p.replace(`:${k}`, encodeURIComponent(String(v)));
+        }
+        return p;
+      },
+      schema: {
+        tags: ['Provider Records'],
+        summary: `Proxy ${method} ${routePath}`,
+        description: 'Clinical encounter, laboratory result, and pharmacy dispense content endpoints.',
+        security: [{ bearerAuth: [] }],
+        headers: authHeaderSchema(true),
+        params: { type: 'object', additionalProperties: true },
+        querystring: { type: 'object', additionalProperties: true },
+        body: { type: 'object', additionalProperties: true },
+        response: standardResponses({ 200: { type: 'object' }, 201: { type: 'object' }, 502: errorMessageSchema }),
+      },
+    });
+  }
+}
+
 async function registerDocs() {
   await fastify.register(swagger, {
     openapi: {
@@ -883,6 +932,7 @@ async function registerDocs() {
         { name: 'Organization', description: 'Organization and branch endpoints' },
         { name: 'Membership', description: 'Membership and branch assignment endpoints' },
         { name: 'Health Records', description: 'Citizen/provider timeline metadata endpoints' },
+        { name: 'Provider Records', description: 'Provider clinical content modules (encounters, labs, pharmacy)' },
       ],
       components: {
         securitySchemes: {
@@ -932,6 +982,7 @@ async function registerGatewayRoutes() {
   registerProfileRoutes();
   registerOrganizationMembershipRoutes();
   registerHealthRecordsRoutes();
+  registerProviderRecordsRoutes();
   routesRegistered = true;
 }
 

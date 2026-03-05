@@ -177,6 +177,22 @@ When a citizen with matching NIN logs in, auth calls `POST /internal/memberships
 | PATCH | `/records/entries/:entryId` | Bearer | Citizen can edit own citizen entries; provider can edit own provider entries only within 24h (`EDIT_WINDOW_EXPIRED_USE_TASKFORCE_WORKFLOW` on expiry) |
 | POST | `/records/entries/:entryId/hide` | Bearer | Citizen-owner updates visibility (`hidden`, `hiddenFromOrgs`, `hiddenFromRoles`) |
 
+### Provider Record Modules
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| POST | `/encounters/:nin` | Bearer + `x-org-id` | Create encounter content and register index pointer (`service=clinical-encounter-service`) |
+| GET | `/encounters/:nin` | Bearer + `x-org-id` | List encounters by NIN (supports `from,to,page,limit`) |
+| GET | `/encounters/id/:encounterId` | Bearer + `x-org-id` | Read one encounter |
+| PATCH | `/encounters/id/:encounterId` | Bearer + `x-org-id` | Creator-only update within 24h |
+| POST | `/labs/:nin/results` | Bearer + `x-org-id` | Create lab result and register index pointer (`service=laboratory-result-service`) |
+| GET | `/labs/:nin/results` | Bearer + `x-org-id` | List lab results by NIN (supports `from,to,page,limit`) |
+| GET | `/labs/results/id/:resultId` | Bearer + `x-org-id` | Read one lab result |
+| PATCH | `/labs/results/id/:resultId` | Bearer + `x-org-id` | Creator-only update within 24h |
+| POST | `/pharmacy/:nin/dispenses` | Bearer + `x-org-id` | Create pharmacy dispense content and register index pointer (`service=pharmacy-dispense-service`) |
+| GET | `/pharmacy/:nin/dispenses` | Bearer + `x-org-id` | List dispenses by NIN (supports `from,to,page,limit`) |
+| GET | `/pharmacy/dispenses/id/:dispenseId` | Bearer + `x-org-id` | Read one dispense |
+| PATCH | `/pharmacy/dispenses/id/:dispenseId` | Bearer + `x-org-id` | Creator-only update within 24h |
+
 ### Tokens
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|

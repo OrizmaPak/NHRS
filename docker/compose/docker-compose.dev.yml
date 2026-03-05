@@ -55,6 +55,12 @@ services:
         condition: service_healthy
       health-records-index-service:
         condition: service_healthy
+      clinical-encounter-service:
+        condition: service_healthy
+      laboratory-result-service:
+        condition: service_healthy
+      pharmacy-dispense-service:
+        condition: service_healthy
     networks:
       - nhrs_net
     healthcheck:
@@ -263,6 +269,60 @@ services:
       - ../../services/providers/health-records-index-service/.env
     ports:
       - "${HEALTH_RECORDS_INDEX_PORT}:${HEALTH_RECORDS_INDEX_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  clinical-encounter-service:
+    build:
+      context: ../../services/providers/clinical-encounter-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/providers/clinical-encounter-service/.env
+    ports:
+      - "${CLINICAL_ENCOUNTER_PORT}:${CLINICAL_ENCOUNTER_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  laboratory-result-service:
+    build:
+      context: ../../services/providers/laboratory-result-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/providers/laboratory-result-service/.env
+    ports:
+      - "${LAB_RESULT_PORT}:${LAB_RESULT_PORT}"
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  pharmacy-dispense-service:
+    build:
+      context: ../../services/providers/pharmacy-dispense-service
+      dockerfile: Dockerfile
+    env_file:
+      - ../../.env
+      - ../../services/providers/pharmacy-dispense-service/.env
+    ports:
+      - "${PHARMACY_DISPENSE_PORT}:${PHARMACY_DISPENSE_PORT}"
     networks:
       - nhrs_net
     healthcheck:

@@ -70,3 +70,15 @@ test('records route mappings resolve expected permissions', () => {
   assert.equal(findPermissionRule('PATCH', '/records/entries/e-1').permissionKey, 'records.entry.update');
   assert.equal(findPermissionRule('POST', '/records/entries/e-1/hide').permissionKey, 'records.entry.hide');
 });
+
+test('provider module route mappings resolve expected permissions', () => {
+  assert.equal(findPermissionRule('POST', '/encounters/90000000001').permissionKey, 'encounters.create');
+  assert.equal(findPermissionRule('GET', '/encounters/90000000001').permissionKey, 'encounters.read');
+  assert.equal(findPermissionRule('PATCH', '/encounters/id/e-1').permissionKey, 'encounters.update');
+  assert.equal(findPermissionRule('POST', '/labs/90000000001/results').permissionKey, 'labs.create');
+  assert.equal(findPermissionRule('GET', '/labs/results/id/r-1').permissionKey, 'labs.read');
+  assert.equal(findPermissionRule('PATCH', '/labs/results/id/r-1').permissionKey, 'labs.update');
+  assert.equal(findPermissionRule('POST', '/pharmacy/90000000001/dispenses').permissionKey, 'pharmacy.create');
+  assert.equal(findPermissionRule('GET', '/pharmacy/dispenses/id/d-1').permissionKey, 'pharmacy.read');
+  assert.equal(findPermissionRule('PATCH', '/pharmacy/dispenses/id/d-1').permissionKey, 'pharmacy.update');
+});
