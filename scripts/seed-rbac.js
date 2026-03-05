@@ -49,6 +49,12 @@ const permissions = [
   { key: 'records.entry.create', name: 'Create provider timeline entry', module: 'records', scope: 'org', actions: ['create'] },
   { key: 'records.entry.update', name: 'Update timeline entry', module: 'records', scope: 'app', actions: ['update'] },
   { key: 'records.entry.hide', name: 'Hide timeline entry', module: 'records', scope: 'app', actions: ['update'] },
+  { key: 'doctor.register', name: 'Register doctor profile', module: 'doctor-registry', scope: 'app', actions: ['create'] },
+  { key: 'doctor.read', name: 'Read doctor profile', module: 'doctor-registry', scope: 'app', actions: ['read'] },
+  { key: 'doctor.verify', name: 'Verify doctor license', module: 'doctor-registry', scope: 'app', actions: ['update'] },
+  { key: 'doctor.suspend', name: 'Suspend doctor license', module: 'doctor-registry', scope: 'app', actions: ['update'] },
+  { key: 'doctor.revoke', name: 'Revoke doctor license', module: 'doctor-registry', scope: 'app', actions: ['update'] },
+  { key: 'doctor.reinstate', name: 'Reinstate doctor license', module: 'doctor-registry', scope: 'app', actions: ['update'] },
 ];
 
 const roles = [
@@ -66,6 +72,7 @@ const roles = [
       { permissionKey: 'records.symptoms.create', effect: 'allow' },
       { permissionKey: 'records.entry.update', effect: 'allow' },
       { permissionKey: 'records.entry.hide', effect: 'allow' },
+      { permissionKey: 'doctor.register', effect: 'allow' },
     ],
     isSystem: true,
   },
@@ -88,6 +95,19 @@ const roles = [
     scope: 'app',
     organizationId: null,
     permissions: [{ permissionKey: 'audit.read', effect: 'allow' }],
+    isSystem: true,
+  },
+  {
+    name: 'regulator',
+    scope: 'app',
+    organizationId: null,
+    permissions: [
+      { permissionKey: 'doctor.read', effect: 'allow' },
+      { permissionKey: 'doctor.verify', effect: 'allow' },
+      { permissionKey: 'doctor.suspend', effect: 'allow' },
+      { permissionKey: 'doctor.revoke', effect: 'allow' },
+      { permissionKey: 'doctor.reinstate', effect: 'allow' },
+    ],
     isSystem: true,
   },
   {

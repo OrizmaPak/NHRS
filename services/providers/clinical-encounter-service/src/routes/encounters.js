@@ -59,6 +59,7 @@ function registerRoutes(fastify, deps) {
         401: baseError,
         403: baseError,
         502: baseError,
+        503: baseError,
       },
     },
   }, async (req, reply) => {
@@ -68,6 +69,19 @@ function registerRoutes(fastify, deps) {
 
     const denied = await deps.enforcePermission(req, reply, 'encounters.create', organizationId, branchId);
     if (denied) return;
+
+    const doctorStatusResult = await deps.fetchDoctorStatus({
+      callJson: deps.callJson,
+      baseUrl: deps.doctorRegistryApiBaseUrl,
+      userId: req.auth.userId,
+      internalServiceToken: deps.internalServiceToken,
+    });
+    if (!doctorStatusResult.ok) {
+      return reply.code(503).send({ message: 'Doctor registry unavailable' });
+    }
+    if (doctorStatusResult.body?.status !== 'verified') {
+      return reply.code(403).send({ message: 'DOCTOR_LICENSE_NOT_VERIFIED' });
+    }
 
     const encounter = {
       encounterId: crypto.randomUUID(),

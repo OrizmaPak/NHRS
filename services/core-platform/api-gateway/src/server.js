@@ -26,6 +26,7 @@ const pharmacyDispenseApiBaseUrl = process.env.PHARMACY_DISPENSE_API_BASE_URL ||
 const emergencyInventoryApiBaseUrl = process.env.EMERGENCY_INVENTORY_API_BASE_URL || 'http://emergency-inventory-service:8108';
 const taskforceDirectoryApiBaseUrl = process.env.TASKFORCE_DIRECTORY_API_BASE_URL || 'http://taskforce-directory-service:8109';
 const caseApiBaseUrl = process.env.CASE_API_BASE_URL || 'http://case-service:8110';
+const doctorRegistryApiBaseUrl = process.env.DOCTOR_REGISTRY_API_BASE_URL || 'http://doctor-registry-service:8094';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL_SEC) || 60;
@@ -911,6 +912,45 @@ function registerProviderRecordsRoutes() {
   }
 }
 
+function registerDoctorRegistryRoutes() {
+  const routeDefs = [
+    ['POST', '/doctors/register', '/doctors/register'],
+    ['GET', '/doctors/search', '/doctors/search'],
+    ['GET', '/doctors/:doctorId', '/doctors/:doctorId'],
+    ['POST', '/licenses/:doctorId/verify', '/licenses/:doctorId/verify'],
+    ['POST', '/licenses/:doctorId/suspend', '/licenses/:doctorId/suspend'],
+    ['POST', '/licenses/:doctorId/revoke', '/licenses/:doctorId/revoke'],
+    ['POST', '/licenses/:doctorId/reinstate', '/licenses/:doctorId/reinstate'],
+  ];
+
+  for (const [method, routePath, upstreamPath] of routeDefs) {
+    registerProxyRoute({
+      method,
+      url: routePath,
+      targetBase: doctorRegistryApiBaseUrl,
+      targetPath: (req) => {
+        let p = upstreamPath;
+        for (const [k, v] of Object.entries(req.params || {})) {
+          p = p.replace(`:${k}`, encodeURIComponent(String(v)));
+        }
+        return p;
+      },
+      publicRoute: method === 'GET' && routePath === '/doctors/search',
+      schema: {
+        tags: ['Doctor Registry'],
+        summary: `Proxy ${method} ${routePath}`,
+        description: 'Doctor registration, public verification lookup, and license governance endpoints.',
+        security: method === 'GET' && routePath === '/doctors/search' ? [] : [{ bearerAuth: [] }],
+        headers: authHeaderSchema(true),
+        params: { type: 'object', additionalProperties: true },
+        querystring: { type: 'object', additionalProperties: true },
+        body: { type: 'object', additionalProperties: true },
+        response: standardResponses({ 200: { type: 'object' }, 201: { type: 'object' } }),
+      },
+    });
+  }
+}
+
 function registerEmergencyRoutes() {
   const routeDefs = [
     ['POST', '/emergency/requests', '/emergency/requests'],
@@ -1028,6 +1068,7 @@ async function registerDocs() {
         { name: 'Provider Records', description: 'Provider clinical content modules (encounters, labs, pharmacy)' },
         { name: 'Emergency', description: 'Emergency requests, provider responses, incident rooms, and inventory discovery' },
         { name: 'Governance', description: 'Taskforce directory, cases, correction workflow, and escalation' },
+        { name: 'Doctor Registry', description: 'Doctor registration, verification, and license governance endpoints' },
       ],
       components: {
         securitySchemes: {
@@ -1078,6 +1119,7 @@ async function registerGatewayRoutes() {
   registerOrganizationMembershipRoutes();
   registerHealthRecordsRoutes();
   registerProviderRecordsRoutes();
+  registerDoctorRegistryRoutes();
   registerEmergencyRoutes();
   registerGovernanceTaskforceRoutes();
   routesRegistered = true;

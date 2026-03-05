@@ -50,6 +50,7 @@ test('create encounter registers index pointer', async () => {
   const { app, db } = ctx(async (url) => {
     const t = String(url);
     if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/doctors/provider-1/status')) return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'verified' }) };
     if (t.includes('/records/90000000001/entries')) { indexCalls += 1; return { ok: true, status: 201, text: async () => JSON.stringify({}) }; }
     return { ok: true, status: 202, text: async () => JSON.stringify({}) };
   });
@@ -72,6 +73,7 @@ test('edit within 24h allowed and after 24h denied', async () => {
   const { app, db } = ctx(async (url) => {
     const t = String(url);
     if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/doctors/provider-2/status')) return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'verified' }) };
     if (t.includes('/records/90000000002/entries')) return { ok: true, status: 201, text: async () => JSON.stringify({}) };
     return { ok: true, status: 202, text: async () => JSON.stringify({}) };
   });
@@ -115,6 +117,7 @@ test('index registration failure returns 502 and rolls back write', async () => 
   const { app, db } = ctx(async (url) => {
     const t = String(url);
     if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/doctors/provider-4/status')) return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'verified' }) };
     if (t.includes('/records/90000000004/entries')) return { ok: false, status: 503, text: async () => JSON.stringify({ message: 'down' }) };
     return { ok: true, status: 202, text: async () => JSON.stringify({}) };
   });
@@ -132,6 +135,7 @@ test('creator-only edit is enforced', async () => {
   const { app } = ctx(async (url) => {
     const t = String(url);
     if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/doctors/provider-creator/status')) return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'verified' }) };
     if (t.includes('/records/90000000005/entries')) return { ok: true, status: 201, text: async () => JSON.stringify({}) };
     return { ok: true, status: 202, text: async () => JSON.stringify({}) };
   });
@@ -152,4 +156,44 @@ test('creator-only edit is enforced', async () => {
   });
   assert.equal(denied.statusCode, 403);
   assert.equal(denied.json().message, 'Only the creator can edit this record');
+});
+
+test('suspended doctor cannot create encounter', async () => {
+  const { app } = ctx(async (url) => {
+    const t = String(url);
+    if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/doctors/provider-suspended/status')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'suspended' }) };
+    }
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+  const token = makeToken({ sub: 'provider-suspended' });
+  const res = await app.inject({
+    method: 'POST',
+    url: '/encounters/90000000006',
+    headers: { authorization: `Bearer ${token}`, 'x-org-id': 'org-1' },
+    payload: { visitType: 'outpatient', chiefComplaint: 'Headache' },
+  });
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.json().message, 'DOCTOR_LICENSE_NOT_VERIFIED');
+});
+
+test('revoked doctor cannot create encounter', async () => {
+  const { app } = ctx(async (url) => {
+    const t = String(url);
+    if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/doctors/provider-revoked/status')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'revoked' }) };
+    }
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+  const token = makeToken({ sub: 'provider-revoked' });
+  const res = await app.inject({
+    method: 'POST',
+    url: '/encounters/90000000007',
+    headers: { authorization: `Bearer ${token}`, 'x-org-id': 'org-1' },
+    payload: { visitType: 'outpatient', chiefComplaint: 'Fever' },
+  });
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.json().message, 'DOCTOR_LICENSE_NOT_VERIFIED');
 });

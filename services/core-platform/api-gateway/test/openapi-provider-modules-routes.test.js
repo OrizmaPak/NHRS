@@ -28,4 +28,19 @@ test('openapi spec contains provider module routes', () => {
   assert.ok(paths['/pharmacy/dispenses/id/{dispenseId}']);
   assert.ok(paths['/pharmacy/dispenses/id/{dispenseId}'].get);
   assert.ok(paths['/pharmacy/dispenses/id/{dispenseId}'].patch);
+
+  assert.ok(paths['/doctors/register']);
+  assert.ok(paths['/doctors/register'].post);
+  assert.ok(paths['/doctors/search']);
+  assert.ok(paths['/doctors/search'].get);
+  assert.ok(paths['/doctors/{doctorId}']);
+  assert.ok(paths['/doctors/{doctorId}'].get);
+  assert.ok(paths['/licenses/{doctorId}/verify']);
+  assert.ok(paths['/licenses/{doctorId}/verify'].post);
+  assert.ok(paths['/licenses/{doctorId}/suspend']);
+  assert.ok(paths['/licenses/{doctorId}/suspend'].post);
+  assert.ok(paths['/licenses/{doctorId}/revoke']);
+  assert.ok(paths['/licenses/{doctorId}/revoke'].post);
+  assert.ok(paths['/licenses/{doctorId}/reinstate']);
+  assert.ok(paths['/licenses/{doctorId}/reinstate'].post);
 });

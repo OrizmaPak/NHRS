@@ -180,7 +180,7 @@ When a citizen with matching NIN logs in, auth calls `POST /internal/memberships
 ### Provider Record Modules
 | Method | Endpoint | Auth | Notes |
 |---|---|---|---|
-| POST | `/encounters/:nin` | Bearer + `x-org-id` | Create encounter content and register index pointer (`service=clinical-encounter-service`) |
+| POST | `/encounters/:nin` | Bearer + `x-org-id` | Create encounter content and register index pointer (`service=clinical-encounter-service`); doctor status must be `verified` else `DOCTOR_LICENSE_NOT_VERIFIED` |
 | GET | `/encounters/:nin` | Bearer + `x-org-id` | List encounters by NIN (supports `from,to,page,limit`) |
 | GET | `/encounters/id/:encounterId` | Bearer + `x-org-id` | Read one encounter |
 | PATCH | `/encounters/id/:encounterId` | Bearer + `x-org-id` | Creator-only update within 24h |
@@ -192,6 +192,17 @@ When a citizen with matching NIN logs in, auth calls `POST /internal/memberships
 | GET | `/pharmacy/:nin/dispenses` | Bearer + `x-org-id` | List dispenses by NIN (supports `from,to,page,limit`) |
 | GET | `/pharmacy/dispenses/id/:dispenseId` | Bearer + `x-org-id` | Read one dispense |
 | PATCH | `/pharmacy/dispenses/id/:dispenseId` | Bearer + `x-org-id` | Creator-only update within 24h |
+
+### Doctor Registry
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| POST | `/doctors/register` | Bearer | Create doctor profile in `pending` state |
+| GET | `/doctors/search` | Public | Public lookup of verified doctors only |
+| GET | `/doctors/:doctorId` | Bearer | Full doctor details + license history |
+| POST | `/licenses/:doctorId/verify` | Bearer | Verify license (regulator/taskforce authority) |
+| POST | `/licenses/:doctorId/suspend` | Bearer | Suspend license |
+| POST | `/licenses/:doctorId/revoke` | Bearer | Revoke license |
+| POST | `/licenses/:doctorId/reinstate` | Bearer | Reinstate license to verified |
 
 ### Emergency Inventory Module
 | Method | Endpoint | Auth | Notes |

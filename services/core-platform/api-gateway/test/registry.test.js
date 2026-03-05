@@ -83,6 +83,16 @@ test('provider module route mappings resolve expected permissions', () => {
   assert.equal(findPermissionRule('PATCH', '/pharmacy/dispenses/id/d-1').permissionKey, 'pharmacy.update');
 });
 
+test('doctor registry route mappings resolve expected permissions', () => {
+  assert.equal(findPermissionRule('GET', '/doctors/search').public, true);
+  assert.equal(findPermissionRule('POST', '/doctors/register').permissionKey, 'doctor.register');
+  assert.equal(findPermissionRule('GET', '/doctors/doc-1').permissionKey, 'doctor.read');
+  assert.equal(findPermissionRule('POST', '/licenses/doc-1/verify').permissionKey, 'doctor.verify');
+  assert.equal(findPermissionRule('POST', '/licenses/doc-1/suspend').permissionKey, 'doctor.suspend');
+  assert.equal(findPermissionRule('POST', '/licenses/doc-1/revoke').permissionKey, 'doctor.revoke');
+  assert.equal(findPermissionRule('POST', '/licenses/doc-1/reinstate').permissionKey, 'doctor.reinstate');
+});
+
 test('emergency route mappings resolve expected permissions', () => {
   assert.equal(findPermissionRule('POST', '/emergency/requests').permissionKey, 'emergency.request.create');
   assert.equal(findPermissionRule('GET', '/emergency/requests').permissionKey, 'emergency.request.read');

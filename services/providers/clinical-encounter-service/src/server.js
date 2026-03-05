@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { connectMongo } = require('./db');
 const { checkPermission } = require('./integrations/rbacClient');
 const { registerIndexEntry } = require('./integrations/indexClient');
+const { fetchDoctorStatus } = require('./integrations/doctorRegistryClient');
 const { createRepository } = require('./db/repository');
 const { registerRoutes } = require('./routes/encounters');
 
@@ -14,6 +15,8 @@ const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const healthRecordsIndexApiBaseUrl = process.env.HEALTH_RECORDS_INDEX_API_BASE_URL || 'http://health-records-index-service:8104';
+const doctorRegistryApiBaseUrl = process.env.DOCTOR_REGISTRY_API_BASE_URL || 'http://doctor-registry-service:8094';
+const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 
 function createApp(options = {}) {
   const fastify = fastifyFactory({ logger: true });
@@ -104,9 +107,12 @@ function createApp(options = {}) {
     requireAuth,
     enforcePermission,
     callJson,
+    fetchDoctorStatus,
     registerIndexEntry,
     emitAuditEvent,
     healthRecordsIndexApiBaseUrl,
+    doctorRegistryApiBaseUrl,
+    internalServiceToken,
   });
 
   async function connect() {
