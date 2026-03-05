@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const fastify = require('fastify')({ logger: true });
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const { createClient } = require('redis');
@@ -8,6 +9,13 @@ const swaggerUi = require('@fastify/swagger-ui');
 const { findPermissionRule } = require('./permissions/registry');
 const { evaluateAuthzResponse } = require('./authz');
 const { buildAuditPayload } = require('./audit-utils');
+const {
+  CONTEXT_HEADER,
+  CONTEXT_SIGNATURE_HEADER,
+  buildSignedContext,
+  encodeContext,
+  signEncodedContext,
+} = require('../../../../libs/shared/src/nhrs-context');
 
 const serviceName = 'api-gateway';
 const port = Number(process.env.PORT) || 8080;
@@ -30,6 +38,8 @@ const doctorRegistryApiBaseUrl = process.env.DOCTOR_REGISTRY_API_BASE_URL || 'ht
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL_SEC) || 60;
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
+const nhrsContextTtlSeconds = Number(process.env.NHRS_CONTEXT_TTL_SECONDS) || 60;
 const docsExportPath = process.env.DOCS_EXPORT_PATH;
 
 let dbReady = false;
@@ -103,6 +113,19 @@ function getUserIdFromAuthorization(authorization) {
     const payloadRaw = Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
     const payload = JSON.parse(payloadRaw);
     return payload?.sub ? String(payload.sub) : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function parseTokenPayload(authorization) {
+  if (!authorization || !authorization.startsWith('Bearer ')) return null;
+  const token = authorization.slice(7);
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const payloadRaw = Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    return JSON.parse(payloadRaw);
   } catch (_err) {
     return null;
   }
@@ -251,6 +274,23 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
     headers['x-branch-id'] = req.headers['x-branch-id'];
   }
 
+  const requestId = req.headers['x-request-id'] || crypto.randomUUID();
+  const authContext = req.authzContext || {};
+  const contextPayload = buildSignedContext({
+    requestId,
+    userId: authContext.userId || null,
+    roles: authContext.roles || [],
+    orgId: authContext.organizationId || null,
+    branchId: authContext.branchId || null,
+    permissionsChecked: authContext.permissionKey ? [authContext.permissionKey] : [],
+    membershipChecked: !!authContext.membershipChecked,
+    ttlSeconds: nhrsContextTtlSeconds,
+  });
+  const encodedContext = encodeContext(contextPayload);
+  headers[CONTEXT_HEADER] = encodedContext;
+  headers[CONTEXT_SIGNATURE_HEADER] = signEncodedContext(encodedContext, nhrsContextSecret);
+  headers['x-request-id'] = requestId;
+
   const response = await fetchClient(url, {
     method: req.method,
     headers,
@@ -280,6 +320,14 @@ async function enforcePermission(req, reply) {
   const userAgent = req.headers['user-agent'] || null;
 
   if (!rule || rule.public || !rule.permissionKey) {
+    req.authzContext = {
+      userId: null,
+      roles: [],
+      permissionKey: null,
+      organizationId: null,
+      branchId: null,
+      membershipChecked: false,
+    };
     return;
   }
 
@@ -303,7 +351,9 @@ async function enforcePermission(req, reply) {
   }
 
   const { organizationId, branchId } = extractScope(req, rule);
-  const tokenUserId = getUserIdFromAuthorization(authorization);
+  const tokenPayload = parseTokenPayload(authorization);
+  const tokenUserId = tokenPayload?.sub ? String(tokenPayload.sub) : getUserIdFromAuthorization(authorization);
+  const tokenRoles = Array.isArray(tokenPayload?.roles) ? tokenPayload.roles.map((r) => String(r)) : [];
 
   try {
     if (rule.requireOrgScope && !organizationId) {
@@ -380,6 +430,15 @@ async function enforcePermission(req, reply) {
     if (!decision.proceed) {
       return reply.code(decision.statusCode).send(decision.body);
     }
+
+    req.authzContext = {
+      userId: tokenUserId || null,
+      roles: tokenRoles,
+      permissionKey: rule.permissionKey,
+      organizationId,
+      branchId,
+      membershipChecked: !!organizationId,
+    };
   } catch (err) {
     req.log.error({ err, routePath, permissionKey: rule.permissionKey }, 'RBAC enforcement failed');
     return reply.code(503).send({ message: 'Authorization service unavailable' });

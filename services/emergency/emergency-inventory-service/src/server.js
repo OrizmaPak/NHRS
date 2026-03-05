@@ -1,12 +1,12 @@
 const fastifyFactory = require('fastify');
 const jwt = require('jsonwebtoken');
 const { connectMongo, createRepository } = require('./db');
-const { emitNotificationEvent } = require('./integrations/notificationClient');
-const { emitAuditEvent } = require('./integrations/auditClient');
+const { buildEventEnvelope, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
 const { registerRequestRoutes } = require('./routes/requests');
 const { registerResponseRoutes } = require('./routes/responses');
 const { registerRoomRoutes } = require('./routes/rooms');
 const { registerInventoryRoutes } = require('./routes/inventory');
+const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
 
 const serviceName = 'emergency-inventory-service';
 const port = Number(process.env.PORT) || 8108;
@@ -16,6 +16,11 @@ const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const notificationApiBaseUrl = process.env.NOTIFICATION_API_BASE_URL || 'http://notification-service:8101';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
+const nhrsContextAllowLegacy = String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'true') === 'true';
+const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
+const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
+const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
 
 function getClientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
@@ -34,6 +39,7 @@ function createApp(options = {}) {
     mongoClient: null,
     fetchClient: options.fetchImpl || ((...args) => fetch(...args)),
     injectedDb: Boolean(options.db),
+    outboxTimer: null,
   };
   if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {
     state.dbReady = !!options.dbReady;
@@ -60,6 +66,7 @@ function createApp(options = {}) {
   }
 
   async function requireAuth(req, reply) {
+    if (req.auth?.userId) return;
     const token = parseBearerToken(req);
     if (!token) return reply.code(401).send({ message: 'Unauthorized' });
     try {
@@ -89,25 +96,52 @@ function createApp(options = {}) {
   }
 
   function emitNotification(event) {
-    emitNotificationEvent({
-      fetchClient: state.fetchClient,
-      baseUrl: notificationApiBaseUrl,
-      event,
-    });
+    return state.repository.enqueueOutboxEvent(buildEventEnvelope({
+      eventType: event.eventType,
+      sourceService: serviceName,
+      aggregateType: event.payload?.requestId ? 'emergency_request' : 'emergency_room',
+      aggregateId: event.payload?.requestId || event.payload?.roomId || null,
+      payload: event,
+      trace: {
+        requestId: event?.trace?.requestId || null,
+        userId: event?.trace?.userId || null,
+        orgId: event?.trace?.orgId || null,
+        branchId: event?.trace?.branchId || null,
+      },
+      destination: 'notification',
+    }));
   }
 
   function emitAudit(event) {
-    emitAuditEvent({
-      fetchClient: state.fetchClient,
-      baseUrl: auditApiBaseUrl,
-      event,
-    });
+    return state.repository.enqueueOutboxEvent(buildEventEnvelope({
+      eventType: event.eventType || 'AUDIT_EVENT',
+      sourceService: serviceName,
+      aggregateType: event.resource?.type || 'emergency',
+      aggregateId: event.resource?.id || null,
+      payload: event,
+      trace: {
+        requestId: event?.metadata?.requestId || null,
+        userId: event?.userId || null,
+        orgId: event?.organizationId || null,
+        branchId: event?.metadata?.branchId || null,
+      },
+      destination: 'audit',
+    }));
   }
 
   fastify.addHook('onRequest', async (req, reply) => {
     if (req.url === '/health') return;
     if (!state.dbReady) return reply.code(503).send({ message: 'Emergency inventory storage unavailable' });
   });
+
+  fastify.addHook('onRequest', createContextVerificationHook({
+    secret: nhrsContextSecret,
+    allowLegacy: nhrsContextAllowLegacy,
+    requiredMatcher: (req) => {
+      const p = req.url.split('?')[0];
+      return p.endsWith('/responses') || p === '/emergency/inventory/me';
+    },
+  }));
 
   fastify.get('/health', async () => ({ status: 'ok', service: serviceName, dbReady: state.dbReady, dbName }));
 
@@ -143,12 +177,52 @@ function createApp(options = {}) {
   }
 
   async function closeService() {
+    if (state.outboxTimer) clearInterval(state.outboxTimer);
     if (state.mongoClient) await state.mongoClient.close();
     await fastify.close();
   }
 
+  async function flushOutboxOnce() {
+    if (!state.repository?.fetchPendingOutboxEvents) return;
+    await deliverOutboxBatch({
+      outboxRepo: {
+        fetchPendingOutboxEvents: state.repository.fetchPendingOutboxEvents,
+        markDelivered: state.repository.markOutboxDelivered,
+        markFailed: state.repository.markOutboxFailed,
+      },
+      logger: fastify.log,
+      batchSize: outboxBatchSize,
+      maxAttempts: outboxMaxAttempts,
+      handlers: {
+        notification: async (event) => {
+          const res = await state.fetchClient(`${notificationApiBaseUrl}/internal/notifications/events`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ eventId: event.eventId, ...event.payload }),
+          });
+          if (!res.ok) throw new Error(`notification delivery failed: ${res.status}`);
+        },
+        audit: async (event) => {
+          const res = await state.fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ eventId: event.eventId, ...event.payload, createdAt: event.createdAt }),
+          });
+          if (!res.ok) throw new Error(`audit delivery failed: ${res.status}`);
+        },
+      },
+    });
+  }
+
+  async function startOutboxWorker() {
+    if (state.outboxTimer) return;
+    state.outboxTimer = setInterval(() => { void flushOutboxOnce(); }, outboxIntervalMs);
+  }
+
   fastify.decorate('connect', connect);
   fastify.decorate('closeService', closeService);
+  fastify.decorate('flushOutboxOnce', flushOutboxOnce);
+  fastify.decorate('startOutboxWorker', startOutboxWorker);
   return fastify;
 }
 
@@ -157,6 +231,7 @@ const app = createApp();
 async function start() {
   try {
     await app.connect();
+    await app.startOutboxWorker();
     await app.listen({ host: '0.0.0.0', port });
   } catch (err) {
     app.log.error(err);

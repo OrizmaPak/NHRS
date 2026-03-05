@@ -25,9 +25,10 @@ function makeAccessToken(payload, secret = 'change-me') {
 function makeFakeDb() {
   const recordsIndex = [];
   const recordEntries = [];
+  const outboxEvents = [];
 
   return {
-    __inspect: { recordsIndex, recordEntries },
+    __inspect: { recordsIndex, recordEntries, outboxEvents },
     collection(name) {
       if (name === 'records_index') {
         return {
@@ -70,6 +71,45 @@ function makeFakeDb() {
                 toArray: async () => structuredClone(filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))),
               }),
             };
+          },
+        };
+      }
+
+      if (name === 'outbox_events') {
+        return {
+          createIndex: async () => ({}),
+          insertOne: async (doc) => {
+            outboxEvents.push(structuredClone(doc));
+            return { acknowledged: true };
+          },
+          findOneAndUpdate: async (_filter, update) => {
+            const nowTs = Date.now();
+            const idx = outboxEvents.findIndex((item) => {
+              const status = String(item.status || 'pending');
+              if (!['pending', 'failed'].includes(status)) return false;
+              const lockTs = item.lockedUntil ? new Date(item.lockedUntil).getTime() : null;
+              if (lockTs && lockTs > nowTs) return false;
+              return true;
+            });
+            if (idx < 0) return null;
+            const next = { ...outboxEvents[idx] };
+            if (update?.$set) {
+              Object.assign(next, update.$set);
+            }
+            if (update?.$inc) {
+              for (const [k, v] of Object.entries(update.$inc)) {
+                next[k] = Number(next[k] || 0) + Number(v || 0);
+              }
+            }
+            outboxEvents[idx] = next;
+            return structuredClone(next);
+          },
+          updateOne: async (query, update) => {
+            const idx = outboxEvents.findIndex((item) => item._id === query._id);
+            if (idx >= 0 && update?.$set) {
+              outboxEvents[idx] = { ...outboxEvents[idx], ...update.$set };
+            }
+            return { acknowledged: true };
           },
         };
       }
@@ -201,7 +241,7 @@ test('provider view triggers RECORD_ACCESSED notification event', async () => {
     headers: { authorization: `Bearer ${providerToken}`, 'x-org-id': 'org-1', 'x-branch-id': 'branch-x' },
   });
   assert.equal(readRes.statusCode, 200);
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await app.flushOutboxOnce();
   assert.equal(notificationCount > 0, true);
 });
 

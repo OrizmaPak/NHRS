@@ -79,7 +79,7 @@ function registerRoomRoutes(fastify, deps) {
     await deps.repository.messages().insertOne(message);
     await deps.repository.rooms().updateOne({ roomId: room.roomId }, { $set: { updatedAt: now() } });
 
-    deps.emitAudit({
+    await deps.emitAudit({
       userId: req.auth.userId,
       organizationId: req.headers['x-org-id'] || null,
       eventType: 'EMERGENCY_ROOM_MESSAGE_SENT',
@@ -87,7 +87,7 @@ function registerRoomRoutes(fastify, deps) {
       permissionKey: 'emergency.room.message.create',
       resource: { type: 'emergency_room_message', id: message.messageId },
       outcome: 'success',
-      metadata: { roomId: room.roomId },
+      metadata: { roomId: room.roomId, requestTraceId: req.headers['x-request-id'] || null },
       ipAddress: deps.getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
     });

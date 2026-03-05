@@ -184,7 +184,7 @@ function registerRequestRoutes(fastify, deps) {
     await deps.repository.rooms().insertOne(roomDoc);
 
     const targets = await resolveScopeTargets(deps.repository, requestDoc.scope, requestDoc.location);
-    deps.emitNotification({
+    await deps.emitNotification({
       eventType: 'EMERGENCY_ALERT',
       payload: {
         requestId,
@@ -195,9 +195,15 @@ function registerRequestRoutes(fastify, deps) {
         createdAt: createdAt.toISOString(),
       },
       targets,
+      trace: {
+        requestId: req.headers['x-request-id'] || null,
+        userId: req.auth.userId,
+        orgId: req.headers['x-org-id'] || null,
+        branchId: req.headers['x-branch-id'] || null,
+      },
     });
 
-    deps.emitAudit({
+    await deps.emitAudit({
       userId: req.auth.userId,
       organizationId: req.headers['x-org-id'] || null,
       eventType: 'EMERGENCY_REQUEST_CREATED',
@@ -205,7 +211,7 @@ function registerRequestRoutes(fastify, deps) {
       permissionKey: 'emergency.request.create',
       resource: { type: 'emergency_request', id: requestId },
       outcome: 'success',
-      metadata: { roomId, targetCount: targets.length },
+      metadata: { roomId, targetCount: targets.length, requestId: req.headers['x-request-id'] || null },
       ipAddress: deps.getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
     });
@@ -346,7 +352,7 @@ function registerRequestRoutes(fastify, deps) {
       await deps.repository.rooms().updateOne({ roomId: room.roomId }, { $set: { updatedAt: now() } });
     }
 
-    deps.emitAudit({
+    await deps.emitAudit({
       userId: req.auth.userId,
       organizationId: req.headers['x-org-id'] || null,
       eventType: 'EMERGENCY_REQUEST_STATUS_CHANGED',
@@ -354,7 +360,7 @@ function registerRequestRoutes(fastify, deps) {
       permissionKey: 'emergency.request.update_status',
       resource: { type: 'emergency_request', id: existing.requestId },
       outcome: 'success',
-      metadata: { from: existing.status, to: req.body.status },
+      metadata: { from: existing.status, to: req.body.status, requestId: req.headers['x-request-id'] || null },
       ipAddress: deps.getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
     });

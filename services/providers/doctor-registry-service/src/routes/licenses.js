@@ -27,7 +27,7 @@ async function updateStatus({ req, reply, deps, permissionKey, doctorId, status,
     createdAt,
   });
 
-  deps.emitAuditEvent({
+  await deps.enqueueEvent({
     userId: req.auth.userId,
     organizationId: null,
     eventType,
@@ -36,9 +36,9 @@ async function updateStatus({ req, reply, deps, permissionKey, doctorId, status,
     permissionKey,
     outcome: 'success',
     metadata: { notes },
-  });
+  }, req, 'audit');
 
-  deps.emitNotificationEvent({
+  await deps.enqueueEvent({
     eventType,
     payload: {
       doctorId: doctor.doctorId,
@@ -47,7 +47,8 @@ async function updateStatus({ req, reply, deps, permissionKey, doctorId, status,
       notes,
       performedByUserId: req.auth.userId,
     },
-  });
+    resource: { type: 'doctor', id: doctor.doctorId },
+  }, req, 'notification');
 
   return reply.send({ doctor: updated });
 }

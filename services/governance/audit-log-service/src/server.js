@@ -16,6 +16,7 @@ let mongoClient;
 let db;
 let flushTimer = null;
 const pendingEvents = [];
+const processedEventIds = new Map();
 
 const collections = {
   auditEvents: () => db.collection('audit_events'),
@@ -70,12 +71,22 @@ async function flushEvents() {
 
 function enqueueEvents(events) {
   for (const event of events) {
-    pendingEvents.push(normalizeEvent(event));
+    const normalized = normalizeEvent(event);
+    if (processedEventIds.has(normalized.eventId)) {
+      continue;
+    }
+    processedEventIds.set(normalized.eventId, Date.now());
+    pendingEvents.push(normalized);
   }
   if (pendingEvents.length >= flushBatchSize) {
     setImmediate(() => {
       void flushEvents();
     });
+  }
+
+  if (processedEventIds.size > 10000) {
+    const oldest = [...processedEventIds.entries()].sort((a, b) => a[1] - b[1]).slice(0, 2000);
+    oldest.forEach(([eventId]) => processedEventIds.delete(eventId));
   }
 }
 

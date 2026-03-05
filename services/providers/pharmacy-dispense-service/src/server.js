@@ -5,6 +5,7 @@ const { checkPermission } = require('./integrations/rbacClient');
 const { registerIndexEntry } = require('./integrations/indexClient');
 const { createRepository } = require('./db/repository');
 const { registerRoutes } = require('./routes/pharmacy');
+const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
 
 const serviceName = 'pharmacy-dispense-service';
 const port = Number(process.env.PORT) || 8107;
@@ -14,6 +15,8 @@ const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const healthRecordsIndexApiBaseUrl = process.env.HEALTH_RECORDS_INDEX_API_BASE_URL || 'http://health-records-index-service:8104';
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
+const nhrsContextAllowLegacy = String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'true') === 'true';
 
 function createApp(options = {}) {
   const fastify = fastifyFactory({ logger: true });
@@ -42,6 +45,7 @@ function createApp(options = {}) {
   }
 
   async function requireAuth(req, reply) {
+    if (req.auth?.userId) return;
     const token = parseBearerToken(req);
     if (!token) return reply.code(401).send({ message: 'Unauthorized' });
     try {
@@ -82,6 +86,12 @@ function createApp(options = {}) {
     if (req.url === '/health') return;
     if (!state.dbReady) return reply.code(503).send({ message: 'Pharmacy dispense storage unavailable' });
   });
+
+  fastify.addHook('onRequest', createContextVerificationHook({
+    secret: nhrsContextSecret,
+    allowLegacy: nhrsContextAllowLegacy,
+    requiredMatcher: (req) => req.url.startsWith('/pharmacy'),
+  }));
 
   fastify.get('/health', async () => ({ status: 'ok', service: serviceName, dbReady: state.dbReady, dbName }));
 

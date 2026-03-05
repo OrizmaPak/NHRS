@@ -1,6 +1,9 @@
+const { createOutboxRepository } = require('../../../../../libs/shared/src/outbox');
+
 function createRepository(db) {
   const doctors = db.collection('doctors');
   const licenseHistory = db.collection('license_history');
+  const outboxRepo = createOutboxRepository(db);
 
   return {
     async createIndexes() {
@@ -9,6 +12,7 @@ function createRepository(db) {
         doctors.createIndex({ userId: 1 }, { unique: true }),
         doctors.createIndex({ status: 1, specialization: 1 }),
         licenseHistory.createIndex({ doctorId: 1, createdAt: -1 }),
+        outboxRepo.createIndexes(),
       ]);
     },
 
@@ -63,6 +67,11 @@ function createRepository(db) {
       ]);
       return { items, total };
     },
+
+    enqueueOutboxEvent: outboxRepo.enqueueOutboxEvent,
+    fetchPendingOutboxEvents: outboxRepo.fetchPendingOutboxEvents,
+    markOutboxDelivered: outboxRepo.markDelivered,
+    markOutboxFailed: outboxRepo.markFailed,
   };
 }
 

@@ -1,6 +1,8 @@
 const { MongoClient, ServerApiVersion } = require('mongodb');
+const { createOutboxRepository } = require('../../../../libs/shared/src/outbox');
 
 function createRepository(db) {
+  const outboxRepo = createOutboxRepository(db);
   return {
     requests: () => db.collection('emergency_requests'),
     responses: () => db.collection('emergency_responses'),
@@ -21,8 +23,13 @@ function createRepository(db) {
         this.messages().createIndex({ messageId: 1 }, { unique: true }),
         this.inventory().createIndex({ inventoryId: 1 }, { unique: true }),
         this.inventory().createIndex({ providerOrgId: 1, providerBranchId: 1 }, { unique: true }),
+        outboxRepo.createIndexes(),
       ]);
     },
+    enqueueOutboxEvent: outboxRepo.enqueueOutboxEvent,
+    fetchPendingOutboxEvents: outboxRepo.fetchPendingOutboxEvents,
+    markOutboxDelivered: outboxRepo.markDelivered,
+    markOutboxFailed: outboxRepo.markFailed,
   };
 }
 

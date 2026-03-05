@@ -6,6 +6,7 @@ const { registerIndexEntry } = require('./integrations/indexClient');
 const { fetchDoctorStatus } = require('./integrations/doctorRegistryClient');
 const { createRepository } = require('./db/repository');
 const { registerRoutes } = require('./routes/encounters');
+const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
 
 const serviceName = 'clinical-encounter-service';
 const port = Number(process.env.PORT) || 8105;
@@ -17,6 +18,8 @@ const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-serv
 const healthRecordsIndexApiBaseUrl = process.env.HEALTH_RECORDS_INDEX_API_BASE_URL || 'http://health-records-index-service:8104';
 const doctorRegistryApiBaseUrl = process.env.DOCTOR_REGISTRY_API_BASE_URL || 'http://doctor-registry-service:8094';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
+const nhrsContextAllowLegacy = String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'true') === 'true';
 
 function createApp(options = {}) {
   const fastify = fastifyFactory({ logger: true });
@@ -53,6 +56,9 @@ function createApp(options = {}) {
   }
 
   async function requireAuth(req, reply) {
+    if (req.auth?.userId) {
+      return;
+    }
     const token = parseBearerToken(req);
     if (!token) return reply.code(401).send({ message: 'Unauthorized' });
     try {
@@ -97,6 +103,12 @@ function createApp(options = {}) {
     if (req.url === '/health') return;
     if (!state.dbReady) return reply.code(503).send({ message: 'Encounter storage unavailable' });
   });
+
+  fastify.addHook('onRequest', createContextVerificationHook({
+    secret: nhrsContextSecret,
+    allowLegacy: nhrsContextAllowLegacy,
+    requiredMatcher: (req) => req.url.startsWith('/encounters'),
+  }));
 
   fastify.get('/health', async () => ({ status: 'ok', service: serviceName, dbReady: state.dbReady, dbName }));
 

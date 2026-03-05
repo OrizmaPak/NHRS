@@ -90,7 +90,7 @@ function registerResponseRoutes(fastify, deps) {
       await deps.repository.rooms().updateOne({ roomId: room.roomId }, { $set: { updatedAt: now() } });
     }
 
-    deps.emitAudit({
+    await deps.emitAudit({
       userId: req.auth.userId,
       organizationId: orgId,
       eventType: 'EMERGENCY_RESPONSE_CREATED',
@@ -98,7 +98,7 @@ function registerResponseRoutes(fastify, deps) {
       permissionKey: 'emergency.response.create',
       resource: { type: 'emergency_response', id: responseDoc.responseId },
       outcome: 'success',
-      metadata: { requestId: requestDoc.requestId, responseType: responseDoc.responseType },
+      metadata: { requestId: requestDoc.requestId, responseType: responseDoc.responseType, requestTraceId: req.headers['x-request-id'] || null },
       ipAddress: deps.getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
     });

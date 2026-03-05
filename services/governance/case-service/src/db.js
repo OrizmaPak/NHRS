@@ -1,6 +1,8 @@
 const { MongoClient, ServerApiVersion } = require('mongodb');
+const { createOutboxRepository } = require('../../../../libs/shared/src/outbox');
 
 function createRepository(db) {
+  const outboxRepo = createOutboxRepository(db);
   return {
     cases: () => db.collection('governance_cases'),
     actions: () => db.collection('case_actions'),
@@ -17,8 +19,13 @@ function createRepository(db) {
         this.rooms().createIndex({ caseId: 1 }, { unique: true }),
         this.messages().createIndex({ messageId: 1 }, { unique: true }),
         this.messages().createIndex({ roomId: 1, createdAt: 1 }),
+        outboxRepo.createIndexes(),
       ]);
     },
+    enqueueOutboxEvent: outboxRepo.enqueueOutboxEvent,
+    fetchPendingOutboxEvents: outboxRepo.fetchPendingOutboxEvents,
+    markOutboxDelivered: outboxRepo.markDelivered,
+    markOutboxFailed: outboxRepo.markFailed,
   };
 }
 

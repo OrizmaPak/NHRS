@@ -1,6 +1,9 @@
+const { createOutboxRepository } = require('../../../../../libs/shared/src/outbox');
+
 function createRepository(db) {
   const recordsIndex = () => db.collection('records_index');
   const recordEntries = () => db.collection('record_entries');
+  const outboxRepo = createOutboxRepository(db);
 
   async function createIndexes() {
     await Promise.all([
@@ -12,6 +15,7 @@ function createRepository(db) {
       recordEntries().createIndex({ 'createdBy.organizationId': 1, 'createdBy.branchId': 1 }),
       recordEntries().createIndex({ 'createdBy.providerUserId': 1, createdAt: -1 }),
       recordEntries().createIndex({ createdAt: -1 }),
+      outboxRepo.createIndexes(),
     ]);
   }
 
@@ -59,6 +63,10 @@ function createRepository(db) {
     findEntryById,
     updateEntry,
     listEntriesByRecord,
+    enqueueOutboxEvent: outboxRepo.enqueueOutboxEvent,
+    fetchPendingOutboxEvents: outboxRepo.fetchPendingOutboxEvents,
+    markOutboxDelivered: outboxRepo.markDelivered,
+    markOutboxFailed: outboxRepo.markFailed,
   };
 }
 

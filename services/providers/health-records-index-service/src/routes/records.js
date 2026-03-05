@@ -244,14 +244,14 @@ function registerRecordsRoutes(fastify, deps) {
     const entries = await repository().listEntriesByRecord(record.recordId);
     const visibleEntries = entries.filter((entry) => !shouldHideForProvider(entry, organizationId, req.auth.roles));
 
-    emitNotificationEvent(buildNotificationPayload({
+    await emitNotificationEvent(buildNotificationPayload({
       citizenUserId: record.citizenUserId,
       citizenNin: record.citizenNin,
       accessedByUserId: req.auth.userId,
       orgId: organizationId,
       branchId,
-    }));
-    emitAuditEvent({
+    }), req);
+    await emitAuditEvent({
       userId: req.auth.userId,
       organizationId,
       eventType: 'RECORD_ACCESSED',
@@ -260,7 +260,7 @@ function registerRecordsRoutes(fastify, deps) {
       permissionKey: 'records.nin.read',
       outcome: 'success',
       metadata: { citizenNin, branchId },
-    });
+    }, req);
 
     return reply.send({
       recordId: record.recordId,
@@ -335,7 +335,7 @@ function registerRecordsRoutes(fastify, deps) {
     });
 
     await repository().updateRecord(record.recordId, { updatedAt: now() });
-    emitAuditEvent({
+    await emitAuditEvent({
       userId: req.auth.userId,
       organizationId: null,
       eventType: 'RECORD_ENTRY_CREATED',
@@ -344,7 +344,7 @@ function registerRecordsRoutes(fastify, deps) {
       permissionKey: 'records.symptoms.create',
       outcome: 'success',
       metadata: { entryType: entry.entryType },
-    });
+    }, req);
 
     return reply.code(201).send({ entry: mapEntry(entry) });
   });
@@ -427,7 +427,7 @@ function registerRecordsRoutes(fastify, deps) {
     });
 
     await repository().updateRecord(record.recordId, { updatedAt: now() });
-    emitAuditEvent({
+    await emitAuditEvent({
       userId: req.auth.userId,
       organizationId,
       eventType: 'RECORD_ENTRY_CREATED',
@@ -436,7 +436,7 @@ function registerRecordsRoutes(fastify, deps) {
       permissionKey: 'records.entry.create',
       outcome: 'success',
       metadata: { entryType: entry.entryType, citizenNin },
-    });
+    }, req);
 
     return reply.code(201).send({ entry: mapEntry(entry) });
   });
@@ -484,7 +484,7 @@ function registerRecordsRoutes(fastify, deps) {
     }
 
     if (isProviderCreator && entry.editableUntil && new Date(entry.editableUntil).getTime() < Date.now()) {
-      emitAuditEvent({
+      await emitAuditEvent({
         userId: req.auth.userId,
         organizationId: createdBy.organizationId || null,
         eventType: 'RECORD_ENTRY_EDIT_DENIED',
@@ -493,7 +493,7 @@ function registerRecordsRoutes(fastify, deps) {
         permissionKey: 'records.entry.update',
         outcome: 'failure',
         failureReason: 'EDIT_WINDOW_EXPIRED_USE_TASKFORCE_WORKFLOW',
-      });
+      }, req);
       return reply.code(403).send({ message: 'EDIT_WINDOW_EXPIRED_USE_TASKFORCE_WORKFLOW' });
     }
 
@@ -507,7 +507,7 @@ function registerRecordsRoutes(fastify, deps) {
       },
     });
     const updated = await repository().findEntryById(entry.entryId);
-    emitAuditEvent({
+    await emitAuditEvent({
       userId: req.auth.userId,
       organizationId: createdBy.organizationId || null,
       eventType: 'RECORD_ENTRY_UPDATED',
@@ -515,7 +515,7 @@ function registerRecordsRoutes(fastify, deps) {
       resource: { type: 'record_entry', id: entry.entryId },
       permissionKey: 'records.entry.update',
       outcome: 'success',
-    });
+    }, req);
     return reply.send({ entry: mapEntry(updated) });
   });
 
@@ -574,7 +574,7 @@ function registerRecordsRoutes(fastify, deps) {
       },
     });
 
-    emitAuditEvent({
+    await emitAuditEvent({
       userId: req.auth.userId,
       organizationId: null,
       eventType: 'RECORD_ENTRY_VISIBILITY_UPDATED',
@@ -582,7 +582,7 @@ function registerRecordsRoutes(fastify, deps) {
       resource: { type: 'record_entry', id: entry.entryId },
       permissionKey: 'records.entry.hide',
       outcome: 'success',
-    });
+    }, req);
 
     const updated = await repository().findEntryById(entry.entryId);
     return reply.send({ entry: mapEntry(updated) });

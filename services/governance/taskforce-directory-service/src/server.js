@@ -4,6 +4,7 @@ const { connectMongo, createRepository } = require('./db');
 const { emitNotificationEvent } = require('./integrations/notificationClient');
 const { emitAuditEvent } = require('./integrations/auditClient');
 const { registerTaskforceRoutes } = require('./routes/taskforce');
+const { createContextVerificationHook } = require('../../../../libs/shared/src/nhrs-context');
 
 const serviceName = 'taskforce-directory-service';
 const port = Number(process.env.PORT) || 8109;
@@ -14,6 +15,8 @@ const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:809
 const notificationApiBaseUrl = process.env.NOTIFICATION_API_BASE_URL || 'http://notification-service:8101';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
+const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
+const nhrsContextAllowLegacy = String(process.env.NHRS_CONTEXT_ALLOW_LEGACY || 'true') === 'true';
 
 function getClientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
@@ -52,6 +55,7 @@ function createApp(options = {}) {
   }
 
   async function requireAuth(req, reply) {
+    if (req.auth?.userId) return;
     const token = parseBearerToken(req);
     if (!token) return reply.code(401).send({ message: 'Unauthorized' });
     try {
@@ -94,6 +98,12 @@ function createApp(options = {}) {
     if (req.url === '/health') return;
     if (!state.dbReady) return reply.code(503).send({ message: 'Taskforce directory storage unavailable' });
   });
+
+  fastify.addHook('onRequest', createContextVerificationHook({
+    secret: nhrsContextSecret,
+    allowLegacy: nhrsContextAllowLegacy,
+    requiredMatcher: (req) => req.url.startsWith('/taskforce/'),
+  }));
 
   fastify.get('/health', async () => ({ status: 'ok', service: serviceName, dbReady: state.dbReady, dbName }));
 

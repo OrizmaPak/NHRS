@@ -18,6 +18,7 @@ function makeToken(payload, secret = 'change-me') {
 function makeDb() {
   const doctors = [];
   const history = [];
+  const outbox = [];
 
   return {
     __inspect: { doctors, history },
@@ -102,6 +103,18 @@ function makeDb() {
               toArray: async () => structuredClone(history.filter((h) => h.doctorId === q.doctorId)),
             }),
           }),
+        };
+      }
+
+      if (name === 'outbox_events') {
+        return {
+          createIndex: async () => ({}),
+          insertOne: async (doc) => {
+            outbox.push(structuredClone(doc));
+            return { acknowledged: true };
+          },
+          findOneAndUpdate: async () => null,
+          updateOne: async () => ({ acknowledged: true }),
         };
       }
 

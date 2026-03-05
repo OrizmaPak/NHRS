@@ -155,13 +155,19 @@ function registerCaseRoutes(fastify, deps) {
 
     await deps.repository.rooms().insertOne({ roomId, caseId, participants, createdAt, updatedAt: createdAt });
 
-    deps.emitNotification({
+    await deps.emitNotification({
       eventType: 'TASKFORCE_CASE_ASSIGNED',
       payload: { caseId, unitId: assignedUnitId, level: assignedLevel, subject: caseDoc.subject },
       targets: unitMembers.map((m) => ({ userId: m.userId, unitId: assignedUnitId })),
+      trace: {
+        requestId: req.headers['x-request-id'] || null,
+        userId: req.auth.userId,
+        orgId: req.headers['x-org-id'] || null,
+        branchId: req.headers['x-branch-id'] || null,
+      },
     });
 
-    deps.emitAudit({
+    await deps.emitAudit({
       userId: req.auth.userId,
       organizationId: req.headers['x-org-id'] || null,
       eventType: 'GOVERNANCE_CASE_CREATED',
@@ -169,7 +175,7 @@ function registerCaseRoutes(fastify, deps) {
       permissionKey: 'governance.case.create',
       resource: { type: 'governance_case', id: caseId },
       outcome: 'success',
-      metadata: { assignedUnitId, assignedLevel },
+      metadata: { assignedUnitId, assignedLevel, requestId: req.headers['x-request-id'] || null },
       ipAddress: deps.getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
     });
@@ -335,7 +341,7 @@ function registerCaseRoutes(fastify, deps) {
     await deps.repository.cases().updateOne({ caseId: caseDoc.caseId }, { $set: { status: 'approved', updatedAt: now() } });
     await ensureRoomSystemMessage(deps, caseDoc.caseId, 'Correction approved', req.auth.userId);
 
-    deps.emitAudit({
+    await deps.emitAudit({
       userId: req.auth.userId,
       organizationId: req.headers['x-org-id'] || null,
       eventType: 'RECORD_CORRECTION_APPROVED',
@@ -343,7 +349,7 @@ function registerCaseRoutes(fastify, deps) {
       permissionKey: 'governance.correction.approve',
       resource: { type: 'governance_case', id: caseDoc.caseId },
       outcome: 'success',
-      metadata: { decisionNotes: req.body.decisionNotes },
+      metadata: { decisionNotes: req.body.decisionNotes, requestId: req.headers['x-request-id'] || null },
       ipAddress: deps.getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
     });
@@ -377,7 +383,7 @@ function registerCaseRoutes(fastify, deps) {
     await deps.repository.cases().updateOne({ caseId: caseDoc.caseId }, { $set: { status: 'rejected', updatedAt: now() } });
     await ensureRoomSystemMessage(deps, caseDoc.caseId, 'Correction rejected', req.auth.userId);
 
-    deps.emitAudit({
+    await deps.emitAudit({
       userId: req.auth.userId,
       organizationId: req.headers['x-org-id'] || null,
       eventType: 'RECORD_CORRECTION_REJECTED',
@@ -385,7 +391,7 @@ function registerCaseRoutes(fastify, deps) {
       permissionKey: 'governance.correction.reject',
       resource: { type: 'governance_case', id: caseDoc.caseId },
       outcome: 'success',
-      metadata: { decisionNotes: req.body.decisionNotes },
+      metadata: { decisionNotes: req.body.decisionNotes, requestId: req.headers['x-request-id'] || null },
       ipAddress: deps.getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
     });

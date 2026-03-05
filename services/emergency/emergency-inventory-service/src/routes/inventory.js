@@ -86,7 +86,7 @@ function registerInventoryRoutes(fastify, deps) {
       { upsert: true }
     );
 
-    deps.emitAudit({
+    await deps.emitAudit({
       userId: req.auth.userId,
       organizationId: orgId,
       eventType: 'PROVIDER_INVENTORY_UPDATED',
@@ -94,7 +94,7 @@ function registerInventoryRoutes(fastify, deps) {
       permissionKey: 'emergency.inventory.upsert',
       resource: { type: 'provider_inventory', id: inventoryDoc.inventoryId },
       outcome: 'success',
-      metadata: { itemCount: inventoryDoc.items.length },
+      metadata: { itemCount: inventoryDoc.items.length, requestTraceId: req.headers['x-request-id'] || null },
       ipAddress: deps.getClientIp(req),
       userAgent: req.headers['user-agent'] || null,
     });

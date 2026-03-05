@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const { buildApp } = require('../src/server');
+const { buildSignedContext, encodeContext, signEncodedContext } = require('../../../../libs/shared/src/nhrs-context');
 
 function base64Url(input) {
   return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -196,4 +197,71 @@ test('revoked doctor cannot create encounter', async () => {
   });
   assert.equal(res.statusCode, 403);
   assert.equal(res.json().message, 'DOCTOR_LICENSE_NOT_VERIFIED');
+});
+
+test('rejects invalid trusted context signature on protected endpoint', async () => {
+  const { app } = ctx(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) }));
+  const payload = buildSignedContext({
+    requestId: 'req-invalid-ctx',
+    userId: 'provider-x',
+    roles: ['doctor'],
+    orgId: 'org-1',
+    branchId: 'b-1',
+    permissionsChecked: ['encounters.create'],
+    membershipChecked: true,
+  });
+  const encoded = encodeContext(payload);
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/encounters/90000000008',
+    headers: {
+      authorization: 'Bearer invalid.jwt.token',
+      'x-org-id': 'org-1',
+      'x-nhrs-context': encoded,
+      'x-nhrs-context-signature': 'bad-signature',
+    },
+    payload: { visitType: 'outpatient', chiefComplaint: 'Headache' },
+  });
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.json().message, 'INVALID_TRUST_CONTEXT');
+});
+
+test('accepts valid trusted context and populates req.auth from context', async () => {
+  const { app } = ctx(async (url) => {
+    const t = String(url);
+    if (t.includes('/rbac/check')) return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+    if (t.includes('/doctors/provider-from-context/status')) {
+      return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'verified' }) };
+    }
+    if (t.includes('/records/90000000009/entries')) return { ok: true, status: 201, text: async () => JSON.stringify({}) };
+    return { ok: true, status: 202, text: async () => JSON.stringify({}) };
+  });
+  const payload = buildSignedContext({
+    requestId: 'req-valid-ctx',
+    userId: 'provider-from-context',
+    roles: ['doctor'],
+    orgId: 'org-ctx',
+    branchId: 'branch-ctx',
+    permissionsChecked: ['encounters.create'],
+    membershipChecked: true,
+  });
+  const encoded = encodeContext(payload);
+  const signature = signEncodedContext(encoded, process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret');
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/encounters/90000000009',
+    headers: {
+      authorization: 'Bearer malformed.token.payload',
+      'x-org-id': 'org-ctx',
+      'x-branch-id': 'branch-ctx',
+      'x-nhrs-context': encoded,
+      'x-nhrs-context-signature': signature,
+    },
+    payload: { visitType: 'outpatient', chiefComplaint: 'Chest pain' },
+  });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.json().encounter.providerUserId, 'provider-from-context');
+  assert.equal(res.json().encounter.organizationId, 'org-ctx');
 });

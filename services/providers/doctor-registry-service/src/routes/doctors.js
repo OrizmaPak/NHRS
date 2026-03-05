@@ -82,7 +82,7 @@ function registerDoctorRoutes(fastify, deps) {
       createdAt: now,
     });
 
-    deps.emitAuditEvent({
+    await deps.enqueueEvent({
       userId: req.auth.userId,
       organizationId: null,
       eventType: 'DOCTOR_REGISTERED',
@@ -91,9 +91,9 @@ function registerDoctorRoutes(fastify, deps) {
       permissionKey: 'doctor.register',
       outcome: 'success',
       metadata: { licenseNumber: doctor.licenseNumber, specialization: doctor.specialization },
-    });
+    }, req, 'audit');
 
-    deps.emitNotificationEvent({
+    await deps.enqueueEvent({
       eventType: 'DOCTOR_REGISTERED',
       payload: {
         doctorId: doctor.doctorId,
@@ -101,7 +101,8 @@ function registerDoctorRoutes(fastify, deps) {
         fullName: doctor.fullName,
         specialization: doctor.specialization,
       },
-    });
+      resource: { type: 'doctor', id: doctor.doctorId },
+    }, req, 'notification');
 
     return reply.code(201).send({ doctor });
   });

@@ -90,7 +90,15 @@ function makeDb() {
     case_rooms: makeCollection(),
     case_room_messages: makeCollection(),
   };
-  return { __stores: stores, collection: (name) => stores[name] };
+  return {
+    __stores: stores,
+    collection: (name) => {
+      if (!stores[name]) {
+        stores[name] = makeCollection();
+      }
+      return stores[name];
+    },
+  };
 }
 
 function setup(fetchImpl) {
@@ -127,7 +135,7 @@ test('case creation auto-routes by location and creates room, notifies assigned 
   assert.equal(res.statusCode, 201);
   assert.equal(db.__stores.governance_cases.items.length, 1);
   assert.equal(db.__stores.case_rooms.items.length, 1);
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await app.flushOutboxOnce();
   assert.equal(notifications > 0, true);
   assert.equal(db.__stores.governance_cases.items[0].routing.assignedUnitId, 'lga-1');
 });

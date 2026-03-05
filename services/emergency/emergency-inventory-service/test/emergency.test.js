@@ -155,7 +155,7 @@ test('request creation creates request and incident room', async () => {
   assert.equal(res.statusCode, 201);
   assert.equal(db.__stores.emergency_requests.items.length, 1);
   assert.equal(db.__stores.emergency_rooms.items.length, 1);
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await app.flushOutboxOnce();
   assert.equal(notifications.length > 0, true);
   assert.equal(notifications[0].eventType, 'EMERGENCY_ALERT');
 });
