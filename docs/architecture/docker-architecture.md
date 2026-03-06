@@ -56,8 +56,8 @@ Use grouped cluster URIs plus one database per service.
 
 - IDENTITY_MONGODB_URI: auth-api, otp-service, session-service, token-service, nin-linking-service
 - GOVERNANCE_MONGODB_URI: rbac-service, audit-log-service
-- HEALTHDATA_MONGODB_URI: health-records-service, encounter-notes-service, laboratory-service, pharmacy-dispensing-service
-- SUPPORT_MONGODB_URI: notification-service, file-document-service, catalog-service, emergency-requests-service
+- HEALTHDATA_MONGODB_URI: health-records-index-service, clinical-encounter-service, laboratory-result-service, pharmacy-dispense-service
+- SUPPORT_MONGODB_URI: notification-service, file-document-service, emergency-inventory-service, ui-theme-service
 
 Each service still gets its own DB name (for example AUTH_DB_NAME, LAB_DB_NAME, AUDIT_DB_NAME).
 

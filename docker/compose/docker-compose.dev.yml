@@ -37,8 +37,8 @@ services:
 
   api-gateway:
     build:
-      context: ../../services/core-platform/api-gateway
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/core-platform/api-gateway/Dockerfile
     env_file:
       - ../../.env
       - ../../services/core-platform/api-gateway/.env
@@ -67,6 +67,8 @@ services:
         condition: service_healthy
       case-service:
         condition: service_healthy
+      ui-theme-service:
+        condition: service_healthy
     networks:
       - nhrs_net
     healthcheck:
@@ -78,8 +80,8 @@ services:
 
   auth-api:
     build:
-      context: ../../services/core-platform/authentication/auth-api
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/core-platform/authentication/auth-api/Dockerfile
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/auth-api/.env
@@ -171,8 +173,8 @@ services:
 
   rbac-service:
     build:
-      context: ../../services/governance/rbac-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/governance/rbac-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/governance/rbac-service/.env
@@ -207,8 +209,8 @@ services:
 
   user-profile-service:
     build:
-      context: ../../services/core-platform/user-profile/profile-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/core-platform/user-profile/profile-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/core-platform/user-profile/profile-service/.env
@@ -225,8 +227,8 @@ services:
 
   organization-service:
     build:
-      context: ../../services/providers/organization-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/providers/organization-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/providers/organization-service/.env
@@ -243,8 +245,8 @@ services:
 
   membership-service:
     build:
-      context: ../../services/providers/membership-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/providers/membership-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/providers/membership-service/.env
@@ -261,8 +263,8 @@ services:
 
   health-records-index-service:
     build:
-      context: ../../services/providers/health-records-index-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/providers/health-records-index-service/Dockerfile
     depends_on:
       auth-api:
         condition: service_healthy
@@ -286,8 +288,8 @@ services:
 
   clinical-encounter-service:
     build:
-      context: ../../services/providers/clinical-encounter-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/providers/clinical-encounter-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/providers/clinical-encounter-service/.env
@@ -304,8 +306,8 @@ services:
 
   laboratory-result-service:
     build:
-      context: ../../services/providers/laboratory-result-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/providers/laboratory-result-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/providers/laboratory-result-service/.env
@@ -322,8 +324,8 @@ services:
 
   pharmacy-dispense-service:
     build:
-      context: ../../services/providers/pharmacy-dispense-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/providers/pharmacy-dispense-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/providers/pharmacy-dispense-service/.env
@@ -340,8 +342,8 @@ services:
 
   emergency-inventory-service:
     build:
-      context: ../../services/emergency/emergency-inventory-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/emergency/emergency-inventory-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/emergency/emergency-inventory-service/.env
@@ -358,8 +360,8 @@ services:
 
   taskforce-directory-service:
     build:
-      context: ../../services/governance/taskforce-directory-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/governance/taskforce-directory-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/governance/taskforce-directory-service/.env
@@ -376,8 +378,8 @@ services:
 
   case-service:
     build:
-      context: ../../services/governance/case-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/governance/case-service/Dockerfile
     depends_on:
       taskforce-directory-service:
         condition: service_healthy
@@ -397,8 +399,8 @@ services:
 
   doctor-registry-service:
     build:
-      context: ../../services/providers/doctor-registry-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/providers/doctor-registry-service/Dockerfile
     env_file:
       - ../../.env
       - ../../services/providers/doctor-registry-service/.env
@@ -413,105 +415,15 @@ services:
       retries: 5
       start_period: 15s
 
-  health-records-service:
+  ui-theme-service:
     build:
-      context: ../../services/health-data/health-records-service
-      dockerfile: Dockerfile
+      context: ../../
+      dockerfile: services/platform-support/ui-theme-service/Dockerfile
     env_file:
       - ../../.env
-      - ../../services/health-data/health-records-service/.env
+      - ../../services/platform-support/ui-theme-service/.env
     ports:
-      - "${HEALTH_RECORDS_PORT}:${HEALTH_RECORDS_PORT}"
-    networks:
-      - nhrs_net
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  encounter-notes-service:
-    build:
-      context: ../../services/health-data/encounter-notes-service
-      dockerfile: Dockerfile
-    env_file:
-      - ../../.env
-      - ../../services/health-data/encounter-notes-service/.env
-    ports:
-      - "${ENCOUNTER_NOTES_PORT}:${ENCOUNTER_NOTES_PORT}"
-    networks:
-      - nhrs_net
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  laboratory-service:
-    build:
-      context: ../../services/health-data/laboratory-service
-      dockerfile: Dockerfile
-    env_file:
-      - ../../.env
-      - ../../services/health-data/laboratory-service/.env
-    ports:
-      - "${LAB_PORT}:${LAB_PORT}"
-    networks:
-      - nhrs_net
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  pharmacy-dispensing-service:
-    build:
-      context: ../../services/health-data/pharmacy-dispensing-service
-      dockerfile: Dockerfile
-    env_file:
-      - ../../.env
-      - ../../services/health-data/pharmacy-dispensing-service/.env
-    ports:
-      - "${PHARMACY_PORT}:${PHARMACY_PORT}"
-    networks:
-      - nhrs_net
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  emergency-requests-service:
-    build:
-      context: ../../services/emergency/emergency-requests-service
-      dockerfile: Dockerfile
-    env_file:
-      - ../../.env
-      - ../../services/emergency/emergency-requests-service/.env
-    ports:
-      - "${EMERGENCY_REQUESTS_PORT}:${EMERGENCY_REQUESTS_PORT}"
-    networks:
-      - nhrs_net
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  catalog-service:
-    build:
-      context: ../../services/emergency/catalog-service
-      dockerfile: Dockerfile
-    env_file:
-      - ../../.env
-      - ../../services/emergency/catalog-service/.env
-    ports:
-      - "${CATALOG_PORT}:${CATALOG_PORT}"
+      - "${UI_THEME_PORT}:${UI_THEME_PORT}"
     networks:
       - nhrs_net
     healthcheck:
@@ -635,4 +547,6 @@ services:
 networks:
   nhrs_net:
     driver: bridge
+
+
 

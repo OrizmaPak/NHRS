@@ -21,6 +21,7 @@ scrape_configs:
       module: [http_2xx]
     static_configs:
       - targets:
+          - http://nginx:80/health
           - http://api-gateway:8080/health
           - http://auth-api:8081/health
           - http://otp-service:8082/health
@@ -32,15 +33,17 @@ scrape_configs:
           - http://user-profile-service:8092/health
           - http://organization-service:8093/health
           - http://doctor-registry-service:8094/health
-          - http://health-records-service:8095/health
-          - http://encounter-notes-service:8096/health
-          - http://laboratory-service:8097/health
-          - http://pharmacy-dispensing-service:8098/health
-          - http://emergency-requests-service:8099/health
-          - http://catalog-service:8100/health
           - http://notification-service:8101/health
           - http://file-document-service:8102/health
-          - http://nginx:80/health
+          - http://membership-service:8103/health
+          - http://health-records-index-service:8104/health
+          - http://clinical-encounter-service:8105/health
+          - http://laboratory-result-service:8106/health
+          - http://pharmacy-dispense-service:8107/health
+          - http://emergency-inventory-service:8108/health
+          - http://taskforce-directory-service:8109/health
+          - http://case-service:8110/health
+          - http://ui-theme-service:8111/health
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

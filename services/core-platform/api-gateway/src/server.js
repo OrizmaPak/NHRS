@@ -11,6 +11,7 @@ const { evaluateAuthzResponse } = require('./authz');
 const { buildAuditPayload } = require('./audit-utils');
 const { setStandardErrorHandler } = require('../../../../libs/shared/src/errors');
 const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
+const { buildEventEnvelope, createOutboxRepository, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
 const {
   CONTEXT_HEADER,
   CONTEXT_SIGNATURE_HEADER,
@@ -37,6 +38,7 @@ const emergencyInventoryApiBaseUrl = process.env.EMERGENCY_INVENTORY_API_BASE_UR
 const taskforceDirectoryApiBaseUrl = process.env.TASKFORCE_DIRECTORY_API_BASE_URL || 'http://taskforce-directory-service:8109';
 const caseApiBaseUrl = process.env.CASE_API_BASE_URL || 'http://case-service:8110';
 const doctorRegistryApiBaseUrl = process.env.DOCTOR_REGISTRY_API_BASE_URL || 'http://doctor-registry-service:8094';
+const uiThemeApiBaseUrl = process.env.UI_THEME_API_BASE_URL || 'http://ui-theme-service:8111';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const membershipScopeCacheTtlSec = Number(process.env.MEMBERSHIP_SCOPE_CACHE_TTL_SEC) || 60;
@@ -44,11 +46,16 @@ const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-con
 const nhrsContextTtlSeconds = Number(process.env.NHRS_CONTEXT_TTL_SECONDS) || 60;
 const docsExportPath = process.env.DOCS_EXPORT_PATH;
 const gatewayRateLimitWindowSec = Number(process.env.GATEWAY_RATE_LIMIT_WINDOW_SEC) || 60;
+const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
+const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 50;
+const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
 
 let dbReady = false;
 let mongoClient;
 let redisClient;
 let redisReady = false;
+let outboxRepo = null;
+let outboxTimer = null;
 let fetchClient = (...args) => fetch(...args);
 let routesRegistered = false;
 const memoryRateLimitBuckets = new Map();
@@ -273,16 +280,22 @@ async function applyIdempotency(req, reply) {
 
 function emitAuditEvent(event) {
   const payload = buildAuditPayload(event);
-  setImmediate(async () => {
-    try {
-      await fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    } catch (err) {
-      fastify.log.warn({ err, eventType: payload?.eventType }, 'Gateway audit emit failed');
-    }
+  if (!outboxRepo) return;
+  outboxRepo.enqueueOutboxEvent(buildEventEnvelope({
+    eventType: payload.eventType || 'AUDIT_EVENT',
+    sourceService: serviceName,
+    aggregateType: payload.resource?.type || 'gateway',
+    aggregateId: payload.resource?.id || payload.userId || null,
+    payload,
+    trace: {
+      requestId: payload.metadata?.requestId || null,
+      userId: payload.userId || null,
+      orgId: payload.organizationId || null,
+      branchId: payload.metadata?.branchId || null,
+    },
+    destination: 'audit',
+  })).catch((err) => {
+    fastify.log.warn({ err, eventType: payload?.eventType }, 'Gateway audit enqueue failed');
   });
 }
 
@@ -303,15 +316,42 @@ async function connectToMongo() {
   try {
     await mongoClient.connect();
     await mongoClient.db('admin').command({ ping: 1 });
+    outboxRepo = createOutboxRepository(mongoClient.db(dbName));
     await mongoClient.db(dbName).collection('idempotency_keys').createIndexes([
       { key: { key: 1, scope: 1, route: 1 }, unique: true },
       { key: { createdAt: 1 }, expireAfterSeconds: 24 * 60 * 60 },
     ]);
+    await outboxRepo.createIndexes();
     dbReady = true;
     fastify.log.info({ dbName }, 'MongoDB connection established');
   } catch (err) {
     fastify.log.warn({ err }, 'MongoDB connection failed; continuing without database connection');
   }
+}
+
+async function flushOutboxOnce() {
+  if (!outboxRepo) return;
+  await deliverOutboxBatch({
+    outboxRepo,
+    logger: fastify.log,
+    batchSize: outboxBatchSize,
+    maxAttempts: outboxMaxAttempts,
+    handlers: {
+      audit: async (event) => {
+        const res = await fetchClient(`${auditApiBaseUrl}/internal/audit/events`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ eventId: event.eventId, ...event.payload, createdAt: event.createdAt }),
+        });
+        if (!res.ok) throw new Error(`audit delivery failed: ${res.status}`);
+      },
+    },
+  });
+}
+
+function startOutboxWorker() {
+  if (outboxTimer) return;
+  outboxTimer = setInterval(() => { void flushOutboxOnce(); }, outboxIntervalMs);
 }
 
 async function connectToRedis() {
@@ -677,6 +717,7 @@ function registerAuthRoutes() {
     { method: 'POST', path: '/auth/password/set', upstream: '/password/set' },
     { method: 'POST', path: '/auth/password/change', upstream: '/password/change' },
     { method: 'GET', path: '/auth/me', upstream: '/me' },
+    { method: 'POST', path: '/auth/context/switch', upstream: '/context/switch' },
     { method: 'POST', path: '/auth/contact/phone', upstream: '/contact/phone' },
     { method: 'POST', path: '/auth/contact/phone/verify', upstream: '/contact/phone/verify' },
     { method: 'POST', path: '/auth/contact/email', upstream: '/contact/email' },
@@ -1188,6 +1229,77 @@ function registerDoctorRegistryRoutes() {
   }
 }
 
+function registerUiThemeRoutes() {
+  const routeDefs = [
+    ['GET', '/ui/theme/platform', '/ui/theme/platform'],
+    ['GET', '/ui/theme/effective', '/ui/theme/effective'],
+    ['GET', '/ui/theme', '/ui/theme'],
+    ['POST', '/ui/theme', '/ui/theme'],
+    ['PATCH', '/ui/theme/:id', '/ui/theme/:id'],
+    ['POST', '/ui/theme/:id/logo', '/ui/theme/:id/logo'],
+    ['DELETE', '/ui/theme/:id', '/ui/theme/:id'],
+  ];
+
+  for (const [method, routePath, upstreamPath] of routeDefs) {
+    registerProxyRoute({
+      method,
+      url: routePath,
+      publicRoute: method === 'GET' && (routePath === '/ui/theme/platform' || routePath === '/ui/theme/effective'),
+      targetBase: uiThemeApiBaseUrl,
+      targetPath: (req) => {
+        let p = upstreamPath;
+        for (const [k, v] of Object.entries(req.params || {})) {
+          p = p.replace(`:${k}`, encodeURIComponent(String(v)));
+        }
+        return p;
+      },
+      schema: {
+        tags: ['UI Theme'],
+        summary: `Proxy ${method} ${routePath}`,
+        description: routePath === '/ui/theme/effective'
+          ? 'Returns effective UI theme for context switching by merging platform, parent and tenant theme tokens.'
+          : undefined,
+        security: method === 'GET' && (routePath === '/ui/theme/platform' || routePath === '/ui/theme/effective')
+          ? []
+          : [{ bearerAuth: [] }],
+        headers: authHeaderSchema(!(method === 'GET' && (routePath === '/ui/theme/platform' || routePath === '/ui/theme/effective'))),
+        querystring: routePath === '/ui/theme/effective'
+          ? {
+            type: 'object',
+            required: ['scope_type'],
+            properties: {
+              scope_type: { type: 'string', enum: ['platform', 'organization', 'state', 'taskforce'] },
+              scope_id: { type: 'string' },
+            },
+          }
+          : { type: 'object', additionalProperties: true },
+        params: { type: 'object', additionalProperties: true },
+        body: routePath === '/ui/theme/:id/logo'
+          ? {
+            type: 'object',
+            properties: {
+              lightUrl: { type: 'string' },
+              darkUrl: { type: 'string' },
+              markUrl: { type: 'string' },
+              upload: {
+                type: 'object',
+                properties: {
+                  variant: { type: 'string', enum: ['light', 'dark', 'mark'] },
+                  filename: { type: 'string' },
+                  contentType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/svg+xml'] },
+                  contentBase64: { type: 'string' },
+                },
+                required: ['variant', 'contentType', 'contentBase64'],
+              },
+            },
+          }
+          : { type: 'object', additionalProperties: true },
+        response: standardResponses({ 200: { type: 'object' }, 201: { type: 'object' }, 304: { type: 'null' } }),
+      },
+    });
+  }
+}
+
 function registerEmergencyRoutes() {
   const routeDefs = [
     ['POST', '/emergency/requests', '/emergency/requests'],
@@ -1306,6 +1418,7 @@ async function registerDocs() {
         { name: 'Emergency', description: 'Emergency requests, provider responses, incident rooms, and inventory discovery' },
         { name: 'Governance', description: 'Taskforce directory, cases, correction workflow, and escalation' },
         { name: 'Doctor Registry', description: 'Doctor registration, verification, and license governance endpoints' },
+        { name: 'UI Theme', description: 'UI branding and accessibility defaults by platform/org/state/taskforce context' },
       ],
       components: {
         securitySchemes: {
@@ -1359,6 +1472,7 @@ async function registerGatewayRoutes() {
   registerDoctorRegistryRoutes();
   registerEmergencyRoutes();
   registerGovernanceTaskforceRoutes();
+  registerUiThemeRoutes();
   routesRegistered = true;
 }
 
@@ -1382,6 +1496,7 @@ const start = async () => {
     });
     await connectToMongo();
     await connectToRedis();
+    startOutboxWorker();
     await registerGatewayRoutes();
 
     if (docsExportPath) {
@@ -1403,6 +1518,7 @@ const start = async () => {
 
 const shutdown = async () => {
   try {
+    if (outboxTimer) clearInterval(outboxTimer);
     if (redisClient) {
       await redisClient.quit();
     }

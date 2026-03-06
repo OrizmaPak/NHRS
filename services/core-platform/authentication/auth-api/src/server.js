@@ -17,6 +17,7 @@ const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
+const uiThemeApiBaseUrl = process.env.UI_THEME_API_BASE_URL || 'http://ui-theme-service:8111';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
@@ -122,7 +123,7 @@ function emitAuditEvent(event) {
 }
 
 function syncProfileInternal(path, payload) {
-  setImmediate(async () => {
+  void (async () => {
     try {
       await fetch(`${profileApiBaseUrl}${path}`, {
         method: 'POST',
@@ -135,7 +136,7 @@ function syncProfileInternal(path, payload) {
     } catch (err) {
       fastify.log.warn({ err, path }, 'Profile internal sync failed');
     }
-  });
+  })();
 
   if (path === '/internal/profile/ensure' && payload?.userId && payload?.nin) {
     syncMembershipLink(payload.userId, payload.nin);
@@ -146,7 +147,7 @@ function syncMembershipLink(userId, nin) {
   if (!userId || !nin) {
     return;
   }
-  setImmediate(async () => {
+  void (async () => {
     try {
       await fetch(`${membershipApiBaseUrl}/internal/memberships/link-user`, {
         method: 'POST',
@@ -159,7 +160,7 @@ function syncMembershipLink(userId, nin) {
     } catch (err) {
       fastify.log.warn({ err }, 'Membership link sync failed');
     }
-  });
+  })();
 }
 
 function delay(ms) {
@@ -381,6 +382,61 @@ function toUserResponse(user, scope = []) {
     lockUntil: user.lockUntil || null,
     scope,
   };
+}
+
+async function fetchMembershipContexts(userId, authorization) {
+  try {
+    const response = await fetch(`${membershipApiBaseUrl}/users/${encodeURIComponent(String(userId))}/memberships?includeBranches=true`, {
+      method: 'GET',
+      headers: {
+        authorization,
+        'x-internal-token': internalServiceToken,
+        'content-type': 'application/json',
+      },
+    });
+    if (!response.ok) return [];
+    const body = await response.json();
+    const memberships = Array.isArray(body?.memberships) ? body.memberships : [];
+    return memberships.map((membership) => ({
+      type: 'organization',
+      id: membership.organizationId,
+      name: membership.organizationName || membership.organizationId,
+      themeScopeType: 'organization',
+      themeScopeId: membership.organizationId,
+      membershipStatus: membership.membershipStatus || membership.status || 'active',
+    }));
+  } catch (_err) {
+    return [];
+  }
+}
+
+async function fetchEffectiveTheme(scopeType, scopeId) {
+  try {
+    const search = new URLSearchParams({ scope_type: scopeType });
+    if (scopeId) search.set('scope_id', scopeId);
+    const response = await fetch(`${uiThemeApiBaseUrl}/ui/theme/effective?${search.toString()}`, {
+      method: 'GET',
+      headers: { 'content-type': 'application/json' },
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (_err) {
+    return null;
+  }
+}
+
+async function buildAvailableContexts(userId, authorization) {
+  const membershipContexts = await fetchMembershipContexts(userId, authorization);
+  const base = {
+    type: 'public',
+    id: 'platform',
+    name: 'NHRS Public',
+    themeScopeType: 'platform',
+    themeScopeId: null,
+  };
+  const availableContexts = [base, ...membershipContexts];
+  const defaultContext = membershipContexts.find((ctx) => ctx.membershipStatus === 'active') || base;
+  return { availableContexts, defaultContext };
 }
 
 async function requireAuth(req, reply) {
@@ -1233,7 +1289,33 @@ fastify.post('/logout', async (req, reply) => {
 
 fastify.get('/me', { preHandler: requireAuth }, async (req, reply) => {
   const scope = await getRolePermissions(req.user.roles || ['citizen']);
-  return reply.send({ user: toUserResponse(req.user, scope) });
+  const { availableContexts, defaultContext } = await buildAvailableContexts(req.user._id, req.headers.authorization || '');
+  const defaultContextTheme = await fetchEffectiveTheme(defaultContext.themeScopeType, defaultContext.themeScopeId);
+
+  return reply.send({
+    user: toUserResponse(req.user, scope),
+    availableContexts,
+    defaultContext,
+    defaultContextTheme,
+  });
+});
+
+fastify.post('/context/switch', { preHandler: requireAuth }, async (req, reply) => {
+  const requested = req.body || {};
+  const { availableContexts } = await buildAvailableContexts(req.user._id, req.headers.authorization || '');
+  const match = availableContexts.find((ctx) => (
+    String(ctx.type) === String(requested.type)
+    && String(ctx.id) === String(requested.id)
+  ));
+  if (!match) {
+    return reply.code(403).send({ message: 'Requested context is not available for this user' });
+  }
+
+  const effectiveTheme = await fetchEffectiveTheme(match.themeScopeType, match.themeScopeId);
+  return reply.send({
+    activeContext: match,
+    effectiveTheme,
+  });
 });
 
 fastify.post('/contact/phone', { preHandler: requireAuth }, async (req, reply) => {

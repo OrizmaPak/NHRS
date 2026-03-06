@@ -23,7 +23,7 @@ async function checkPermission(fetchFn, { rbacBaseUrl, authorization, permission
 }
 
 function emitAuditEvent(fetchFn, auditBaseUrl, event) {
-  setImmediate(async () => {
+  void (async () => {
     try {
       await fetchFn(`${auditBaseUrl}/internal/audit/events`, {
         method: 'POST',
@@ -33,7 +33,7 @@ function emitAuditEvent(fetchFn, auditBaseUrl, event) {
     } catch (_err) {
       // Intentionally non-blocking
     }
-  });
+  })();
 }
 
 module.exports = {

@@ -22,6 +22,11 @@ test('profile search route resolves permission', () => {
   assert.equal(rule.permissionKey, 'profile.search');
 });
 
+test('auth context switch route resolves permission', () => {
+  const rule = findPermissionRule('POST', '/auth/context/switch');
+  assert.equal(rule.permissionKey, 'auth.me.read');
+});
+
 test('organization branch route resolves org-scoped permission', () => {
   const rule = findPermissionRule('POST', '/orgs/org-1/branches');
   assert.equal(rule.permissionKey, 'org.branch.create');
@@ -118,4 +123,14 @@ test('governance taskforce route mappings resolve expected permissions', () => {
   assert.equal(findPermissionRule('GET', '/cases/c-1/room').permissionKey, 'governance.case.room.read');
   assert.equal(findPermissionRule('POST', '/case-rooms/room-1/messages').permissionKey, 'governance.case.room.message.create');
   assert.equal(findPermissionRule('POST', '/cases/c-1/escalate').permissionKey, 'governance.case.escalate');
+});
+
+test('ui theme route mappings resolve expected permissions', () => {
+  assert.equal(findPermissionRule('GET', '/ui/theme/platform').public, true);
+  assert.equal(findPermissionRule('GET', '/ui/theme/effective').public, true);
+  assert.equal(findPermissionRule('GET', '/ui/theme').permissionKey, 'ui.theme.read');
+  assert.equal(findPermissionRule('POST', '/ui/theme').permissionKey, 'ui.theme.write');
+  assert.equal(findPermissionRule('PATCH', '/ui/theme/theme-1').permissionKey, 'ui.theme.write');
+  assert.equal(findPermissionRule('POST', '/ui/theme/theme-1/logo').permissionKey, 'ui.theme.write');
+  assert.equal(findPermissionRule('DELETE', '/ui/theme/theme-1').permissionKey, 'ui.theme.delete');
 });

@@ -484,6 +484,17 @@ async function connect() {
     outboxRepo.createIndexes(),
   ]);
 
+  // Compatibility cleanup for older schema versions that used `code` instead of `key`.
+  // This prevents duplicate-key failures on legacy `code_1` unique index during bootstrapping.
+  try {
+    const permissionIndexes = await collections.permissions().indexes();
+    if (permissionIndexes.some((idx) => idx.name === 'code_1')) {
+      await collections.permissions().dropIndex('code_1');
+    }
+  } catch (err) {
+    fastify.log.warn({ err }, 'Failed to cleanup legacy RBAC permission indexes');
+  }
+
   for (const perm of systemPermissions) {
     await collections.permissions().updateOne(
       { key: perm.key, scope: perm.scope, organizationId: null },

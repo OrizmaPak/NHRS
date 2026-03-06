@@ -1,28 +1,384 @@
 services:
   nginx:
     image: nginx:1.27-alpine
+    restart: unless-stopped
     ports:
       - "80:80"
     volumes:
       - ../../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ../../docker/nginx/conf.d/gateway.conf:/etc/nginx/conf.d/gateway.conf:ro
+      - ../../docker/nginx/conf.d/gateway.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - api-gateway
-      - auth-api
+      api-gateway:
+        condition: service_healthy
+    env_file:
+      - ../../.env
     networks:
       - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api-gateway:
-    image: nhrs/api-gateway:latest
+    image: nhrs/api-gateway:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
     env_file:
       - ../../.env
+      - ../../services/core-platform/api-gateway/.env
+    depends_on:
+      auth-api:
+        condition: service_healthy
+      rbac-service:
+        condition: service_healthy
+      organization-service:
+        condition: service_healthy
+      membership-service:
+        condition: service_healthy
     networks:
       - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   auth-api:
-    image: nhrs/auth-api:latest
+    image: nhrs/auth-api:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
     env_file:
       - ../../.env
+      - ../../services/core-platform/authentication/auth-api/.env
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  otp-service:
+    image: nhrs/otp-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/core-platform/authentication/otp-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  session-service:
+    image: nhrs/session-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/core-platform/authentication/session-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  token-service:
+    image: nhrs/token-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/core-platform/authentication/token-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  nin-linking-service:
+    image: nhrs/nin-linking-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/core-platform/authentication/nin-linking-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  rbac-service:
+    image: nhrs/rbac-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/governance/rbac-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  audit-log-service:
+    image: nhrs/audit-log-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/governance/audit-log-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  user-profile-service:
+    image: nhrs/user-profile-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/core-platform/user-profile/profile-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  organization-service:
+    image: nhrs/organization-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/providers/organization-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  membership-service:
+    image: nhrs/membership-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/providers/membership-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  doctor-registry-service:
+    image: nhrs/doctor-registry-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/providers/doctor-registry-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  health-records-index-service:
+    image: nhrs/health-records-index-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/providers/health-records-index-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  clinical-encounter-service:
+    image: nhrs/clinical-encounter-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/providers/clinical-encounter-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  laboratory-result-service:
+    image: nhrs/laboratory-result-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/providers/laboratory-result-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  pharmacy-dispense-service:
+    image: nhrs/pharmacy-dispense-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/providers/pharmacy-dispense-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  emergency-inventory-service:
+    image: nhrs/emergency-inventory-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/emergency/emergency-inventory-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  taskforce-directory-service:
+    image: nhrs/taskforce-directory-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/governance/taskforce-directory-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  case-service:
+    image: nhrs/case-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/governance/case-service/.env
+    depends_on:
+      taskforce-directory-service:
+        condition: service_healthy
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  ui-theme-service:
+    image: nhrs/ui-theme-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/platform-support/ui-theme-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  notification-service:
+    image: nhrs/notification-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/platform-support/notification-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  file-document-service:
+    image: nhrs/file-document-service:${NHRS_IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+      - ../../services/platform-support/file-document-service/.env
+    networks:
+      - nhrs_net
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+process.env.PORT+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 networks:
   nhrs_net:
     driver: bridge
+

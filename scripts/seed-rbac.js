@@ -55,6 +55,9 @@ const permissions = [
   { key: 'doctor.suspend', name: 'Suspend doctor license', module: 'doctor-registry', scope: 'app', actions: ['update'] },
   { key: 'doctor.revoke', name: 'Revoke doctor license', module: 'doctor-registry', scope: 'app', actions: ['update'] },
   { key: 'doctor.reinstate', name: 'Reinstate doctor license', module: 'doctor-registry', scope: 'app', actions: ['update'] },
+  { key: 'ui.theme.read', name: 'Read UI themes', module: 'ui-theme', scope: 'app', actions: ['read'] },
+  { key: 'ui.theme.write', name: 'Write UI themes', module: 'ui-theme', scope: 'app', actions: ['create', 'update'] },
+  { key: 'ui.theme.delete', name: 'Delete UI themes', module: 'ui-theme', scope: 'app', actions: ['delete'] },
 ];
 
 const roles = [
@@ -111,6 +114,36 @@ const roles = [
     isSystem: true,
   },
   {
+    name: 'government_admin',
+    scope: 'app',
+    organizationId: null,
+    permissions: [
+      { permissionKey: 'ui.theme.read', effect: 'allow' },
+      { permissionKey: 'ui.theme.write', effect: 'allow' },
+    ],
+    isSystem: true,
+  },
+  {
+    name: 'taskforce_admin',
+    scope: 'app',
+    organizationId: null,
+    permissions: [
+      { permissionKey: 'ui.theme.read', effect: 'allow' },
+      { permissionKey: 'ui.theme.write', effect: 'allow' },
+    ],
+    isSystem: true,
+  },
+  {
+    name: 'taskforce_lead',
+    scope: 'app',
+    organizationId: null,
+    permissions: [
+      { permissionKey: 'ui.theme.read', effect: 'allow' },
+      { permissionKey: 'ui.theme.write', effect: 'allow' },
+    ],
+    isSystem: true,
+  },
+  {
     name: 'org_owner',
     scope: 'org',
     organizationId: '__template__',
@@ -138,6 +171,8 @@ const roles = [
       { permissionKey: 'org.member.history.read', effect: 'allow' },
       { permissionKey: 'records.nin.read', effect: 'allow' },
       { permissionKey: 'records.entry.create', effect: 'allow' },
+      { permissionKey: 'ui.theme.read', effect: 'allow' },
+      { permissionKey: 'ui.theme.write', effect: 'allow' },
     ],
     isSystem: true,
   },
@@ -154,6 +189,7 @@ const roles = [
       { permissionKey: 'membership.user.read', effect: 'allow' },
       { permissionKey: 'membership.user.history.read', effect: 'allow' },
       { permissionKey: 'records.nin.read', effect: 'allow' },
+      { permissionKey: 'ui.theme.read', effect: 'allow' },
     ],
     isSystem: true,
   },

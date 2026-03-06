@@ -9,7 +9,8 @@
 1. `./scripts/dev-up.sh`
 2. Seed auth/NIN data: `npm run seed:nin-cache`
 3. Seed RBAC defaults: `npm run seed:rbac`
-4. Export OpenAPI JSON: `npm run docs:openapi`
+4. Seed UI theme defaults: `npm run seed:ui-themes`
+5. Export OpenAPI JSON: `npm run docs:openapi`
 
 ## Authentication Rules
 - Login methods: `nin`, `phone`, `email`.
@@ -58,6 +59,7 @@
 | POST | `/auth/login` | No | NIN bootstrap + email/phone login |
 | POST | `/auth/password/set` | Bearer | Mandatory first set |
 | POST | `/auth/password/change` | Bearer | Change password |
+| POST | `/auth/context/switch` | Bearer | Validate/switch active context and return effective theme |
 | POST | `/auth/password/forgot` | No | Send reset OTP |
 | POST | `/auth/password/reset` | No | Reset with OTP |
 | POST | `/auth/token/refresh` | No | Refresh tokens |
@@ -115,6 +117,25 @@
 | GET | `/profile/:userId` | Bearer | Staff/admin profile lookup |
 | GET | `/profile/by-nin/:nin` | Bearer | Registered check + NIN summary (authorized only) |
 | POST | `/profile/create-placeholder` | Bearer | Create non-auth placeholder reference by NIN |
+
+### UI Branding & Accessibility
+| Method | Endpoint | Auth | Notes |
+|---|---|---|---|
+| GET | `/ui/theme/platform` | Public | Platform default public theme (cacheable with ETag) |
+| GET | `/ui/theme/effective?scope_type=&scope_id=` | Public | Resolved theme: platform -> parent -> tenant |
+| GET | `/ui/theme` | Bearer | Admin list by scope filters |
+| POST | `/ui/theme` | Bearer | Create scope theme (`platform`, `organization`, `state`, `taskforce`) |
+| PATCH | `/ui/theme/:id` | Bearer | Update theme tokens/accessibility defaults |
+| POST | `/ui/theme/:id/logo` | Bearer | Logo update by URL or direct base64 upload flow |
+| DELETE | `/ui/theme/:id` | Bearer | Soft delete scope theme |
+
+Context switching support:
+- `GET /auth/me` now includes `availableContexts`, `defaultContext`, and `defaultContextTheme` so frontend can apply theme immediately when context is selected.
+
+Theme caching strategy:
+- Theme reads return `ETag` derived from theme source `id:version` chain.
+- Clients should send `If-None-Match`; service returns `304 Not Modified` when unchanged.
+- `version` increments on every update/delete, including logo updates, making cache invalidation deterministic.
 
 ### Organization & Membership Onboarding
 Owner vs creator:

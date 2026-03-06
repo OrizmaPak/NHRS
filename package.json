@@ -6,6 +6,7 @@
   "scripts": {
     "seed:nin-cache": "node scripts/seed-nin-cache.js",
     "seed:rbac": "node scripts/seed-rbac.js",
+    "seed:ui-themes": "node scripts/seed-ui-themes.js",
     "generate:openapi": "node scripts/generate-openapi.js docs/openapi.json",
     "docs:openapi": "node scripts/generate-openapi.js docs/openapi.json"
   },
