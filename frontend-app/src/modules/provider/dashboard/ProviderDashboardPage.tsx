@@ -54,14 +54,20 @@ export function ProviderDashboardPage() {
             <Button asChild variant="outline">
               <Link to="/app/provider/patients">Search patient</Link>
             </Button>
-            <PermissionGate permission={['records.create', 'records.entry.create']}>
-              <Button variant="outline">Add record</Button>
+            <PermissionGate permission="encounters.create">
+              <Button asChild variant="outline">
+                <Link to="/app/provider/encounters/new">Add record</Link>
+              </Button>
             </PermissionGate>
-            <PermissionGate permission={['labs.create', 'lab.results.write']}>
-              <Button variant="outline">Open lab entry</Button>
+            <PermissionGate permission="labs.create">
+              <Button asChild variant="outline">
+                <Link to="/app/provider/labs/new">Open lab entry</Link>
+              </Button>
             </PermissionGate>
-            <PermissionGate permission={['pharmacy.create', 'pharmacy.dispense.write']}>
-              <Button variant="outline">Open pharmacy entry</Button>
+            <PermissionGate permission="pharmacy.create">
+              <Button asChild variant="outline">
+                <Link to="/app/provider/pharmacy/new">Open pharmacy entry</Link>
+              </Button>
             </PermissionGate>
           </div>
         </CardHeader>

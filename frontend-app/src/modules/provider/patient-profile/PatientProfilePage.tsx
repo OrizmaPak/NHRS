@@ -1,95 +1,134 @@
 import { useMemo, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import type { ColumnDef, PaginationState } from '@tanstack/react-table';
-import { useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { DataTable } from '@/components/data/DataTable';
+import { ActionBar } from '@/components/data/ActionBar';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/feedback/StatusBadge';
 import { LoadingSkeleton } from '@/components/feedback/LoadingSkeleton';
 import { ErrorState } from '@/components/feedback/ErrorState';
+import { PermissionGate } from '@/components/navigation/PermissionGate';
 import { usePatientProfile } from '@/api/hooks/usePatientProfile';
 import { useEncounters, type EncounterRow } from '@/api/hooks/useEncounters';
 import { useLabs, type LabRow } from '@/api/hooks/useLabs';
 import { usePharmacyRecords, type PharmacyRow } from '@/api/hooks/usePharmacyRecords';
+import { usePatientHistory } from '@/api/hooks/usePatientHistory';
 
 export function PatientProfilePage() {
+  const navigate = useNavigate();
   const { nin = '' } = useParams();
   const [encounterPagination, setEncounterPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 8 });
   const [labsPagination, setLabsPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 8 });
   const [pharmacyPagination, setPharmacyPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 8 });
+  const [historyPagination, setHistoryPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 12 });
 
   const profileQuery = usePatientProfile(nin);
   const encountersQuery = useEncounters(nin, { page: encounterPagination.pageIndex + 1, limit: encounterPagination.pageSize });
   const labsQuery = useLabs(nin, { page: labsPagination.pageIndex + 1, limit: labsPagination.pageSize });
   const pharmacyQuery = usePharmacyRecords(nin, { page: pharmacyPagination.pageIndex + 1, limit: pharmacyPagination.pageSize });
+  const historyQuery = usePatientHistory(nin);
 
   const encounterColumns = useMemo<ColumnDef<EncounterRow>[]>(
     () => [
       { accessorKey: 'date', header: 'Date' },
+      { accessorKey: 'encounterId', header: 'Encounter ID' },
       { accessorKey: 'visitType', header: 'Visit Type' },
       { accessorKey: 'diagnosis', header: 'Diagnosis' },
-      { accessorKey: 'provider', header: 'Provider' },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/encounters/${row.original.id}`)}>
+              View
+            </Button>
+            <PermissionGate permission="encounters.update">
+              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/encounters/${row.original.id}?mode=edit`)}>
+                Edit
+              </Button>
+            </PermissionGate>
+          </div>
+        ),
+      },
     ],
-    [],
+    [navigate],
   );
 
   const labColumns = useMemo<ColumnDef<LabRow>[]>(
     () => [
       { accessorKey: 'date', header: 'Date' },
+      { accessorKey: 'labRequestId', header: 'Lab ID' },
       { accessorKey: 'testName', header: 'Test' },
-      { accessorKey: 'interpretation', header: 'Interpretation' },
-      { accessorKey: 'provider', header: 'Provider' },
+      { accessorKey: 'facility', header: 'Facility' },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/labs/${row.original.id}`)}>
+              View
+            </Button>
+            <PermissionGate permission="labs.update">
+              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/labs/${row.original.id}?mode=edit`)}>
+                Result
+              </Button>
+            </PermissionGate>
+          </div>
+        ),
+      },
     ],
-    [],
+    [navigate],
   );
 
   const pharmacyColumns = useMemo<ColumnDef<PharmacyRow>[]>(
     () => [
       { accessorKey: 'date', header: 'Date' },
+      { accessorKey: 'prescriptionId', header: 'Prescription ID' },
       { accessorKey: 'medication', header: 'Medication' },
       { accessorKey: 'dosage', header: 'Dosage' },
-      { accessorKey: 'provider', header: 'Provider' },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/pharmacy/${row.original.id}`)}>
+              View
+            </Button>
+            <PermissionGate permission="pharmacy.dispense">
+              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/pharmacy/${row.original.id}?mode=edit`)}>
+                Dispense
+              </Button>
+            </PermissionGate>
+          </div>
+        ),
+      },
     ],
-    [],
+    [navigate],
   );
 
-  const historyPagination = useMemo<PaginationState>(() => ({ pageIndex: 0, pageSize: 12 }), []);
-  const historyRows = useMemo(
-    () =>
-      [
-        ...(encountersQuery.data?.rows ?? []).map((row) => ({
-          id: `enc-${row.id}`,
-          source: 'Encounter',
-          date: row.date,
-          summary: row.diagnosis,
-          provider: row.provider,
-          status: 'active',
-        })),
-        ...(labsQuery.data?.rows ?? []).map((row) => ({
-          id: `lab-${row.id}`,
-          source: 'Lab',
-          date: row.date,
-          summary: row.testName,
-          provider: row.provider,
-          status: 'verified',
-        })),
-        ...(pharmacyQuery.data?.rows ?? []).map((row) => ({
-          id: `pharm-${row.id}`,
-          source: 'Pharmacy',
-          date: row.date,
-          summary: row.medication,
-          provider: row.provider,
-          status: 'active',
-        })),
-      ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-    [encountersQuery.data?.rows, labsQuery.data?.rows, pharmacyQuery.data?.rows],
-  );
-
-  const historyColumns = useMemo<ColumnDef<(typeof historyRows)[number]>[]>(
+  const historyColumns = useMemo<ColumnDef<(typeof historyQuery.history)[number]>[]>(
     () => [
       { accessorKey: 'date', header: 'Date' },
-      { accessorKey: 'source', header: 'Type' },
+      { accessorKey: 'type', header: 'Type' },
+      { accessorKey: 'title', header: 'Title' },
       { accessorKey: 'summary', header: 'Summary' },
       { accessorKey: 'provider', header: 'Provider' },
       {
@@ -98,14 +137,14 @@ export function PatientProfilePage() {
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
     ],
-    [],
+    [historyQuery.history],
   );
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Patient Profile"
-        description="Clinical record tabs with server-side pagination."
+        description="Encounter, lab, pharmacy, and activity history for provider operations."
         breadcrumbs={[{ label: 'Provider' }, { label: 'Patient Search' }, { label: 'Profile' }]}
       />
 
@@ -121,11 +160,30 @@ export function PatientProfilePage() {
               <h2 className="font-display text-2xl font-semibold text-foreground">{profileQuery.data.name}</h2>
               <p className="text-sm text-muted">NIN: {profileQuery.data.nin}</p>
             </div>
-            <div className="flex items-center gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="rounded-md border border-border px-2 py-1">Age: {profileQuery.data.age ?? 'N/A'}</span>
               <span className="rounded-md border border-border px-2 py-1">Gender: {profileQuery.data.gender}</span>
               <StatusBadge status="verified" />
             </div>
+          </div>
+          <div className="mt-4">
+            <ActionBar>
+              <PermissionGate permission="encounters.create">
+                <Button asChild>
+                  <Link to={`/app/provider/patient/${nin}/encounters/new`}>New Encounter</Link>
+                </Button>
+              </PermissionGate>
+              <PermissionGate permission="labs.create">
+                <Button asChild variant="outline">
+                  <Link to={`/app/provider/patient/${nin}/labs/new`}>New Lab Request</Link>
+                </Button>
+              </PermissionGate>
+              <PermissionGate permission="pharmacy.create">
+                <Button asChild variant="outline">
+                  <Link to={`/app/provider/patient/${nin}/pharmacy/new`}>New Prescription</Link>
+                </Button>
+              </PermissionGate>
+            </ActionBar>
           </div>
         </Card>
       ) : null}
@@ -182,12 +240,12 @@ export function PatientProfilePage() {
         <Tabs.Content value="history">
           <DataTable
             columns={historyColumns}
-            data={historyRows}
-            total={historyRows.length}
-            loading={encountersQuery.isLoading || labsQuery.isLoading || pharmacyQuery.isLoading}
+            data={historyQuery.history}
+            total={historyQuery.history.length}
+            loading={historyQuery.isLoading}
             pagination={historyPagination}
-            onPaginationChange={() => undefined}
-            pageCount={1}
+            onPaginationChange={setHistoryPagination}
+            pageCount={Math.max(1, Math.ceil((historyQuery.history.length || 0) / historyPagination.pageSize))}
           />
         </Tabs.Content>
       </Tabs.Root>

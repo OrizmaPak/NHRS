@@ -5,10 +5,15 @@ import type { ProviderRecordParams } from '@/api/hooks/useEncounters';
 
 export type PharmacyRow = {
   id: string;
+  prescriptionId: string;
+  patientName: string;
+  nin: string;
   date: string;
   medication: string;
   dosage: string;
   provider: string;
+  facility: string;
+  status: string;
 };
 
 type PharmacyResult = {
@@ -37,13 +42,27 @@ export function usePharmacyRecords(nin: string, params: ProviderRecordParams) {
               : null;
           return {
             id: String(item.dispenseId ?? item.id ?? crypto.randomUUID()),
+            prescriptionId: String(item.dispenseId ?? item.prescriptionId ?? item.id ?? crypto.randomUUID()),
+            patientName: String(item.patientName ?? item.fullName ?? 'Patient'),
+            nin: String(item.nin ?? nin),
             date: String(item.createdAt ?? new Date().toISOString()),
             medication: String(firstItem?.drugName ?? 'Medication'),
             dosage: String(firstItem?.dosage ?? firstItem?.frequency ?? 'As prescribed'),
-            provider: String(item.organizationId ?? 'provider'),
+            provider: String(item.providerUserId ?? item.prescriber ?? 'Provider'),
+            facility: String(item.organizationId ?? item.pharmacy ?? 'Pharmacy'),
+            status: String(item.status ?? 'pending'),
           };
         });
-      return { rows, total: Number(response.total ?? rows.length) };
+      const filtered = rows.filter((row) => {
+        const matchesQ = params.q
+          ? `${row.patientName} ${row.nin} ${row.medication}`.toLowerCase().includes(params.q.toLowerCase())
+          : true;
+        const matchesStatus = params.status ? row.status.toLowerCase() === params.status.toLowerCase() : true;
+        const matchesFacility = params.facility ? row.facility.toLowerCase().includes(params.facility.toLowerCase()) : true;
+        const matchesClinician = params.clinician ? row.provider.toLowerCase().includes(params.clinician.toLowerCase()) : true;
+        return matchesQ && matchesStatus && matchesFacility && matchesClinician;
+      });
+      return { rows: filtered, total: Number(response.total ?? filtered.length) };
     },
   });
 }
