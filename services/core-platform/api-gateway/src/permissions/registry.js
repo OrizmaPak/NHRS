@@ -10,7 +10,7 @@ const permissionRegistry = [
   { method: 'POST', path: '/auth/logout', public: true },
   { method: 'POST', path: '/auth/password/set', permissionKey: 'auth.password.change' },
   { method: 'POST', path: '/auth/password/change', permissionKey: 'auth.password.change' },
-  { method: 'GET', path: '/auth/me', permissionKey: 'auth.me.read' },
+  { method: 'GET', path: '/auth/me', public: true },
   { method: 'POST', path: '/auth/context/switch', permissionKey: 'auth.me.read' },
   { method: 'POST', path: '/auth/contact/phone', permissionKey: 'auth.contact.phone.write' },
   { method: 'POST', path: '/auth/contact/phone/verify', permissionKey: 'auth.contact.phone.write' },

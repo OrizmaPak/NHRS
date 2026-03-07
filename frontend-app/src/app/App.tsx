@@ -1,0 +1,21 @@
+import { RouterProvider } from 'react-router-dom';
+import { appRouter } from '@/routes/router';
+import { Spinner } from '@/components/feedback/Spinner';
+import { useAppBootstrap } from '@/hooks/useAppBootstrap';
+
+export function App() {
+  const { initialized, identityLoading } = useAppBootstrap();
+
+  if (!initialized || identityLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex items-center gap-3 text-muted">
+          <Spinner className="h-6 w-6" />
+          <span className="text-sm">Initializing secure session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return <RouterProvider router={appRouter} />;
+}

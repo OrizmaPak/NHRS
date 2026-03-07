@@ -1,7 +1,7 @@
 services:
   nginx:
+    restart: always
     image: nginx:1.27-alpine
-    restart: unless-stopped
     ports:
       - "80:80"
     volumes:
@@ -22,8 +22,8 @@ services:
       start_period: 10s
 
   redis:
+    restart: always
     image: redis:7-alpine
-    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     networks:
       - nhrs_net
@@ -34,8 +34,8 @@ services:
       retries: 5
 
   api-gateway:
+    restart: always
     image: nhrs/api-gateway:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/core-platform/api-gateway/.env
@@ -58,8 +58,8 @@ services:
       start_period: 15s
 
   auth-api:
+    restart: always
     image: nhrs/auth-api:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/auth-api/.env
@@ -76,8 +76,8 @@ services:
       start_period: 15s
 
   otp-service:
+    restart: always
     image: nhrs/otp-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/otp-service/.env
@@ -91,8 +91,8 @@ services:
       start_period: 15s
 
   session-service:
+    restart: always
     image: nhrs/session-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/session-service/.env
@@ -106,8 +106,8 @@ services:
       start_period: 15s
 
   token-service:
+    restart: always
     image: nhrs/token-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/token-service/.env
@@ -121,8 +121,8 @@ services:
       start_period: 15s
 
   nin-linking-service:
+    restart: always
     image: nhrs/nin-linking-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/core-platform/authentication/nin-linking-service/.env
@@ -136,8 +136,8 @@ services:
       start_period: 15s
 
   rbac-service:
+    restart: always
     image: nhrs/rbac-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/governance/rbac-service/.env
@@ -151,8 +151,8 @@ services:
       start_period: 15s
 
   audit-log-service:
+    restart: always
     image: nhrs/audit-log-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/governance/audit-log-service/.env
@@ -166,8 +166,8 @@ services:
       start_period: 15s
 
   user-profile-service:
+    restart: always
     image: nhrs/user-profile-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/core-platform/user-profile/profile-service/.env
@@ -181,8 +181,8 @@ services:
       start_period: 15s
 
   organization-service:
+    restart: always
     image: nhrs/organization-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/providers/organization-service/.env
@@ -196,8 +196,8 @@ services:
       start_period: 15s
 
   membership-service:
+    restart: always
     image: nhrs/membership-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/providers/membership-service/.env
@@ -211,8 +211,8 @@ services:
       start_period: 15s
 
   doctor-registry-service:
+    restart: always
     image: nhrs/doctor-registry-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/providers/doctor-registry-service/.env
@@ -226,8 +226,8 @@ services:
       start_period: 15s
 
   health-records-index-service:
+    restart: always
     image: nhrs/health-records-index-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/providers/health-records-index-service/.env
@@ -241,8 +241,8 @@ services:
       start_period: 15s
 
   clinical-encounter-service:
+    restart: always
     image: nhrs/clinical-encounter-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/providers/clinical-encounter-service/.env
@@ -256,8 +256,8 @@ services:
       start_period: 15s
 
   laboratory-result-service:
+    restart: always
     image: nhrs/laboratory-result-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/providers/laboratory-result-service/.env
@@ -271,8 +271,8 @@ services:
       start_period: 15s
 
   pharmacy-dispense-service:
+    restart: always
     image: nhrs/pharmacy-dispense-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/providers/pharmacy-dispense-service/.env
@@ -286,8 +286,8 @@ services:
       start_period: 15s
 
   emergency-inventory-service:
+    restart: always
     image: nhrs/emergency-inventory-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/emergency/emergency-inventory-service/.env
@@ -301,8 +301,8 @@ services:
       start_period: 15s
 
   taskforce-directory-service:
+    restart: always
     image: nhrs/taskforce-directory-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/governance/taskforce-directory-service/.env
@@ -316,8 +316,8 @@ services:
       start_period: 15s
 
   case-service:
+    restart: always
     image: nhrs/case-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/governance/case-service/.env
@@ -334,8 +334,8 @@ services:
       start_period: 15s
 
   ui-theme-service:
+    restart: always
     image: nhrs/ui-theme-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/platform-support/ui-theme-service/.env
@@ -349,8 +349,8 @@ services:
       start_period: 15s
 
   notification-service:
+    restart: always
     image: nhrs/notification-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/platform-support/notification-service/.env
@@ -364,8 +364,8 @@ services:
       start_period: 15s
 
   file-document-service:
+    restart: always
     image: nhrs/file-document-service:${NHRS_IMAGE_TAG}
-    restart: unless-stopped
     env_file:
       - ../../.env
       - ../../services/platform-support/file-document-service/.env

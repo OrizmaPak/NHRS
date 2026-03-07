@@ -231,10 +231,19 @@ async function start() {
 
 process.on('SIGINT', async () => { await app.closeService(); process.exit(0); });
 process.on('SIGTERM', async () => { await app.closeService(); process.exit(0); });
+process.on('unhandledRejection', (reason) => {
+  const logger = app?.log || console;
+  logger.error({ err: reason }, 'Unhandled promise rejection; service will keep running in degraded mode');
+});
+process.on('uncaughtException', (err) => {
+  const logger = app?.log || console;
+  logger.error({ err }, 'Uncaught exception; service will keep running in degraded mode');
+});
 
 setStandardErrorHandler(app);
 
 module.exports = { buildApp: createApp, start };
 
 if (require.main === module) start();
+
 

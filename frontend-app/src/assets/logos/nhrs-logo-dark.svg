@@ -1,0 +1,5 @@
+<svg width="256" height="64" viewBox="0 0 256 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="16" fill="#0F172A"/>
+  <path d="M20 44V20H28L44 38V20H52V44H44L28 26V44H20Z" fill="#E2E8F0"/>
+  <text x="78" y="40" font-family="'Plus Jakarta Sans', sans-serif" font-size="28" font-weight="700" fill="#E2E8F0">NHRS</text>
+</svg>

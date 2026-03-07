@@ -18,6 +18,7 @@ const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-serv
 const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
 const uiThemeApiBaseUrl = process.env.UI_THEME_API_BASE_URL || 'http://ui-theme-service:8111';
+const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
@@ -425,6 +426,36 @@ async function fetchEffectiveTheme(scopeType, scopeId) {
   }
 }
 
+async function fetchRbacPermissions(authorization) {
+  if (!authorization) {
+    return [];
+  }
+
+  try {
+    const response = await fetch(`${rbacApiBaseUrl}/rbac/me/scope`, {
+      method: 'GET',
+      headers: {
+        authorization,
+        'content-type': 'application/json',
+      },
+    });
+    if (!response.ok) {
+      return [];
+    }
+
+    const body = await response.json();
+    const appPermissions = Array.isArray(body?.appScopePermissions) ? body.appScopePermissions : [];
+    const orgPermissions = Array.isArray(body?.orgScopePermissions)
+      ? body.orgScopePermissions.flatMap((entry) => (
+        Array.isArray(entry?.permissions) ? entry.permissions : []
+      ))
+      : [];
+    return [...new Set([...appPermissions, ...orgPermissions].map((item) => String(item)))];
+  } catch (_err) {
+    return [];
+  }
+}
+
 async function buildAvailableContexts(userId, authorization) {
   const membershipContexts = await fetchMembershipContexts(userId, authorization);
   const base = {
@@ -525,10 +556,12 @@ async function connect() {
     await collections.roles().updateOne(
       { name: 'admin' },
       {
-        $setOnInsert: {
+        $set: {
           name: 'admin',
-          permissions: ['rbac:manage', 'rbac:assign', 'rbac:read', 'nin:read', 'nin:refresh'],
+          permissions: ['*'],
+          updatedAt: new Date(),
         },
+        $setOnInsert: { createdAt: new Date() },
       },
       { upsert: true }
     );
@@ -1288,7 +1321,9 @@ fastify.post('/logout', async (req, reply) => {
 });
 
 fastify.get('/me', { preHandler: requireAuth }, async (req, reply) => {
-  const scope = await getRolePermissions(req.user.roles || ['citizen']);
+  const roleScope = await getRolePermissions(req.user.roles || ['citizen']);
+  const rbacScope = await fetchRbacPermissions(req.headers.authorization || '');
+  const scope = [...new Set([...roleScope, ...rbacScope])];
   const { availableContexts, defaultContext } = await buildAvailableContexts(req.user._id, req.headers.authorization || '');
   const defaultContextTheme = await fetchEffectiveTheme(defaultContext.themeScopeType, defaultContext.themeScopeId);
 
@@ -1672,7 +1707,17 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+process.on('unhandledRejection', (reason) => {
+  const logger = (typeof fastify !== 'undefined' && fastify && fastify.log) ? fastify.log : console;
+  logger.error({ err: reason }, 'Unhandled promise rejection; service will keep running in degraded mode');
+});
+
+process.on('uncaughtException', (err) => {
+  const logger = (typeof fastify !== 'undefined' && fastify && fastify.log) ? fastify.log : console;
+  logger.error({ err }, 'Uncaught exception; service will keep running in degraded mode');
+});
 
 setStandardErrorHandler(fastify);
 
 start();
+

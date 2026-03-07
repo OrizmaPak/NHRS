@@ -1,5 +1,6 @@
 services:
   nginx:
+    restart: always
     image: nginx:1.27-alpine
     ports:
       - "80:80"
@@ -23,6 +24,7 @@ services:
       start_period: 10s
 
   redis:
+    restart: always
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
@@ -36,6 +38,7 @@ services:
       retries: 5
 
   api-gateway:
+    restart: always
     build:
       context: ../../
       dockerfile: services/core-platform/api-gateway/Dockerfile
@@ -79,6 +82,7 @@ services:
       start_period: 15s
 
   auth-api:
+    restart: always
     build:
       context: ../../
       dockerfile: services/core-platform/authentication/auth-api/Dockerfile
@@ -100,6 +104,7 @@ services:
       start_period: 15s
 
   otp-service:
+    restart: always
     build:
       context: ../../services/core-platform/authentication/otp-service
       dockerfile: Dockerfile
@@ -118,6 +123,7 @@ services:
       start_period: 15s
 
   session-service:
+    restart: always
     build:
       context: ../../services/core-platform/authentication/session-service
       dockerfile: Dockerfile
@@ -136,6 +142,7 @@ services:
       start_period: 15s
 
   token-service:
+    restart: always
     build:
       context: ../../services/core-platform/authentication/token-service
       dockerfile: Dockerfile
@@ -154,6 +161,7 @@ services:
       start_period: 15s
 
   nin-linking-service:
+    restart: always
     build:
       context: ../../services/core-platform/authentication/nin-linking-service
       dockerfile: Dockerfile
@@ -172,6 +180,7 @@ services:
       start_period: 15s
 
   rbac-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/governance/rbac-service/Dockerfile
@@ -190,6 +199,7 @@ services:
       start_period: 15s
 
   audit-log-service:
+    restart: always
     build:
       context: ../../services/governance/audit-log-service
       dockerfile: Dockerfile
@@ -208,6 +218,7 @@ services:
       start_period: 15s
 
   user-profile-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/core-platform/user-profile/profile-service/Dockerfile
@@ -226,6 +237,7 @@ services:
       start_period: 15s
 
   organization-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/providers/organization-service/Dockerfile
@@ -244,6 +256,7 @@ services:
       start_period: 15s
 
   membership-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/providers/membership-service/Dockerfile
@@ -262,6 +275,7 @@ services:
       start_period: 15s
 
   health-records-index-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/providers/health-records-index-service/Dockerfile
@@ -287,6 +301,7 @@ services:
       start_period: 15s
 
   clinical-encounter-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/providers/clinical-encounter-service/Dockerfile
@@ -305,6 +320,7 @@ services:
       start_period: 15s
 
   laboratory-result-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/providers/laboratory-result-service/Dockerfile
@@ -323,6 +339,7 @@ services:
       start_period: 15s
 
   pharmacy-dispense-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/providers/pharmacy-dispense-service/Dockerfile
@@ -341,6 +358,7 @@ services:
       start_period: 15s
 
   emergency-inventory-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/emergency/emergency-inventory-service/Dockerfile
@@ -359,6 +377,7 @@ services:
       start_period: 15s
 
   taskforce-directory-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/governance/taskforce-directory-service/Dockerfile
@@ -377,6 +396,7 @@ services:
       start_period: 15s
 
   case-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/governance/case-service/Dockerfile
@@ -398,6 +418,7 @@ services:
       start_period: 15s
 
   doctor-registry-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/providers/doctor-registry-service/Dockerfile
@@ -416,6 +437,7 @@ services:
       start_period: 15s
 
   ui-theme-service:
+    restart: always
     build:
       context: ../../
       dockerfile: services/platform-support/ui-theme-service/Dockerfile
@@ -434,6 +456,7 @@ services:
       start_period: 15s
 
   notification-service:
+    restart: always
     build:
       context: ../../services/platform-support/notification-service
       dockerfile: Dockerfile
@@ -452,6 +475,7 @@ services:
       start_period: 15s
 
   file-document-service:
+    restart: always
     build:
       context: ../../services/platform-support/file-document-service
       dockerfile: Dockerfile
@@ -470,6 +494,7 @@ services:
       start_period: 15s
 
   prometheus:
+    restart: always
     image: prom/prometheus:v2.54.1
     volumes:
       - ../../docker/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -489,6 +514,7 @@ services:
         condition: service_started
 
   grafana:
+    restart: always
     image: grafana/grafana:11.2.0
     ports:
       - "3000:3000"
@@ -507,6 +533,7 @@ services:
       - nhrs_net
 
   cadvisor:
+    restart: always
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     ports:
       - "8088:8080"
@@ -523,6 +550,7 @@ services:
       - nhrs_net
 
   node-exporter:
+    restart: always
     image: prom/node-exporter:v1.8.2
     ports:
       - "9100:9100"
@@ -534,6 +562,7 @@ services:
       - nhrs_net
 
   blackbox-exporter:
+    restart: always
     image: prom/blackbox-exporter:v0.25.0
     ports:
       - "9115:9115"

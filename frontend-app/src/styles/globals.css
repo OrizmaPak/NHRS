@@ -1,0 +1,100 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #0b57d0;
+  --color-secondary: #0f766e;
+  --color-accent: #d97706;
+  --color-background: #f5f8fc;
+  --color-surface: #ffffff;
+  --color-text: #0b1220;
+  --color-muted: #667085;
+  --color-border: #d0d7e2;
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --shadow-color: #0f172a;
+  --shadow-sm: 0 4px 12px -6px color-mix(in srgb, #0f172a 30%, transparent);
+  --shadow-md: 0 12px 28px -14px color-mix(in srgb, #0f172a 45%, transparent);
+  --shadow-lg: 0 20px 40px -18px color-mix(in srgb, #0f172a 55%, transparent);
+
+  --font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-family-base: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-family-display: 'Sora', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-family-heading: 'Sora', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-size-base: 16px;
+  --line-height-base: 1.5;
+  --font-scale: 1;
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-base);
+  font-size: calc(var(--font-size-base) * var(--font-scale));
+  line-height: var(--line-height-base);
+  color: var(--color-text);
+  background:
+    radial-gradient(circle at 15% 10%, color-mix(in srgb, var(--color-primary) 10%, transparent), transparent 45%),
+    radial-gradient(circle at 85% 12%, color-mix(in srgb, var(--color-secondary) 12%, transparent), transparent 40%),
+    var(--color-background);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-family-heading);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+[data-motion='reduce'] *,
+[data-motion='reduce'] *::before,
+[data-motion='reduce'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+[data-readable-font='enabled'] {
+  --font-family-base: 'Arial', 'Tahoma', sans-serif;
+}
+
+[data-contrast='high'] {
+  --color-border: #374151;
+  --color-text: #020617;
+  --color-muted: #334155;
+  --color-background: #f8fafc;
+}
+
+[data-theme='dark'] {
+  --color-background: #0b1220;
+  --color-surface: #121c2e;
+  --color-text: #e6ecf8;
+  --color-muted: #a3b3d1;
+  --color-border: #243550;
+  --shadow-color: #020617;
+}

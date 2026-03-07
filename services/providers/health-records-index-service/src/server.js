@@ -289,6 +289,16 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
+process.on('unhandledRejection', (reason) => {
+  const logger = app?.log || console;
+  logger.error({ err: reason }, 'Unhandled promise rejection; service will keep running in degraded mode');
+});
+
+process.on('uncaughtException', (err) => {
+  const logger = app?.log || console;
+  logger.error({ err }, 'Uncaught exception; service will keep running in degraded mode');
+});
+
 module.exports = {
   buildApp: createApp,
   start,
@@ -297,4 +307,5 @@ module.exports = {
 if (require.main === module) {
   start();
 }
+
 

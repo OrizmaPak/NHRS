@@ -1403,8 +1403,18 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+process.on('unhandledRejection', (reason) => {
+  const logger = (typeof fastify !== 'undefined' && fastify && fastify.log) ? fastify.log : console;
+  logger.error({ err: reason }, 'Unhandled promise rejection; service will keep running in degraded mode');
+});
+
+process.on('uncaughtException', (err) => {
+  const logger = (typeof fastify !== 'undefined' && fastify && fastify.log) ? fastify.log : console;
+  logger.error({ err }, 'Uncaught exception; service will keep running in degraded mode');
+});
 
 setStandardErrorHandler(fastify);
 
 start();
+
 

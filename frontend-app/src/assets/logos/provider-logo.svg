@@ -1,0 +1,5 @@
+<svg width="256" height="64" viewBox="0 0 256 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="16" fill="#0D3B66"/>
+  <circle cx="32" cy="32" r="16" fill="#F77F00"/>
+  <text x="78" y="40" font-family="'Plus Jakarta Sans', sans-serif" font-size="24" font-weight="700" fill="#0B1220">St. Catherine</text>
+</svg>

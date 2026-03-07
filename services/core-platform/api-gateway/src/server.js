@@ -6,6 +6,7 @@ const { MongoClient, ServerApiVersion } = require('mongodb');
 const { createClient } = require('redis');
 const swagger = require('@fastify/swagger');
 const swaggerUi = require('@fastify/swagger-ui');
+const cors = require('@fastify/cors');
 const { findPermissionRule } = require('./permissions/registry');
 const { evaluateAuthzResponse } = require('./authz');
 const { buildAuditPayload } = require('./audit-utils');
@@ -49,6 +50,13 @@ const gatewayRateLimitWindowSec = Number(process.env.GATEWAY_RATE_LIMIT_WINDOW_S
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
 const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 50;
 const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
+const corsOrigins = String(
+  process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173',
+)
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const appEnv = String(process.env.APP_ENV || process.env.NODE_ENV || 'development').toLowerCase();
 
 let dbReady = false;
 let mongoClient;
@@ -97,7 +105,7 @@ function authHeaderSchema(_required) {
 }
 
 function standardResponses(extra) {
-  return {
+  const merged = {
     400: validationErrorSchema,
     401: unauthorizedSchema,
     423: errorMessageSchema,
@@ -106,6 +114,19 @@ function standardResponses(extra) {
     503: errorMessageSchema,
     ...extra,
   };
+  for (const [statusCode, schema] of Object.entries(merged)) {
+    if (
+      schema &&
+      typeof schema === 'object' &&
+      schema.type === 'object' &&
+      !Object.prototype.hasOwnProperty.call(schema, 'properties') &&
+      !Object.prototype.hasOwnProperty.call(schema, 'patternProperties') &&
+      !Object.prototype.hasOwnProperty.call(schema, 'additionalProperties')
+    ) {
+      merged[statusCode] = { ...schema, additionalProperties: true };
+    }
+  }
+  return merged;
 }
 
 function getClientIp(req) {
@@ -306,6 +327,8 @@ async function connectToMongo() {
   }
 
   mongoClient = new MongoClient(mongoUri, {
+    connectTimeoutMS: 5000,
+    serverSelectionTimeoutMS: 5000,
     serverApi: {
       version: ServerApiVersion.v1,
       strict: true,
@@ -1440,6 +1463,47 @@ async function registerDocs() {
   }, async () => fastify.swagger());
 }
 
+async function registerCors() {
+  await fastify.register(cors, {
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'x-request-id',
+      'x-active-context-id',
+      'x-org-id',
+      'x-branch-id',
+      'idempotency-key',
+    ],
+    exposedHeaders: ['x-request-id'],
+    maxAge: 86400,
+    origin(origin, cb) {
+      // Allow non-browser clients (curl, health probes) without Origin header.
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+      if (appEnv === 'development') {
+        try {
+          const parsed = new URL(origin);
+          if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+            cb(null, true);
+            return;
+          }
+        } catch (_err) {
+          // fall through to explicit allowlist check
+        }
+      }
+      if (corsOrigins.includes(origin)) {
+        cb(null, true);
+        return;
+      }
+      cb(new Error('CORS_NOT_ALLOWED'), false);
+    },
+  });
+}
+
 fastify.get('/health', {
   schema: {
     tags: ['Health'],
@@ -1460,6 +1524,7 @@ fastify.get('/health', {
 
 async function registerGatewayRoutes() {
   if (routesRegistered) return;
+  await registerCors();
   await registerDocs();
   registerAuthRoutes();
   registerNinRoutes();
@@ -1532,6 +1597,15 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+process.on('unhandledRejection', (reason) => {
+  const logger = (typeof fastify !== 'undefined' && fastify && fastify.log) ? fastify.log : console;
+  logger.error({ err: reason }, 'Unhandled promise rejection; service will keep running in degraded mode');
+});
+
+process.on('uncaughtException', (err) => {
+  const logger = (typeof fastify !== 'undefined' && fastify && fastify.log) ? fastify.log : console;
+  logger.error({ err }, 'Uncaught exception; service will keep running in degraded mode');
+});
 
 async function buildApp(options = {}) {
   if (options.resetState !== false) {
@@ -1564,3 +1638,4 @@ module.exports = {
 if (require.main === module) {
   start();
 }
+
