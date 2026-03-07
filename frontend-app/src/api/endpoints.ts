@@ -31,6 +31,23 @@ export const endpoints = {
     inventorySearch: '/emergency/inventory/search',
     requests: '/emergency/requests',
   },
+  taskforce: {
+    dashboard: '/cases',
+    complaints: '/cases',
+    complaintById: (id: string) => `/cases/${id}`,
+    assignComplaint: (id: string) => `/cases/${id}/assign`,
+    escalateComplaint: (id: string) => `/cases/${id}/escalate`,
+    convertComplaintToCase: (id: string) => `/cases/${id}/convert`,
+    cases: '/cases',
+    caseById: (id: string) => `/cases/${id}`,
+    caseNotes: (id: string) => `/cases/${id}/notes`,
+    assignCase: (id: string) => `/cases/${id}/assign`,
+    escalateCase: (id: string) => `/cases/${id}/escalate`,
+  },
+  governance: {
+    auditEvents: '/audit/events',
+    oversight: '/cases',
+  },
   provider: {
     patientSearch: '/profile/search',
     patientProfileByNin: (nin: string) => `/profile/by-nin/${nin}`,

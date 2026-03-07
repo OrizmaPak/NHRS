@@ -11,8 +11,11 @@ import { DoctorProfilePage } from '@/modules/public/doctor-registry/DoctorProfil
 import { ProviderDashboardPage } from '@/modules/provider/dashboard/ProviderDashboardPage';
 import { PatientSearchPage } from '@/modules/provider/patient-search/PatientSearchPage';
 import { PatientProfilePage } from '@/modules/provider/patient-profile/PatientProfilePage';
-import { TaskforceDashboardPage } from '@/modules/taskforce/pages/TaskforceDashboardPage';
-import { ComplaintsPage } from '@/modules/taskforce/pages/ComplaintsPage';
+import { TaskforceDashboardPage } from '@/modules/taskforce/dashboard/TaskforceDashboardPage';
+import { ComplaintsListPage } from '@/modules/taskforce/complaints/ComplaintsListPage';
+import { ComplaintDetailsPage } from '@/modules/taskforce/complaints/ComplaintDetailsPage';
+import { CasesListPage } from '@/modules/taskforce/cases/CasesListPage';
+import { CaseDetailsPage } from '@/modules/taskforce/cases/CaseDetailsPage';
 import { EmergencyInventoryPage } from '@/modules/emergency/EmergencyInventoryPage';
 import { EmergencyRequestPage } from '@/modules/emergency/EmergencyRequestPage';
 import { SettingsPage } from '@/modules/settings/pages/SettingsPage';
@@ -22,6 +25,8 @@ import { AccessibilitySettingsPage } from '@/modules/settings/pages/Accessibilit
 import { NotFoundPage } from '@/modules/dashboard/pages/NotFoundPage';
 import { AnalyticsPage } from '@/modules/dashboard/pages/AnalyticsPage';
 import { UnauthorizedPage } from '@/modules/dashboard/pages/UnauthorizedPage';
+import { AuditPage } from '@/modules/governance/audit/AuditPage';
+import { OversightPage } from '@/modules/governance/audit/OversightPage';
 
 function restricted(element: ReactElement, permission: string | string[]) {
   return <PermissionGate permission={permission} fallback={<UnauthorizedPage />}>{element}</PermissionGate>;
@@ -50,15 +55,21 @@ export const appRouter = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <DashboardPage /> },
-          { path: 'public/timeline', element: restricted(<TimelinePage />, 'records.me.read') },
+          { path: 'public/timeline', element: <TimelinePage /> },
           { path: 'public/doctor-registry', element: restricted(<DoctorRegistryPage />, 'doctor.registry.read') },
           { path: 'public/doctor-registry/:doctorId', element: restricted(<DoctorProfilePage />, 'doctor.registry.read') },
           { path: 'provider', element: <Navigate to="/app/provider/dashboard" replace /> },
           { path: 'provider/dashboard', element: restricted(<ProviderDashboardPage />, 'provider.patient.read') },
           { path: 'provider/patients', element: restricted(<PatientSearchPage />, 'provider.patient.read') },
           { path: 'provider/patient/:nin', element: restricted(<PatientProfilePage />, 'provider.patient.read') },
-          { path: 'taskforce', element: restricted(<TaskforceDashboardPage />, 'governance.case.read') },
-          { path: 'taskforce/cases', element: restricted(<ComplaintsPage />, 'governance.case.read') },
+          { path: 'taskforce', element: <Navigate to="/app/taskforce/dashboard" replace /> },
+          { path: 'taskforce/dashboard', element: restricted(<TaskforceDashboardPage />, 'cases.view') },
+          { path: 'taskforce/complaints', element: restricted(<ComplaintsListPage />, 'complaints.view') },
+          { path: 'taskforce/complaints/:id', element: restricted(<ComplaintDetailsPage />, 'complaints.view') },
+          { path: 'taskforce/cases', element: restricted(<CasesListPage />, 'cases.view') },
+          { path: 'taskforce/cases/:id', element: restricted(<CaseDetailsPage />, 'cases.view') },
+          { path: 'governance/audit', element: restricted(<AuditPage />, 'audit.view') },
+          { path: 'governance/oversight', element: restricted(<OversightPage />, 'oversight.view') },
           { path: 'emergency', element: restricted(<EmergencyInventoryPage />, 'emergency.request.read') },
           { path: 'emergency/request', element: restricted(<EmergencyRequestPage />, 'emergency.request.create') },
           { path: 'analytics', element: restricted(<AnalyticsPage />, 'analytics.read') },

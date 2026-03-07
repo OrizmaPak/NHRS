@@ -50,7 +50,8 @@ export function useMe(enabled = true) {
       null;
 
     setActiveContext(preferredContext);
-    replacePermissions(preferredContext?.permissions ?? query.data.permissions);
+    const contextPermissions = Array.isArray(preferredContext?.permissions) ? preferredContext.permissions : [];
+    replacePermissions(contextPermissions.length > 0 ? contextPermissions : query.data.permissions);
 
     if (preferredContext) {
       void loadTheme(preferredContext.themeScopeType, preferredContext.themeScopeId);
