@@ -21,7 +21,9 @@ export function AdminSystemSettingsPage() {
             onClick={async () => {
               await saveSettings.mutateAsync({ groups: settingsQuery.data ?? [] });
             }}
-            disabled={saveSettings.isPending || settingsQuery.isLoading}
+            loading={saveSettings.isPending}
+            disabled={settingsQuery.isLoading}
+            loadingText="Saving settings..."
           >
             Save Settings
           </Button>

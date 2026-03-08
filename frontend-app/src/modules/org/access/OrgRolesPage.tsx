@@ -167,7 +167,9 @@ export function OrgRolesPage() {
           />
           <ModalFooter>
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={saveRole.isPending}>{editing ? 'Save Role' : 'Create Role'}</Button>
+            <Button type="submit" loading={saveRole.isPending} loadingText={editing ? 'Saving role...' : 'Creating role...'}>
+              {editing ? 'Save Role' : 'Create Role'}
+            </Button>
           </ModalFooter>
         </form>
       </Modal>

@@ -28,14 +28,17 @@ export function NotificationMenu() {
         <DropdownMenu.Content align="end" className="z-50 w-80 rounded-lg border border-border bg-surface p-2 shadow-soft">
           <div className="mb-2 flex items-center justify-between px-2 py-1">
             <h3 className="text-sm font-semibold text-foreground">Notifications</h3>
-            <button
+            <Button
               type="button"
-              disabled={markReadMutation.isPending}
-              className="text-xs text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              variant="ghost"
+              size="sm"
+              loading={markReadMutation.isPending}
+              loadingText="Marking..."
+              className="h-auto px-1 py-0 text-xs text-primary"
               onClick={() => markReadMutation.mutate({ all: true })}
             >
               Mark all read
-            </button>
+            </Button>
           </div>
           <div className="max-h-80 space-y-1 overflow-auto">
             {items.slice(0, 12).map((item) => (

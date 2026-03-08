@@ -116,22 +116,32 @@ export const useAccessibilityStore = create<AccessibilityState>((set, get) => ({
   applyThemeDefaults: (defaultsFromTheme) => {
     const hasStored = Boolean(localStorage.getItem(ACCESSIBILITY_STORAGE_KEY));
     if (hasStored) return;
-    set({
-      darkMode: typeof defaultsFromTheme.darkModeDefault === 'boolean' ? defaultsFromTheme.darkModeDefault : get().darkMode,
-      fontScale: clampFontScale(defaultsFromTheme.fontScaleDefault ?? get().fontScale),
+    const current = get();
+    const next = {
+      darkMode: typeof defaultsFromTheme.darkModeDefault === 'boolean' ? defaultsFromTheme.darkModeDefault : current.darkMode,
+      fontScale: clampFontScale(defaultsFromTheme.fontScaleDefault ?? current.fontScale),
       highContrast:
         typeof defaultsFromTheme.highContrastDefault === 'boolean'
           ? defaultsFromTheme.highContrastDefault
-          : get().highContrast,
+          : current.highContrast,
       reduceMotion:
         typeof defaultsFromTheme.reduceMotionDefault === 'boolean'
           ? defaultsFromTheme.reduceMotionDefault
-          : get().reduceMotion,
+          : current.reduceMotion,
       readableFont:
         typeof defaultsFromTheme.dyslexiaFontDefault === 'boolean'
           ? defaultsFromTheme.dyslexiaFontDefault
-          : get().readableFont,
-    });
+          : current.readableFont,
+    };
+    const unchanged =
+      current.darkMode === next.darkMode &&
+      current.fontScale === next.fontScale &&
+      current.highContrast === next.highContrast &&
+      current.reduceMotion === next.reduceMotion &&
+      current.readableFont === next.readableFont;
+    if (!unchanged) {
+      set(next);
+    }
     get().applyToDocument();
   },
 

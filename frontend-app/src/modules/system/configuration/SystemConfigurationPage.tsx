@@ -87,7 +87,7 @@ export function SystemConfigurationPage() {
               <CardTitle>Configuration Controls</CardTitle>
               <CardDescription>Changes are applied globally after save.</CardDescription>
             </div>
-            <Button onClick={onSubmit} disabled={saveSettings.isPending}>
+            <Button onClick={onSubmit} loading={saveSettings.isPending} loadingText="Saving configuration...">
               Save Configuration
             </Button>
           </CardHeader>

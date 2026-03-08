@@ -84,8 +84,8 @@ export function DispenseDrawer({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Saving...' : 'Save Dispense'}
+          <Button type="submit" loading={isSubmitting} loadingText="Saving...">
+            Save Dispense
           </Button>
         </div>
       </form>

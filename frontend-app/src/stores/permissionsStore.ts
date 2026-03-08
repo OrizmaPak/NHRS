@@ -24,6 +24,31 @@ type PermissionsState = {
   hasAny: (required: string[]) => boolean;
 };
 
+function permissionRuleMatches(ruleKey: string, permissionKey: string): boolean {
+  if (ruleKey === '*') return true;
+  if (ruleKey.endsWith('.*')) {
+    return permissionKey.startsWith(ruleKey.slice(0, -1));
+  }
+  return ruleKey === permissionKey;
+}
+
+function permissionRuleSpecificity(ruleKey: string): number {
+  if (ruleKey === '*') return 0;
+  if (ruleKey.endsWith('.*')) return ruleKey.length;
+  return 10_000 + ruleKey.length;
+}
+
+function isSuperContext(contextId?: string, contextName?: string): boolean {
+  const id = String(contextId ?? '').trim().toLowerCase();
+  const name = String(contextName ?? '').trim().toLowerCase();
+  if (id === 'app:super') return true;
+  if (id.startsWith('app:role:')) {
+    const role = id.replace('app:role:', '');
+    if (['super', 'superadmin', 'super_admin', 'platform_admin', 'app_admin', 'admin'].includes(role)) return true;
+  }
+  return ['super', 'superadmin', 'super admin', 'platform admin', 'app admin', 'admin'].includes(name);
+}
+
 export const usePermissionsStore = create<PermissionsState>((set, get) => ({
   version: 0,
   permissions: new Set<string>(),
@@ -42,36 +67,34 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
   clear: () =>
     set((state) => ({ permissions: new Set<string>(), roles: [], overrides: {}, effective: {}, version: state.version + 1 })),
   hasPermission: (permission) => {
-    const activeContext = useContextStore.getState().activeContext;
-    if (activeContext?.id === 'app:citizen') return false;
     const current = get().permissions;
-    const roleSet = new Set<string>(get().roles.map((role) => role.toLowerCase()));
-    const isSuperAdmin = Array.from(roleSet).some((role) =>
-      ['superadmin', 'super_admin', 'platform_admin', 'app_admin'].includes(role),
-    );
-    if (isSuperAdmin) return true;
-    if (permission === 'superadmin.only') return isSuperAdmin || current.has('*');
-    const effective = get().effective[permission];
-    if (effective) return effective.granted;
-    return current.has('*') || current.has(permission);
+    const activeContext = useContextStore.getState().activeContext;
+    const isSuperActive = isSuperContext(activeContext?.id, activeContext?.name);
+
+    if (permission === 'superadmin.only') return isSuperActive;
+    if (isSuperActive) return true;
+
+    const effectiveEntries = Object.values(get().effective)
+      .filter((entry) => permissionRuleMatches(entry.key, permission))
+      .sort((a, b) => {
+        const specificityDelta = permissionRuleSpecificity(b.key) - permissionRuleSpecificity(a.key);
+        if (specificityDelta !== 0) return specificityDelta;
+        if (a.source === b.source) return 0;
+        if (a.source === 'override_deny') return -1;
+        if (b.source === 'override_deny') return 1;
+        if (a.source === 'override_allow') return -1;
+        if (b.source === 'override_allow') return 1;
+        return 0;
+      });
+
+    if (effectiveEntries.length > 0) {
+      return Boolean(effectiveEntries[0].granted);
+    }
+
+    if (current.has('*') || current.has(permission)) return true;
+    return Array.from(current).some((entry) => permissionRuleMatches(entry, permission));
   },
   hasAny: (required) => {
-    const activeContext = useContextStore.getState().activeContext;
-    if (activeContext?.id === 'app:citizen') return false;
-    const current = get().permissions;
-    const roleSet = new Set<string>(get().roles.map((role) => role.toLowerCase()));
-    const isSuperAdmin = Array.from(roleSet).some((role) =>
-      ['superadmin', 'super_admin', 'platform_admin', 'app_admin'].includes(role),
-    );
-    if (isSuperAdmin) return true;
-    if (required.includes('superadmin.only')) return isSuperAdmin || current.has('*');
-    const effective = get().effective;
-    if (Object.keys(effective).length > 0) {
-      const grantedFromEffective = required.some((permission) => effective[permission]?.granted);
-      if (grantedFromEffective) return true;
-      if (current.has('*')) return true;
-    }
-    if (current.has('*')) return true;
-    return required.some((permission) => current.has(permission));
+    return required.some((permission) => get().hasPermission(permission));
   },
 }));

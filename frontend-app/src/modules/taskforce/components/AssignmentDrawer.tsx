@@ -122,8 +122,8 @@ export function AssignmentDrawer({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Saving...' : 'Save Assignment'}
+          <Button type="submit" loading={isSubmitting} loadingText="Saving...">
+            Save Assignment
           </Button>
         </div>
       </form>

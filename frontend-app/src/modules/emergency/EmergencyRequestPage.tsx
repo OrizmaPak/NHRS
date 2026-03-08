@@ -92,8 +92,8 @@ export function EmergencyRequestPage() {
             <Button type="button" variant="outline" onClick={() => navigate('/app/emergency')}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createRequest.isPending}>
-              {createRequest.isPending ? 'Submitting...' : 'Submit Request'}
+            <Button type="submit" loading={createRequest.isPending} loadingText="Submitting...">
+              Submit Request
             </Button>
           </ActionBar>
         </form>

@@ -73,7 +73,7 @@ export function AdminRolesPage() {
             <CardTitle>Create Role</CardTitle>
             <CardDescription>Create a new role with comma-separated permission keys.</CardDescription>
           </div>
-          <Button onClick={onSubmit} disabled={saveRole.isPending}>
+          <Button onClick={onSubmit} loading={saveRole.isPending} loadingText="Saving role...">
             Save Role
           </Button>
         </CardHeader>

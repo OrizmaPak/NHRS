@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useLogin } from '@/api/hooks/useLogin';
-import { Spinner } from '@/components/feedback/Spinner';
 import { FormField } from '@/components/forms/FormField';
 import { Button } from '@/components/ui/Button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -175,15 +174,8 @@ export function LoginPage() {
             </p>
           ) : null}
 
-          <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
-            {loginMutation.isPending ? (
-              <>
-                <Spinner className="h-4 w-4 text-white" />
-                Signing in...
-              </>
-            ) : (
-              'Sign in'
-            )}
+          <Button type="submit" className="w-full" loading={loginMutation.isPending} loadingText="Signing in...">
+            Sign in
           </Button>
         </form>
       </Card>

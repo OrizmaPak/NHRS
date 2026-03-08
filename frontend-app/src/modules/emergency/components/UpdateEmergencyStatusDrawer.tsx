@@ -58,7 +58,7 @@ export function UpdateEmergencyStatusDrawer({
 
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Updating...' : 'Update Status'}</Button>
+          <Button type="submit" loading={isSubmitting} loadingText="Updating...">Update Status</Button>
         </div>
       </form>
     </Drawer>

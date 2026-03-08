@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import { apiClient } from '@/api/apiClient';
 import { endpoints } from '@/api/endpoints';
 import { FormField } from '@/components/forms/FormField';
-import { Spinner } from '@/components/feedback/Spinner';
 import { Button } from '@/components/ui/Button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -82,15 +81,8 @@ export function SetPasswordPage() {
             <Input type="password" autoComplete="new-password" placeholder="Re-enter new password" {...form.register('confirmPassword')} />
           </FormField>
 
-          <Button type="submit" className="w-full" disabled={setPasswordMutation.isPending}>
-            {setPasswordMutation.isPending ? (
-              <>
-                <Spinner className="h-4 w-4 text-white" />
-                Saving password...
-              </>
-            ) : (
-              'Continue'
-            )}
+          <Button type="submit" className="w-full" loading={setPasswordMutation.isPending} loadingText="Saving password...">
+            Continue
           </Button>
         </form>
       </Card>

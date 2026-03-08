@@ -104,8 +104,8 @@ export function DispatchResourceDrawer({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Dispatching...' : 'Dispatch Resource'}
+          <Button type="submit" loading={isSubmitting} loadingText="Dispatching...">
+            Dispatch Resource
           </Button>
         </div>
       </form>

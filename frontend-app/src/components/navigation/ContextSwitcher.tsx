@@ -1,9 +1,14 @@
 import * as Select from '@radix-ui/react-select';
-import { Check, ChevronsUpDown } from 'lucide-react';
+import { Check, ChevronsUpDown, LoaderCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useContexts } from '@/api/hooks/useContexts';
 import { useSwitchContext } from '@/api/hooks/useSwitchContext';
+import { getFirstAllowedNavigationPath } from '@/lib/navigationAccess';
+import { navigationItems } from '@/routes/navigation';
+import { usePermissionsStore } from '@/stores/permissionsStore';
 
 export function ContextSwitcher() {
+  const navigate = useNavigate();
   const { availableContexts, activeContext, isLoading } = useContexts();
   const switchContextMutation = useSwitchContext();
 
@@ -28,7 +33,18 @@ export function ContextSwitcher() {
       value={activeContext?.id ?? ''}
       onValueChange={(contextId) => {
         if (contextId === activeContext?.id) return;
-        switchContextMutation.mutate(contextId);
+        switchContextMutation.mutate(contextId, {
+          onSuccess: () => {
+            const permissionState = usePermissionsStore.getState();
+            const target =
+              getFirstAllowedNavigationPath(
+                navigationItems,
+                permissionState.hasPermission,
+                permissionState.hasAny,
+              ) ?? '/app/unauthorized';
+            navigate(target, { replace: true });
+          },
+        });
       }}
       disabled={switchContextMutation.isPending}
     >
@@ -38,7 +54,11 @@ export function ContextSwitcher() {
       >
         <Select.Value placeholder="Select context" />
         <Select.Icon>
-          <ChevronsUpDown className="h-4 w-4 text-muted" />
+          {switchContextMutation.isPending ? (
+            <LoaderCircle className="h-4 w-4 animate-spin text-muted" />
+          ) : (
+            <ChevronsUpDown className="h-4 w-4 text-muted" />
+          )}
         </Select.Icon>
       </Select.Trigger>
       <Select.Portal>

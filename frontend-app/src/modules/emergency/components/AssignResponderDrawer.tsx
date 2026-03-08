@@ -71,7 +71,7 @@ export function AssignResponderDrawer({
 
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Assigning...' : 'Assign'}</Button>
+          <Button type="submit" loading={isSubmitting} loadingText="Assigning...">Assign</Button>
         </div>
       </form>
     </Drawer>

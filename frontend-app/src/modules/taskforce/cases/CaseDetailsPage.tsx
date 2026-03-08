@@ -209,8 +209,8 @@ export function CaseDetailsPage() {
                     {errors.message ? <p className="text-xs text-danger">{errors.message.message}</p> : null}
                     <div className="flex justify-end">
                       <PermissionGate permission="cases.update">
-                        <Button type="submit" disabled={isSubmitting || addCaseNote.isPending}>
-                          {isSubmitting || addCaseNote.isPending ? 'Saving...' : 'Add Note'}
+                        <Button type="submit" loading={isSubmitting || addCaseNote.isPending} loadingText="Saving...">
+                          Add Note
                         </Button>
                       </PermissionGate>
                     </div>

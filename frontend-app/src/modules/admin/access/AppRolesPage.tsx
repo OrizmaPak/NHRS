@@ -30,6 +30,7 @@ export function AppRolesPage() {
   const [editing, setEditing] = useState<RoleRow | null>(null);
   const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set());
   const [selectedRole, setSelectedRole] = useState<RoleRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RoleRow | null>(null);
 
   const rolesQuery = useAppRoles();
   const permissionsQuery = useAppPermissions();
@@ -79,10 +80,7 @@ export function AppRolesPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={async () => {
-                await deleteRole.mutateAsync(row.original.id);
-                toast.success('Role deleted');
-              }}
+              onClick={() => setDeleteTarget(row.original)}
             >
               Delete
             </Button>
@@ -90,7 +88,7 @@ export function AppRolesPage() {
         ),
       },
     ],
-    [deleteRole, form],
+    [form],
   );
 
   const openCreate = () => {
@@ -110,6 +108,19 @@ export function AppRolesPage() {
     toast.success(editing ? 'Role updated' : 'Role created');
     setModalOpen(false);
   });
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await deleteRole.mutateAsync(deleteTarget.id);
+      toast.success(`Role "${deleteTarget.name}" deleted`);
+      setDeleteTarget(null);
+      setSelectedRole((current) => (current?.id === deleteTarget.id ? null : current));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete role';
+      toast.error(message);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -178,7 +189,11 @@ export function AppRolesPage() {
             {form.formState.errors.description ? <p className="mt-1 text-xs text-danger">{form.formState.errors.description.message}</p> : null}
           </div>
           <PermissionMatrix
-            permissions={(permissionsQuery.data ?? []).map((entry) => ({ key: entry.key, module: entry.module, description: entry.description }))}
+            permissions={(permissionsQuery.data ?? []).map((entry) => ({
+              key: entry.key,
+              module: entry.module,
+              description: entry.description,
+            }))}
             selected={selectedPermissions}
             onToggle={(key, checked) =>
               setSelectedPermissions((prev) => {
@@ -191,9 +206,45 @@ export function AppRolesPage() {
           />
           <ModalFooter>
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={saveRole.isPending}>{editing ? 'Save Role' : 'Create Role'}</Button>
+            <Button type="submit" loading={saveRole.isPending} loadingText={editing ? 'Saving role...' : 'Creating role...'}>
+              {editing ? 'Save Role' : 'Create Role'}
+            </Button>
           </ModalFooter>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title="Delete App Role"
+        description="Are you sure you want to delete this role? It cannot be retrieved once deleted."
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-foreground">
+            Role:
+            {' '}
+            <span className="font-semibold">{deleteTarget?.name}</span>
+          </p>
+          <p className="text-sm text-muted">
+            This action removes the role definition and may affect access for users currently assigned to it.
+          </p>
+          <ModalFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              loading={deleteRole.isPending}
+              loadingText="Deleting..."
+              onClick={handleConfirmDelete}
+            >
+              Yes, Delete Role
+            </Button>
+          </ModalFooter>
+        </div>
       </Modal>
     </div>
   );

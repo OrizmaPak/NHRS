@@ -165,8 +165,8 @@ export function TimelinePage() {
             <Button type="button" variant="outline" onClick={() => setDrawerOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={addEntryMutation.isPending}>
-              {addEntryMutation.isPending ? 'Saving...' : 'Save entry'}
+            <Button type="submit" loading={addEntryMutation.isPending} loadingText="Saving...">
+              Save entry
             </Button>
           </div>
         </form>

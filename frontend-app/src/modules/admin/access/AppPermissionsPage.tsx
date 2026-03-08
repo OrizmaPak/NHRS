@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { ErrorState } from '@/components/feedback/ErrorState';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
 import { useAppPermissions, useSaveAppPermission, useUpdateAppPermission, type PermissionRow } from '@/api/hooks/useAccessControl';
+import { findInterfacePermissions } from '@/lib/interfacePermissions';
 
 const formSchema = z.object({
   key: z.string().min(3, 'Permission key is required'),
@@ -51,6 +52,27 @@ export function AppPermissionsPage() {
       { accessorKey: 'key', header: 'Permission Key' },
       { accessorKey: 'module', header: 'Module' },
       { accessorKey: 'description', header: 'Description' },
+      {
+        id: 'interface',
+        header: 'Interface Access',
+        cell: ({ row }) => {
+          const interfaces = findInterfacePermissions(row.original.key);
+          if (interfaces.length === 0) return <span className="text-xs text-muted">No</span>;
+          return (
+            <div className="max-w-[300px] space-y-1">
+              {interfaces.slice(0, 3).map((entry) => (
+                <div key={`${row.original.key}-${entry.route}`} className="rounded border border-border/60 px-2 py-1">
+                  <p className="text-xs font-medium text-foreground">{entry.interfaceLabel}</p>
+                  <p className="truncate text-[11px] text-muted">{entry.route}</p>
+                </div>
+              ))}
+              {interfaces.length > 3 ? (
+                <p className="text-[11px] text-muted">+{interfaces.length - 3} more interfaces</p>
+              ) : null}
+            </div>
+          );
+        },
+      },
       { accessorKey: 'scope', header: 'Scope' },
       { accessorKey: 'createdAt', header: 'Created At' },
       {
@@ -150,7 +172,11 @@ export function AppPermissionsPage() {
           </div>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={savePermission.isPending || updatePermission.isPending}>
+            <Button
+              type="submit"
+              loading={savePermission.isPending || updatePermission.isPending}
+              loadingText={editing ? 'Saving changes...' : 'Creating permission...'}
+            >
               {editing ? 'Save Changes' : 'Create Permission'}
             </Button>
           </ModalFooter>

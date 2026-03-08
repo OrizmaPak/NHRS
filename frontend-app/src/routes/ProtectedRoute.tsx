@@ -38,7 +38,7 @@ export function ProtectedRoute({ requiredPermission, allowPasswordSetup = false 
   }
 
   if (requiredPermission && !hasPermission(requiredPermission)) {
-    return <Navigate to="/unauthorized" replace />;
+    return <Navigate to="/app/unauthorized" replace />;
   }
 
   return <Outlet />;

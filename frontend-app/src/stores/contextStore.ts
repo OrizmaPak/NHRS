@@ -16,6 +16,27 @@ function getStoredContextId(): string | null {
   return localStorage.getItem(CONTEXT_STORAGE_KEY);
 }
 
+function contextSignature(context: AppContext): string {
+  return [
+    context.id,
+    context.type,
+    context.name,
+    context.subtitle ?? '',
+    context.themeScopeType,
+    context.themeScopeId ?? '',
+    context.organizationId ?? '',
+    context.branchId ?? '',
+  ].join('::');
+}
+
+function contextsEqual(left: AppContext[], right: AppContext[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    if (contextSignature(left[i]) !== contextSignature(right[i])) return false;
+  }
+  return true;
+}
+
 export const useContextStore = create<ContextState>((set, get) => ({
   availableContexts: [],
   activeContext: null,
@@ -23,10 +44,17 @@ export const useContextStore = create<ContextState>((set, get) => ({
 
   setAvailableContexts: (contexts) => {
     const storedContextId = getStoredContextId();
+    const previous = get();
     const nextActive =
       contexts.find((context) => context.id === storedContextId) ??
       contexts[0] ??
       null;
+
+    const sameContexts = contextsEqual(previous.availableContexts, contexts);
+    const sameActive = previous.activeContext?.id === nextActive?.id;
+    if (previous.initialized && sameContexts && sameActive) {
+      return;
+    }
 
     if (nextActive) {
       localStorage.setItem(CONTEXT_STORAGE_KEY, nextActive.id);
@@ -42,6 +70,11 @@ export const useContextStore = create<ContextState>((set, get) => ({
   },
 
   setActiveContext: (context) => {
+    const previous = get().activeContext;
+    if (previous?.id === context?.id) {
+      return;
+    }
+
     if (context) {
       localStorage.setItem(CONTEXT_STORAGE_KEY, context.id);
     } else {
@@ -54,6 +87,9 @@ export const useContextStore = create<ContextState>((set, get) => ({
   switchContext: (contextId) => {
     const next = get().availableContexts.find((context) => context.id === contextId) ?? null;
     if (next) {
+      if (get().activeContext?.id === next.id) {
+        return next;
+      }
       localStorage.setItem(CONTEXT_STORAGE_KEY, next.id);
       set({ activeContext: next });
     }

@@ -3,9 +3,11 @@ import { appRouter } from '@/routes/router';
 import { Spinner } from '@/components/feedback/Spinner';
 import { AppErrorBoundary } from '@/components/feedback/AppErrorBoundary';
 import { useAppBootstrap } from '@/hooks/useAppBootstrap';
+import { usePermissionContextSync } from '@/hooks/usePermissionContextSync';
 
 export function App() {
   const { initialized, identityLoading } = useAppBootstrap();
+  usePermissionContextSync();
 
   if (!initialized || identityLoading) {
     return (

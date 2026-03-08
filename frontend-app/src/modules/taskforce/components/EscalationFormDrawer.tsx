@@ -126,8 +126,8 @@ export function EscalationFormDrawer({ open, onOpenChange, title, onSubmit, unit
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Escalating...' : 'Submit Escalation'}
+          <Button type="submit" loading={isSubmitting} loadingText="Escalating...">
+            Submit Escalation
           </Button>
         </div>
       </form>

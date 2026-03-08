@@ -108,7 +108,7 @@ export function ApiKeysPage() {
             <CardTitle>Create API Key</CardTitle>
             <CardDescription>Full key is only shown once. Copy and store securely.</CardDescription>
           </div>
-          <Button onClick={onSubmit} disabled={createKey.isPending}>Generate Key</Button>
+          <Button onClick={onSubmit} loading={createKey.isPending} loadingText="Generating key...">Generate Key</Button>
         </CardHeader>
         <form className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={onSubmit}>
           <div>

@@ -53,7 +53,8 @@ function collectRoles(source: Record<string, unknown>, rawUser: Record<string, u
 }
 
 function isSuperRole(role: string): boolean {
-  return ['superadmin', 'super_admin', 'platform_admin', 'app_admin', 'admin'].includes(role.toLowerCase());
+  const normalized = role.trim().toLowerCase().replace(/\s+/g, '_');
+  return ['super', 'superadmin', 'super_admin', 'platform_admin', 'app_admin', 'admin'].includes(normalized);
 }
 
 function ensureAppLevelContexts(contexts: AppContext[], isSuperAdmin: boolean): AppContext[] {
@@ -85,6 +86,48 @@ function ensureAppLevelContexts(contexts: AppContext[], isSuperAdmin: boolean): 
 
   const withoutSynthetic = contexts.filter((ctx) => ctx.id !== 'app:super' && ctx.id !== 'app:citizen');
   return [citizen, ...withoutSynthetic];
+}
+
+function toRoleContextName(role: string): string {
+  const normalized = role.trim();
+  if (!normalized) return 'Role';
+  if (isSuperRole(normalized)) return 'Super';
+  if (normalized.toLowerCase() === 'citizen') return 'Citizen';
+  return normalized
+    .split(/[_\s-]+/)
+    .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : ''))
+    .join(' ');
+}
+
+function toRoleContextId(role: string): string {
+  const lower = role.trim().toLowerCase();
+  if (isSuperRole(lower)) return 'app:super';
+  if (lower === 'citizen') return 'app:citizen';
+  return `app:role:${lower}`;
+}
+
+function ensureRoleContexts(baseContexts: AppContext[], roles: string[]): AppContext[] {
+  const byId = new Map(baseContexts.map((ctx) => [ctx.id, ctx] as const));
+  const withRoles = [...baseContexts];
+  const uniqueRoles = Array.from(new Set(roles.map((role) => role.trim()).filter(Boolean)));
+
+  for (const role of uniqueRoles) {
+    const contextId = toRoleContextId(role);
+    if (byId.has(contextId)) continue;
+
+    withRoles.push({
+      id: contextId,
+      type: 'platform',
+      name: toRoleContextName(role),
+      subtitle: 'App Role',
+      themeScopeType: 'platform',
+      themeScopeId: null,
+      permissions: contextId === 'app:super' ? ['*'] : contextId === 'app:citizen' ? [] : [],
+    });
+    byId.set(contextId, withRoles[withRoles.length - 1]);
+  }
+
+  return withRoles;
 }
 
 function collectPermissions(source: Record<string, unknown>, defaultContextId: string | undefined, availableContexts: AppContext[]): string[] {
@@ -129,7 +172,7 @@ export function toUserProfile(payload: Record<string, unknown>): UserProfile {
   const fullNameFromParts = [firstName, lastName].filter(Boolean).join(' ').trim();
   const fallbackName = String(rawUser.fullName ?? rawUser.name ?? rawUser.displayName ?? '').trim();
   return {
-    id: String(rawUser.id ?? rawUser.userId ?? ''),
+    id: String(rawUser.id ?? rawUser.userId ?? rawUser.sub ?? payload.sub ?? ''),
     firstName: firstName || undefined,
     lastName: lastName || undefined,
     fullName: fullNameFromParts || fallbackName || 'User',
@@ -169,19 +212,24 @@ export function toIdentityResponse(payload: unknown): IdentityResponse {
   const source = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
   const user = toUserProfile(source);
   const roles = user.roles;
-  const rawContexts = toContexts(source);
+  const rawContexts = toContexts(source).filter(
+    (ctx) => !(ctx.type === 'public' || ctx.name.toLowerCase() === 'nhrs public'),
+  );
   const defaultContextObj =
     source.defaultContext && typeof source.defaultContext === 'object'
       ? (source.defaultContext as Record<string, unknown>)
       : null;
   const isGlobalAdmin = roles.some(isSuperRole);
-  const availableContexts = ensureAppLevelContexts(rawContexts, isGlobalAdmin);
+  const withAppContexts = ensureAppLevelContexts(rawContexts, isGlobalAdmin);
+  const availableContexts = ensureRoleContexts(withAppContexts, roles);
   const defaultContextId =
-    source.defaultContextId
-      ? String(source.defaultContextId)
-      : defaultContextObj?.id
-        ? String(defaultContextObj.id)
-        : (isGlobalAdmin ? 'app:super' : 'app:citizen');
+    isGlobalAdmin
+      ? 'app:super'
+      : source.defaultContextId
+        ? String(source.defaultContextId)
+        : defaultContextObj?.id
+          ? String(defaultContextObj.id)
+          : 'app:citizen';
   const permissions = isGlobalAdmin
     ? ['*']
     : collectPermissions(source, defaultContextId, rawContexts);

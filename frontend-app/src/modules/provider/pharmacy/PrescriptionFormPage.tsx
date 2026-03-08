@@ -198,8 +198,12 @@ export function PrescriptionFormPage() {
             <Button type="button" variant="outline" onClick={() => navigate(-1)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || createPrescription.isPending}>
-              {isSubmitting || createPrescription.isPending ? 'Saving...' : 'Create Prescription'}
+            <Button
+              type="submit"
+              loading={isSubmitting || createPrescription.isPending}
+              loadingText="Saving..."
+            >
+              Create Prescription
             </Button>
           </ActionBar>
         </div>

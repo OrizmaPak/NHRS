@@ -190,8 +190,12 @@ export function LabRequestFormPage() {
             <Button type="button" variant="outline" onClick={() => navigate(-1)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || createLabRequest.isPending}>
-              {isSubmitting || createLabRequest.isPending ? 'Submitting...' : 'Create Lab Request'}
+            <Button
+              type="submit"
+              loading={isSubmitting || createLabRequest.isPending}
+              loadingText="Submitting..."
+            >
+              Create Lab Request
             </Button>
           </ActionBar>
         </div>

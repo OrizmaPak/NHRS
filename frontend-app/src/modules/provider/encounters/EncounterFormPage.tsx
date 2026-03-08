@@ -263,12 +263,14 @@ export function EncounterFormPage() {
             <Button type="button" variant="outline" onClick={() => navigate(-1)}>
               Cancel
             </Button>
-            <Button type="submit" variant="outline" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : 'Save Draft'}
+            <Button type="submit" variant="outline" loading={isSubmitting} loadingText="Saving...">
+              Save Draft
             </Button>
             <PermissionGate permission="encounters.finalize">
               <Button
                 type="button"
+                loading={isSubmitting}
+                loadingText="Finalizing..."
                 onClick={handleSubmit(async (values) => {
                   const payload = {
                     nin: values.nin,

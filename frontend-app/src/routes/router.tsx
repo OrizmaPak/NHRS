@@ -1,9 +1,13 @@
 import { Suspense, lazy, type ReactElement } from 'react';
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom';
 import { Spinner } from '@/components/feedback/Spinner';
 import { AppShell } from '@/layouts/AppShell';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
 import { PermissionGate } from '@/components/navigation/PermissionGate';
+import { InterfaceAccessGate } from '@/routes/InterfaceAccessGate';
+import { navigationItems } from '@/routes/navigation';
+import { usePermissionsStore } from '@/stores/permissionsStore';
+import { getFirstAllowedNavigationPath } from '@/lib/navigationAccess';
 
 const DashboardPage = lazy(async () => ({ default: (await import('@/modules/dashboard/pages/DashboardPage')).DashboardPage }));
 const LoginPage = lazy(async () => ({ default: (await import('@/modules/auth/pages/LoginPage')).LoginPage }));
@@ -46,6 +50,29 @@ const AppUserAccessPage = lazy(async () => ({ default: (await import('@/modules/
 const OrgPermissionsPage = lazy(async () => ({ default: (await import('@/modules/org/access/OrgPermissionsPage')).OrgPermissionsPage }));
 const OrgRolesPage = lazy(async () => ({ default: (await import('@/modules/org/access/OrgRolesPage')).OrgRolesPage }));
 const OrgStaffAccessPage = lazy(async () => ({ default: (await import('@/modules/org/access/OrgStaffAccessPage')).OrgStaffAccessPage }));
+const AnalyticsDashboardPage = lazy(async () => ({ default: (await import('@/modules/analytics/dashboard/AnalyticsDashboardPage')).AnalyticsDashboardPage }));
+const HealthMetricsPage = lazy(async () => ({ default: (await import('@/modules/analytics/metrics/HealthMetricsPage')).HealthMetricsPage }));
+const ReportsPage = lazy(async () => ({ default: (await import('@/modules/reports/ReportsPage')).ReportsPage }));
+const ReportDetailsPage = lazy(async () => ({ default: (await import('@/modules/reports/ReportDetailsPage')).ReportDetailsPage }));
+const DataQualityPage = lazy(async () => ({ default: (await import('@/modules/compliance/data-quality/DataQualityPage')).DataQualityPage }));
+const ComplianceDashboardPage = lazy(async () => ({ default: (await import('@/modules/compliance/dashboard/ComplianceDashboardPage')).ComplianceDashboardPage }));
+const IntegrationsPage = lazy(async () => ({ default: (await import('@/modules/integrations/IntegrationsPage')).IntegrationsPage }));
+const IntegrationDetailsPage = lazy(async () => ({ default: (await import('@/modules/integrations/IntegrationDetailsPage')).IntegrationDetailsPage }));
+const ApiKeysPage = lazy(async () => ({ default: (await import('@/modules/integrations/api-keys/ApiKeysPage')).ApiKeysPage }));
+const SyncMonitorPage = lazy(async () => ({ default: (await import('@/modules/integrations/sync/SyncMonitorPage')).SyncMonitorPage }));
+const NotificationsListPage = lazy(async () => ({ default: (await import('@/modules/system/notifications/NotificationsListPage')).NotificationsListPage }));
+const AlertsPage = lazy(async () => ({ default: (await import('@/modules/system/alerts/AlertsPage')).AlertsPage }));
+const SystemActivityPage = lazy(async () => ({ default: (await import('@/modules/system/activity/SystemActivityPage')).SystemActivityPage }));
+const SystemMonitoringPage = lazy(async () => ({ default: (await import('@/modules/system/monitoring/SystemMonitoringPage')).SystemMonitoringPage }));
+const SystemConfigurationPage = lazy(async () => ({ default: (await import('@/modules/system/configuration/SystemConfigurationPage')).SystemConfigurationPage }));
+const SystemObservabilityPage = lazy(async () => ({ default: (await import('@/modules/system/observability/SystemObservabilityPage')).SystemObservabilityPage }));
+const SystemHealthPage = lazy(async () => ({ default: (await import('@/modules/system/health/SystemHealthPage')).SystemHealthPage }));
+const DevToolsPage = lazy(async () => ({ default: (await import('@/modules/dev-tools/DevToolsPage')).DevToolsPage }));
+const InstitutionDashboardPage = lazy(async () => ({ default: (await import('@/modules/institution/dashboard/InstitutionDashboardPage')).InstitutionDashboardPage }));
+const AdminUsersPage = lazy(async () => ({ default: (await import('@/modules/admin/users/AdminUsersPage')).AdminUsersPage }));
+const AdminRolesPage = lazy(async () => ({ default: (await import('@/modules/admin/roles/AdminRolesPage')).AdminRolesPage }));
+const AdminInstitutionsPage = lazy(async () => ({ default: (await import('@/modules/admin/institutions/AdminInstitutionsPage')).AdminInstitutionsPage }));
+const AdminSystemSettingsPage = lazy(async () => ({ default: (await import('@/modules/admin/system-settings/AdminSystemSettingsPage')).AdminSystemSettingsPage }));
 
 function withSuspense(element: ReactElement) {
   return (
@@ -62,8 +89,30 @@ function withSuspense(element: ReactElement) {
   );
 }
 
+function AccessFallback() {
+  const location = useLocation();
+  const hasPermission = usePermissionsStore((state) => state.hasPermission);
+  const hasAny = usePermissionsStore((state) => state.hasAny);
+  const _permissionsVersion = usePermissionsStore((state) => state.version);
+  void _permissionsVersion;
+
+  const firstAllowedRoute = getFirstAllowedNavigationPath(navigationItems, hasPermission, hasAny);
+
+  if (firstAllowedRoute && firstAllowedRoute !== location.pathname) {
+    return <Navigate to={firstAllowedRoute} replace />;
+  }
+
+  return withSuspense(<UnauthorizedPage />);
+}
+
 function restricted(element: ReactElement, permission: string | string[]) {
-  return <PermissionGate permission={permission} fallback={withSuspense(<UnauthorizedPage />)}>{withSuspense(element)}</PermissionGate>;
+  return (
+    <InterfaceAccessGate permission={permission} fallback={<AccessFallback />}>
+      <PermissionGate permission={permission} fallback={<AccessFallback />}>
+        {withSuspense(element)}
+      </PermissionGate>
+    </InterfaceAccessGate>
+  );
 }
 
 const brandAdminPermissions = ['ui.theme.write', 'rbac.org.manage', 'rbac.app.manage'];
@@ -83,9 +132,9 @@ export const appRouter = createBrowserRouter([
         path: '/app',
         element: <AppShell />,
         children: [
-          { index: true, element: withSuspense(<DashboardPage />) },
-          { path: 'public/timeline', element: withSuspense(<TimelinePage />) },
-          { path: 'public/doctor-registry', element: withSuspense(<DoctorRegistryPage />) },
+          { index: true, element: restricted(<DashboardPage />, 'interface.dashboard.view') },
+          { path: 'public/timeline', element: restricted(<TimelinePage />, 'interface.public.timeline.view') },
+          { path: 'public/doctor-registry', element: restricted(<DoctorRegistryPage />, 'interface.public.doctor_registry.view') },
           { path: 'public/doctor-registry/:doctorId', element: restricted(<DoctorProfilePage />, 'doctor.read') },
           { path: 'provider', element: <Navigate to="/app/provider/dashboard" replace /> },
           { path: 'provider/dashboard', element: restricted(<ProviderDashboardPage />, 'profile.search') },
@@ -118,20 +167,44 @@ export const appRouter = createBrowserRouter([
           { path: 'emergency/request', element: restricted(<EmergencyRequestPage />, 'emergency.request.create') },
           { path: 'emergency/cases', element: restricted(<EmergencyCasesListPage />, 'emergency.request.read') },
           { path: 'emergency/cases/:id', element: restricted(<EmergencyCaseDetailsPage />, 'emergency.request.read') },
+          { path: 'notifications', element: restricted(<NotificationsListPage />, 'notifications.view') },
+          { path: 'alerts', element: restricted(<AlertsPage />, 'alerts.view') },
+          { path: 'analytics/dashboard', element: restricted(<AnalyticsDashboardPage />, 'analytics.view') },
+          { path: 'analytics/metrics', element: restricted(<HealthMetricsPage />, 'analytics.view') },
+          { path: 'reports', element: restricted(<ReportsPage />, 'reports.view') },
+          { path: 'reports/:reportId', element: restricted(<ReportDetailsPage />, 'reports.view') },
+          { path: 'compliance/data-quality', element: restricted(<DataQualityPage />, 'compliance.view') },
+          { path: 'compliance/dashboard', element: restricted(<ComplianceDashboardPage />, 'compliance.view') },
+          { path: 'integrations', element: restricted(<IntegrationsPage />, 'integrations.view') },
+          { path: 'integrations/:id', element: restricted(<IntegrationDetailsPage />, 'integrations.view') },
+          { path: 'integrations/api-keys', element: restricted(<ApiKeysPage />, 'api.keys.manage') },
+          { path: 'integrations/sync', element: restricted(<SyncMonitorPage />, 'sync.monitor.view') },
+          { path: 'institution/dashboard', element: restricted(<InstitutionDashboardPage />, 'institution.dashboard.view') },
+          { path: 'system/activity', element: restricted(<SystemActivityPage />, 'system.activity.view') },
+          { path: 'system/monitoring', element: restricted(<SystemMonitoringPage />, 'system.monitoring.view') },
+          { path: 'system/configuration', element: restricted(<SystemConfigurationPage />, 'system.configuration.manage') },
+          { path: 'system/observability', element: restricted(<SystemObservabilityPage />, 'system.observability.view') },
+          { path: 'system/health', element: restricted(<SystemHealthPage />, 'system.health.view') },
+          { path: 'dev-tools', element: restricted(<DevToolsPage />, 'dev.tools.view') },
           { path: 'admin/access/app-permissions', element: restricted(<AppPermissionsPage />, 'superadmin.only') },
           { path: 'admin/access/app-roles', element: restricted(<AppRolesPage />, 'rbac.app.manage') },
           { path: 'admin/access/users/:userId', element: restricted(<AppUserAccessPage />, 'rbac.app.manage') },
+          { path: 'admin/users', element: restricted(<AdminUsersPage />, 'admin.users.manage') },
+          { path: 'admin/roles', element: restricted(<AdminRolesPage />, 'admin.roles.manage') },
+          { path: 'admin/institutions', element: restricted(<AdminInstitutionsPage />, 'admin.institutions.manage') },
+          { path: 'admin/system-settings', element: restricted(<AdminSystemSettingsPage />, 'admin.settings.manage') },
           { path: 'org/access/permissions', element: restricted(<OrgPermissionsPage />, 'rbac.org.manage') },
           { path: 'org/access/roles', element: restricted(<OrgRolesPage />, 'rbac.org.manage') },
           { path: 'org/access/staff/:userId', element: restricted(<OrgStaffAccessPage />, 'rbac.org.manage') },
-          { path: 'settings', element: withSuspense(<SettingsPage />) },
-          { path: 'settings/appearance', element: withSuspense(<AppearanceSettingsPage />) },
+          { path: 'settings', element: restricted(<SettingsPage />, 'interface.settings.view') },
+          { path: 'settings/appearance', element: restricted(<AppearanceSettingsPage />, 'interface.settings.appearance.view') },
           { path: 'settings/brand', element: restricted(<BrandSettingsPage />, brandAdminPermissions) },
-          { path: 'settings/accessibility', element: withSuspense(<AccessibilitySettingsPage />) },
+          { path: 'settings/accessibility', element: restricted(<AccessibilitySettingsPage />, 'interface.settings.accessibility.view') },
+          { path: 'unauthorized', element: withSuspense(<UnauthorizedPage />) },
         ],
       },
     ],
   },
-  { path: '/unauthorized', element: withSuspense(<UnauthorizedPage />) },
+  { path: '/unauthorized', element: <Navigate to="/app/unauthorized" replace /> },
   { path: '*', element: withSuspense(<NotFoundPage />) },
 ]);

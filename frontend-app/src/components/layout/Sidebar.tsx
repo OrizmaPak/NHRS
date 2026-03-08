@@ -5,6 +5,7 @@ import { navigationItems } from '@/routes/navigation';
 import { usePermissionsStore } from '@/stores/permissionsStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useContextStore } from '@/stores/contextStore';
+import { useAuthStore } from '@/stores/authStore';
 
 export function Sidebar() {
   const hasPermission = usePermissionsStore((state) => state.hasPermission);
@@ -14,17 +15,16 @@ export function Sidebar() {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUIStore((state) => state.setSidebarOpen);
   const activeContext = useContextStore((state) => state.activeContext);
+  const availableContexts = useContextStore((state) => state.availableContexts);
+  const user = useAuthStore((state) => state.user);
 
   const items = useMemo(
     () =>
-      (activeContext?.id === 'app:citizen'
-        ? []
-        : navigationItems
-      ).filter((item) => {
+      navigationItems.filter((item) => {
         if (!item.permission) return true;
         return Array.isArray(item.permission) ? hasAny(item.permission) : hasPermission(item.permission);
       }),
-    [activeContext?.id, hasAny, hasPermission],
+    [_permissionsVersion, hasAny, hasPermission],
   );
 
   const groupedItems = useMemo(
@@ -46,8 +46,30 @@ export function Sidebar() {
       )}
     >
       <div className="mb-6 rounded-lg border border-border/80 bg-surface p-3 shadow-subtle">
-        <p className="truncate text-sm font-semibold text-foreground">NHRS Public</p>
-        <p className="truncate text-xs text-muted">National Health Repository System</p>
+        <p className="truncate text-sm font-semibold text-foreground">{activeContext?.name ?? 'Context'}</p>
+        <p className="truncate text-xs text-muted">
+          {activeContext?.subtitle ?? 'Active Role Context'}
+        </p>
+        {availableContexts.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {availableContexts.slice(0, 4).map((ctx) => (
+              <span
+                key={ctx.id}
+                className={cn(
+                  'rounded border px-1.5 py-0.5 text-[10px] font-medium',
+                  ctx.id === activeContext?.id
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border text-muted',
+                )}
+              >
+                {ctx.name}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {Array.isArray(user?.roles) && user.roles.length > 0 ? (
+          <p className="mt-2 truncate text-[11px] text-muted">Account: {user.roles.join(', ')}</p>
+        ) : null}
       </div>
 
       <nav className="space-y-4">
