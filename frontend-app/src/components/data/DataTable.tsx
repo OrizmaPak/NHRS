@@ -24,6 +24,7 @@ type DataTableProps<TData> = {
   total: number;
   loading?: boolean;
   pageCount?: number;
+  searchPlaceholder?: string;
   pagination: PaginationState;
   onPaginationChange: OnChangeFn<PaginationState>;
   onRowAction?: (row: TData) => void;
@@ -35,6 +36,7 @@ export function DataTable<TData>({
   total,
   loading = false,
   pageCount,
+  searchPlaceholder = 'Search records',
   pagination,
   onPaginationChange,
 }: DataTableProps<TData>) {
@@ -73,7 +75,7 @@ export function DataTable<TData>({
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <input
             className="h-10 w-full rounded-md border border-border bg-white pl-9 pr-3 text-sm"
-            placeholder="Search records"
+            placeholder={searchPlaceholder}
             value={globalFilter}
             onChange={(event) => setGlobalFilter(event.target.value)}
           />
@@ -155,6 +157,26 @@ export function DataTable<TData>({
       <div className="flex items-center justify-between rounded-md border border-border bg-surface px-4 py-2 text-sm">
         <p className="text-muted">{total.toLocaleString()} total records</p>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1 text-xs text-muted">
+            Rows
+            <select
+              className="h-8 rounded-md border border-border bg-white px-2 text-xs text-foreground"
+              value={pagination.pageSize}
+              onChange={(event) =>
+                onPaginationChange((current) => ({
+                  ...current,
+                  pageSize: Number(event.target.value),
+                  pageIndex: 0,
+                }))
+              }
+            >
+              {[10, 20, 50].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
           <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
             Previous
           </Button>

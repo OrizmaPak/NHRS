@@ -83,6 +83,9 @@ export function EmergencyInventoryPage() {
           />
         </div>
         <ActionBar>
+          <PermissionGate permission="emergency.view">
+            <Button variant="outline" onClick={() => navigate('/app/emergency/cases')}>Open Cases</Button>
+          </PermissionGate>
           <PermissionGate permission="emergency.request.create">
             <Button onClick={() => navigate('/app/emergency/request')}>Request Resource</Button>
           </PermissionGate>

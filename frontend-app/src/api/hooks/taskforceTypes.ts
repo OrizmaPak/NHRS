@@ -52,6 +52,7 @@ export type AuditEventRow = {
   id: string;
   eventId: string;
   actor: string;
+  actorType?: string;
   actorRole: string;
   action: string;
   module: string;
@@ -59,6 +60,8 @@ export type AuditEventRow = {
   targetId: string;
   institution: string;
   state: string;
+  outcome?: string;
+  summary?: string;
   timestamp: string;
 };
 

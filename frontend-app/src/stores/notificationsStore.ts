@@ -11,6 +11,7 @@ export type AppNotification = {
 type NotificationsState = {
   items: AppNotification[];
   push: (item: Omit<AppNotification, 'id' | 'createdAt' | 'read'>) => void;
+  markRead: (id: string) => void;
   markAllRead: () => void;
 };
 
@@ -35,6 +36,10 @@ export const useNotificationsStore = create<NotificationsState>((set) => ({
         },
         ...state.items,
       ],
+    })),
+  markRead: (id) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === id ? { ...item, read: true } : item)),
     })),
   markAllRead: () =>
     set((state) => ({

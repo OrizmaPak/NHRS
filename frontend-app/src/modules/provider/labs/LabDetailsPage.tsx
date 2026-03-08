@@ -57,7 +57,7 @@ export function LabDetailsPage() {
               </Button>
             ) : null}
             <PermissionGate permission="labs.update">
-              <Button variant="outline" onClick={() => navigate(`/app/provider/labs/${id}?mode=edit`)}>
+              <Button variant="outline" onClick={() => navigate(`/app/provider/labs/${id}/edit`)}>
                 Edit Result
               </Button>
             </PermissionGate>

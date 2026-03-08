@@ -20,28 +20,29 @@ export function useCase(id: string) {
     enabled: Boolean(id),
     queryFn: async (): Promise<CaseDetail> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.taskforce.caseById(id));
-      const location = (response.location as Record<string, unknown> | undefined) ?? {};
-      const actions = Array.isArray(response.actions) ? response.actions : [];
-      const notes = Array.isArray(response.notes) ? response.notes : [];
-      const escalations = Array.isArray(response.escalations) ? response.escalations : [];
-      const relatedComplaints = Array.isArray(response.relatedComplaints) ? response.relatedComplaints : [];
+      const root = response.case && typeof response.case === 'object' ? (response.case as Record<string, unknown>) : response;
+      const location = (root.location as Record<string, unknown> | undefined) ?? {};
+      const actions = Array.isArray(response.recentActions) ? response.recentActions : Array.isArray(root.actions) ? root.actions : [];
+      const notes = Array.isArray(root.notes) ? root.notes : [];
+      const escalations = Array.isArray(root.escalations) ? root.escalations : [];
+      const relatedComplaints = Array.isArray(root.relatedComplaints) ? root.relatedComplaints : [];
 
       return {
-        id: String(response.caseId ?? response.id ?? id),
-        caseId: String(response.caseId ?? response.id ?? id),
-        sourceComplaint: String(response.sourceComplaint ?? response.originComplaintId ?? 'N/A'),
-        institution: String(response.institution ?? response.organizationId ?? 'N/A'),
-        state: String(location.state ?? response.state ?? 'N/A'),
-        lga: String(location.lga ?? response.lga ?? 'N/A'),
-        assignedOfficer: String(response.assignedOfficer ?? response.assignedTo ?? 'Unassigned'),
-        severity: String(response.severity ?? response.priority ?? 'medium'),
-        stage: String(response.currentStage ?? response.stage ?? 'intake'),
-        status: String(response.status ?? 'open'),
-        openedAt: String(response.createdAt ?? response.openedAt ?? new Date().toISOString()),
-        updatedAt: String(response.updatedAt ?? response.createdAt ?? new Date().toISOString()),
-        summary: String(response.description ?? response.subject ?? 'No case summary available'),
+        id: String(root.caseId ?? root.id ?? id),
+        caseId: String(root.caseId ?? root.id ?? id),
+        sourceComplaint: String(root.sourceComplaint ?? root.originComplaintId ?? 'N/A'),
+        institution: String(root.institution ?? root.organizationId ?? 'N/A'),
+        state: String(location.state ?? root.state ?? 'N/A'),
+        lga: String(location.lga ?? root.lga ?? 'N/A'),
+        assignedOfficer: String(root.assignedOfficer ?? root.assignedTo ?? 'Unassigned'),
+        severity: String(root.severity ?? root.priority ?? 'medium'),
+        stage: String(root.currentStage ?? root.stage ?? 'intake'),
+        status: String(root.status ?? 'open'),
+        openedAt: String(root.createdAt ?? root.openedAt ?? new Date().toISOString()),
+        updatedAt: String(root.updatedAt ?? root.createdAt ?? new Date().toISOString()),
+        summary: String(root.description ?? root.subject ?? 'No case summary available'),
         jurisdiction: [location.lga, location.state].filter(Boolean).join(', ') || 'Not specified',
-        nextAction: String(response.nextAction ?? 'Review and update case stage'),
+        nextAction: String(root.nextAction ?? 'Review and update case stage'),
         timeline: actions.map((item, index) => {
           const action = item as Record<string, unknown>;
           return {

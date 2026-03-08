@@ -368,9 +368,15 @@ async function issueSessionAndTokens(user, meta = {}) {
 }
 
 function toUserResponse(user, scope = []) {
+  const firstName = user.firstName || null;
+  const lastName = user.lastName || null;
+  const fullName = user.fullName || [firstName, lastName].filter(Boolean).join(' ').trim() || null;
   return {
     id: String(user._id),
     nin: user.nin,
+    firstName,
+    lastName,
+    fullName,
     email: user.email || null,
     phone: user.phone || null,
     phoneVerified: !!user.phoneVerified,
@@ -466,7 +472,8 @@ async function buildAvailableContexts(userId, authorization) {
     themeScopeId: null,
   };
   const availableContexts = [base, ...membershipContexts];
-  const defaultContext = membershipContexts.find((ctx) => ctx.membershipStatus === 'active') || base;
+  // Default landing context is always citizen/public unless user explicitly switches in-session.
+  const defaultContext = base;
   return { availableContexts, defaultContext };
 }
 

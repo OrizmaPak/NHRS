@@ -27,6 +27,7 @@ export function LabsListPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
+  const statusOptions = ['', 'pending', 'in_progress', 'completed', 'cancelled'];
 
   const completeLab = useCompleteLab();
   const query = useLabs(nin, {
@@ -64,7 +65,7 @@ export function LabsListPage() {
               View
             </Button>
             <PermissionGate permission="labs.update">
-              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/labs/${row.original.id}?mode=edit`)}>
+              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/labs/${row.original.id}/edit`)}>
                 Edit/Result
               </Button>
             </PermissionGate>
@@ -114,7 +115,17 @@ export function LabsListPage() {
           <Input value={testType} onChange={(e) => setTestType(e.target.value)} placeholder="Test type" />
         </div>
         <div className="w-full md:max-w-[150px]">
-          <Input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="Status" />
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+          >
+            {statusOptions.map((value) => (
+              <option key={value || 'all'} value={value}>
+                {value || 'All statuses'}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="w-full md:max-w-[180px]">
           <Input value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="Requesting provider" />

@@ -1,6 +1,7 @@
 import { API_BASE_URL, CONTEXT_STORAGE_KEY } from '@/lib/constants';
 import { clearSessionTokens, getAccessToken, getRefreshToken, setSessionTokens } from '@/lib/sessionStorage';
 import { endpoints } from '@/api/endpoints';
+import { useContextStore } from '@/stores/contextStore';
 
 export class ApiClientError extends Error {
   status: number;
@@ -31,11 +32,24 @@ function buildQuery(query?: QueryParams): string {
 
 function getContextHeaders(): Record<string, string> {
   const raw = localStorage.getItem(CONTEXT_STORAGE_KEY);
-  if (!raw) return {};
+  const activeContext = useContextStore.getState().activeContext;
+  const headers: Record<string, string> = {};
 
-  return {
-    'x-active-context-id': raw,
-  };
+  if (raw) {
+    headers['x-active-context-id'] = raw;
+  }
+
+  if (activeContext?.type === 'organization') {
+    const orgId = activeContext.organizationId || activeContext.id;
+    if (orgId) {
+      headers['x-org-id'] = orgId;
+    }
+    if (activeContext.branchId) {
+      headers['x-branch-id'] = activeContext.branchId;
+    }
+  }
+
+  return headers;
 }
 
 async function parseJson<T>(response: Response): Promise<T | null> {
@@ -115,7 +129,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   }
 
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403 || response.status === 429) {
+    if (response.status === 401 || response.status === 403 || response.status === 429 || response.status >= 500) {
       window.dispatchEvent(new CustomEvent('nhrs:api-error', { detail: { status: response.status } }));
     }
     const payload = await parseJson<{ message?: string; code?: string; details?: Record<string, unknown> }>(response);

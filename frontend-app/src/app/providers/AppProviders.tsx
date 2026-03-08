@@ -38,6 +38,14 @@ export function AppProviders({ children }: PropsWithChildren) {
       if (custom.detail?.status === 429) {
         toast.error('Rate limit reached. Please try again shortly.');
       }
+
+      if (custom.detail?.status === 503) {
+        toast.error('Service temporarily unavailable. Please retry in a moment.');
+      }
+
+      if ((custom.detail?.status ?? 0) >= 500 && custom.detail?.status !== 503) {
+        toast.error('A server error occurred. Please retry.');
+      }
     };
 
     window.addEventListener('nhrs:api-error', handler);

@@ -29,6 +29,9 @@ export function useMe(enabled = true) {
   const setAvailableContexts = useContextStore((state) => state.setAvailableContexts);
   const setActiveContext = useContextStore((state) => state.setActiveContext);
   const replacePermissions = usePermissionsStore((state) => state.replace);
+  const setRoles = usePermissionsStore((state) => state.setRoles);
+  const setOverrides = usePermissionsStore((state) => state.setOverrides);
+  const setEffectivePermissions = usePermissionsStore((state) => state.setEffectivePermissions);
   const loadTheme = useThemeStore((state) => state.loadTheme);
 
   const query = useQuery({
@@ -50,13 +53,27 @@ export function useMe(enabled = true) {
       null;
 
     setActiveContext(preferredContext);
-    const contextPermissions = Array.isArray(preferredContext?.permissions) ? preferredContext.permissions : [];
-    replacePermissions(contextPermissions.length > 0 ? contextPermissions : query.data.permissions);
+    setRoles(query.data.roles ?? []);
+    const sourcePermissions = preferredContext
+      ? (Array.isArray(preferredContext.permissions) ? preferredContext.permissions : [])
+      : query.data.permissions;
+    replacePermissions(sourcePermissions);
+
+    const raw = query.data as unknown as {
+      overrides?: Record<string, 'allow' | 'deny'>;
+      effectivePermissions?: Array<{ key: string; source: 'role' | 'override_allow' | 'override_deny'; granted: boolean }>;
+    };
+    if (raw.overrides) {
+      setOverrides(raw.overrides);
+    }
+    if (Array.isArray(raw.effectivePermissions) && raw.effectivePermissions.length > 0) {
+      setEffectivePermissions(raw.effectivePermissions);
+    }
 
     if (preferredContext) {
       void loadTheme(preferredContext.themeScopeType, preferredContext.themeScopeId);
     }
-  }, [query.data, setUser, setAvailableContexts, setActiveContext, replacePermissions, loadTheme]);
+  }, [query.data, setUser, setAvailableContexts, setActiveContext, setRoles, replacePermissions, setOverrides, setEffectivePermissions, loadTheme]);
 
   useEffect(() => {
     if (!query.error) return;

@@ -5,6 +5,7 @@ import type { AuditEventRow } from '@/api/hooks/taskforceTypes';
 
 export type AuditEventsParams = {
   actor?: string;
+  actorType?: string;
   module?: string;
   action?: string;
   institution?: string;
@@ -31,6 +32,7 @@ export function useAuditEvents(params: AuditEventsParams) {
           module: params.module,
           organizationId: params.institution,
           state: params.state,
+          actorType: params.actorType,
           from: params.from,
           to: params.to,
           page: params.page,
@@ -49,6 +51,7 @@ export function useAuditEvents(params: AuditEventsParams) {
           id: String(event.eventId ?? event.id ?? index),
           eventId: String(event.eventId ?? event.id ?? index),
           actor: String(event.userId ?? event.actor ?? 'System'),
+          actorType: String(event.actorType ?? 'user'),
           actorRole: String(event.actorRole ?? event.role ?? 'N/A'),
           action: String(event.action ?? event.eventType ?? 'event'),
           module: String(event.module ?? resource.type ?? 'general'),
@@ -56,6 +59,8 @@ export function useAuditEvents(params: AuditEventsParams) {
           targetId: String(resource.id ?? event.targetId ?? 'N/A'),
           institution: String(event.organizationId ?? event.institution ?? 'N/A'),
           state: String(event.state ?? 'N/A'),
+          outcome: String(event.outcome ?? 'N/A'),
+          summary: String(event.summary ?? event.metadataSummary ?? ''),
           timestamp: String(event.createdAt ?? event.timestamp ?? new Date().toISOString()),
         } as AuditEventRow;
       });

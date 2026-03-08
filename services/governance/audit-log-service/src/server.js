@@ -10,11 +10,14 @@ const dbName = process.env.DB_NAME || 'nhrs_audit_db';
 const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const flushIntervalMs = Number(process.env.AUDIT_FLUSH_INTERVAL_MS) || 1000;
 const flushBatchSize = Number(process.env.AUDIT_FLUSH_BATCH_SIZE) || 200;
+const reconnectIntervalMs = Number(process.env.AUDIT_RECONNECT_INTERVAL_MS) || 15000;
 
 let dbReady = false;
 let mongoClient;
 let db;
 let flushTimer = null;
+let reconnectTimer = null;
+let connectionInProgress = false;
 const pendingEvents = [];
 const processedEventIds = new Map();
 
@@ -33,7 +36,14 @@ function parseBearerToken(req) {
 
 function isAdminTokenPayload(payload) {
   const roles = Array.isArray(payload?.roles) ? payload.roles : [];
-  return roles.includes('admin') || roles.includes('platform_admin') || roles.includes('auditor');
+  return (
+    roles.includes('admin') ||
+    roles.includes('platform_admin') ||
+    roles.includes('auditor') ||
+    roles.includes('superadmin') ||
+    roles.includes('super_admin') ||
+    roles.includes('app_admin')
+  );
 }
 
 async function requireAdmin(req, reply) {
@@ -102,9 +112,22 @@ function enqueueEvents(events) {
 }
 
 const connectToMongo = async () => {
+  if (connectionInProgress || dbReady) {
+    return;
+  }
+
   if (!mongoUri) {
     fastify.log.warn('MONGODB_URI not set; audit-log-service running without persistence');
     return;
+  }
+
+  connectionInProgress = true;
+  if (mongoClient) {
+    try {
+      await mongoClient.close();
+    } catch {
+      // ignore close errors during reconnect
+    }
   }
 
   mongoClient = new MongoClient(mongoUri, {
@@ -133,7 +156,11 @@ const connectToMongo = async () => {
 
     fastify.log.info({ dbName }, 'MongoDB connection established');
   } catch (err) {
+    dbReady = false;
+    db = null;
     fastify.log.warn({ err }, 'MongoDB connection failed; continuing without database connection');
+  } finally {
+    connectionInProgress = false;
   }
 };
 
@@ -163,13 +190,21 @@ fastify.post('/internal/audit/events', async (req, reply) => {
 });
 
 fastify.get('/audit/events', { preHandler: requireAdmin }, async (req, reply) => {
-  if (!dbReady) {
-    return reply.code(503).send({ message: 'Audit storage unavailable' });
-  }
-
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const page = Math.max(Number(req.query.page) || 1, 1);
   const skip = (page - 1) * limit;
+
+  if (!dbReady) {
+    const items = [...pendingEvents].slice(-limit).reverse();
+    return reply.send({
+      page,
+      limit,
+      total: pendingEvents.length,
+      items,
+      fallback: true,
+      message: 'Audit storage unavailable; returning buffered events only',
+    });
+  }
 
   const filter = {};
   if (req.query.userId) filter.userId = String(req.query.userId);
@@ -196,7 +231,11 @@ fastify.get('/audit/events', { preHandler: requireAdmin }, async (req, reply) =>
 
 fastify.get('/audit/events/:eventId', { preHandler: requireAdmin }, async (req, reply) => {
   if (!dbReady) {
-    return reply.code(503).send({ message: 'Audit storage unavailable' });
+    const event = pendingEvents.find((entry) => String(entry.eventId) === String(req.params.eventId));
+    if (!event) {
+      return reply.code(404).send({ message: 'Audit event not found' });
+    }
+    return reply.send({ ...event, fallback: true });
   }
 
   const { eventId } = req.params;
@@ -218,6 +257,11 @@ const start = async () => {
     flushTimer = setInterval(() => {
       void flushEvents();
     }, flushIntervalMs);
+    reconnectTimer = setInterval(() => {
+      if (!dbReady) {
+        void connectToMongo();
+      }
+    }, reconnectIntervalMs);
     await fastify.listen({ port, host: '0.0.0.0' });
   } catch (err) {
     fastify.log.error(err);
@@ -229,6 +273,9 @@ const shutdown = async () => {
   try {
     if (flushTimer) {
       clearInterval(flushTimer);
+    }
+    if (reconnectTimer) {
+      clearInterval(reconnectTimer);
     }
     await flushEvents();
     if (mongoClient) {

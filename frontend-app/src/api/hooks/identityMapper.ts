@@ -1,4 +1,4 @@
-import type { AppContext, IdentityResponse, UserProfile } from '@/types/auth';
+import type { AppContext, IdentityResponse, ThemeScopeType, UserProfile } from '@/types/auth';
 
 function normalizePermissionList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -12,6 +12,79 @@ function normalizePermissionList(value: unknown): string[] {
       return '';
     })
     .filter(Boolean);
+}
+
+function normalizeRoleList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') return entry;
+      if (entry && typeof entry === 'object') {
+        const obj = entry as Record<string, unknown>;
+        return String(obj.roleKey ?? obj.role ?? obj.name ?? obj.key ?? '');
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function collectRoles(source: Record<string, unknown>, rawUser: Record<string, unknown>): string[] {
+  const rbacSummary =
+    source.rbacSummary && typeof source.rbacSummary === 'object'
+      ? (source.rbacSummary as Record<string, unknown>)
+      : null;
+  const appRolesFromRbac = normalizeRoleList(rbacSummary?.appRoles);
+  const orgRolesFromRbac = Array.isArray(rbacSummary?.orgRoles)
+    ? (rbacSummary?.orgRoles as Array<Record<string, unknown>>).flatMap((entry) =>
+        normalizeRoleList(entry.roles ?? entry.roleKeys),
+      )
+    : [];
+
+  const merged = new Set<string>([
+    ...normalizeRoleList(source.roles),
+    ...normalizeRoleList(rawUser.roles),
+    ...normalizeRoleList(rawUser.appRoles),
+    ...normalizeRoleList(rawUser.roleKeys),
+    ...appRolesFromRbac,
+    ...orgRolesFromRbac,
+  ]);
+
+  return Array.from(merged);
+}
+
+function isSuperRole(role: string): boolean {
+  return ['superadmin', 'super_admin', 'platform_admin', 'app_admin', 'admin'].includes(role.toLowerCase());
+}
+
+function ensureAppLevelContexts(contexts: AppContext[], isSuperAdmin: boolean): AppContext[] {
+  const byId = new Map(contexts.map((ctx) => [ctx.id, ctx] as const));
+  const citizen: AppContext = byId.get('app:citizen') ?? {
+    id: 'app:citizen',
+    type: 'platform',
+    name: 'Citizen',
+    subtitle: 'App Level',
+    themeScopeType: 'platform',
+    themeScopeId: null,
+    permissions: [],
+  };
+
+  if (isSuperAdmin) {
+    const superContext: AppContext = byId.get('app:super') ?? {
+      id: 'app:super',
+      type: 'platform',
+      name: 'Super',
+      subtitle: 'App Level',
+      themeScopeType: 'platform',
+      themeScopeId: null,
+      permissions: ['*'],
+    };
+
+    const withoutSynthetic = contexts.filter((ctx) => ctx.id !== 'app:super' && ctx.id !== 'app:citizen');
+    return [superContext, citizen, ...withoutSynthetic];
+  }
+
+  const withoutSynthetic = contexts.filter((ctx) => ctx.id !== 'app:super' && ctx.id !== 'app:citizen');
+  return [citizen, ...withoutSynthetic];
 }
 
 function collectPermissions(source: Record<string, unknown>, defaultContextId: string | undefined, availableContexts: AppContext[]): string[] {
@@ -62,11 +135,8 @@ export function toUserProfile(payload: Record<string, unknown>): UserProfile {
     fullName: fullNameFromParts || fallbackName || 'User',
     email: String(rawUser.email ?? ''),
     phone: rawUser.phone ? String(rawUser.phone) : undefined,
-    roles: Array.isArray(payload.roles)
-      ? payload.roles.map((role) => String(role))
-      : Array.isArray(rawUser.roles)
-        ? rawUser.roles.map((role) => String(role))
-        : [],
+    roles: collectRoles(payload, rawUser),
+    requiresPasswordChange: Boolean(rawUser.requiresPasswordChange ?? payload.requiresPasswordChange),
   };
 }
 
@@ -76,15 +146,21 @@ export function toContexts(payload: Record<string, unknown>): AppContext[] {
 
   return contextsRaw.map((item, index) => {
     const context = item as Record<string, unknown>;
+    const type = String(context.type ?? context.scopeType ?? 'public') as AppContext['type'];
+    const themeScopeType = String(context.themeScopeType ?? (type === 'public' ? 'platform' : type)) as ThemeScopeType;
+    const organizationId = context.organizationId ? String(context.organizationId) : (type === 'organization' ? String(context.id ?? context.contextId ?? '') : undefined);
+    const branchId = context.branchId ? String(context.branchId) : undefined;
     return {
       id: String(context.id ?? context.contextId ?? `ctx-${index}`),
-      type: String(context.type ?? context.scopeType ?? 'platform') as AppContext['type'],
+      type,
       name: String(context.name ?? context.label ?? 'Context'),
       subtitle: context.subtitle ? String(context.subtitle) : undefined,
       logoUrl: context.logoUrl ? String(context.logoUrl) : undefined,
-      themeScopeType: String(context.themeScopeType ?? context.type ?? 'platform') as AppContext['themeScopeType'],
+      themeScopeType,
       themeScopeId: context.themeScopeId ? String(context.themeScopeId) : null,
       permissions: normalizePermissionList(context.permissions),
+      organizationId,
+      branchId,
     };
   });
 }
@@ -92,24 +168,23 @@ export function toContexts(payload: Record<string, unknown>): AppContext[] {
 export function toIdentityResponse(payload: unknown): IdentityResponse {
   const source = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
   const user = toUserProfile(source);
-  const availableContexts = toContexts(source);
+  const roles = user.roles;
+  const rawContexts = toContexts(source);
   const defaultContextObj =
     source.defaultContext && typeof source.defaultContext === 'object'
       ? (source.defaultContext as Record<string, unknown>)
       : null;
+  const isGlobalAdmin = roles.some(isSuperRole);
+  const availableContexts = ensureAppLevelContexts(rawContexts, isGlobalAdmin);
   const defaultContextId =
     source.defaultContextId
       ? String(source.defaultContextId)
       : defaultContextObj?.id
         ? String(defaultContextObj.id)
-        : availableContexts[0]?.id;
-  const roles = user.roles;
-  const isGlobalAdmin = roles.some((role) =>
-    ['superadmin', 'super_admin', 'platform_admin', 'app_admin', 'admin'].includes(role.toLowerCase()),
-  );
+        : (isGlobalAdmin ? 'app:super' : 'app:citizen');
   const permissions = isGlobalAdmin
     ? ['*']
-    : collectPermissions(source, defaultContextId, availableContexts);
+    : collectPermissions(source, defaultContextId, rawContexts);
 
   return {
     user,

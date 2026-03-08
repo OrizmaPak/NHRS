@@ -26,6 +26,8 @@ export function EncountersListPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
+  const encounterTypes = ['', 'outpatient', 'inpatient', 'emergency'];
+  const statusOptions = ['', 'draft', 'in_progress', 'finalized'];
 
   const finalizeEncounter = useFinalizeEncounter();
   const query = useEncounters(nin, {
@@ -110,10 +112,30 @@ export function EncountersListPage() {
           <SearchInput value={search} onChange={setSearch} placeholder="Patient, NIN, diagnosis" />
         </div>
         <div className="w-full md:max-w-[160px]">
-          <Input value={encounterType} onChange={(e) => setEncounterType(e.target.value)} placeholder="Encounter type" />
+          <select
+            value={encounterType}
+            onChange={(e) => setEncounterType(e.target.value)}
+            className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+          >
+            {encounterTypes.map((type) => (
+              <option key={type || 'all'} value={type}>
+                {type || 'All types'}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="w-full md:max-w-[150px]">
-          <Input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="Status" />
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+          >
+            {statusOptions.map((value) => (
+              <option key={value || 'all'} value={value}>
+                {value || 'All statuses'}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="w-full md:max-w-[180px]">
           <Input value={clinician} onChange={(e) => setClinician(e.target.value)} placeholder="Clinician" />

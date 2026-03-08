@@ -29,8 +29,8 @@ export function AppShell() {
   }, [setCommandPaletteOpen]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="flex min-h-screen">
+    <div className="h-screen overflow-hidden bg-background text-foreground">
+      <div className="flex h-full">
         <Sidebar />
         {sidebarOpen ? (
           <button
@@ -40,9 +40,9 @@ export function AppShell() {
             onClick={() => setSidebarOpen(false)}
           />
         ) : null}
-        <div className="flex min-w-0 flex-1 flex-col lg:pl-0">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden lg:pl-0">
           <Topbar />
-          <main className="flex-1 px-4 py-6 lg:px-8">
+          <main className="flex-1 overflow-y-auto px-4 py-6 lg:px-8">
             <Outlet />
           </main>
         </div>

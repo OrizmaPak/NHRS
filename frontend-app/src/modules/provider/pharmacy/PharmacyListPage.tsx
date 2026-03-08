@@ -26,6 +26,7 @@ export function PharmacyListPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
+  const statusOptions = ['', 'prescribed', 'partially_dispensed', 'dispensed', 'cancelled'];
 
   const query = usePharmacyRecords(nin, {
     page: pagination.pageIndex + 1,
@@ -61,7 +62,7 @@ export function PharmacyListPage() {
               View
             </Button>
             <PermissionGate permission="pharmacy.update">
-              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/pharmacy/${row.original.id}?mode=edit`)}>
+              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/pharmacy/${row.original.id}/edit`)}>
                 Edit/Dispense
               </Button>
             </PermissionGate>
@@ -101,7 +102,17 @@ export function PharmacyListPage() {
           <Input value={medication} onChange={(e) => setMedication(e.target.value)} placeholder="Medication" />
         </div>
         <div className="w-full md:max-w-[150px]">
-          <Input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="Status" />
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+          >
+            {statusOptions.map((value) => (
+              <option key={value || 'all'} value={value}>
+                {value || 'All statuses'}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="w-full md:max-w-[180px]">
           <Input value={prescriber} onChange={(e) => setPrescriber(e.target.value)} placeholder="Prescriber" />

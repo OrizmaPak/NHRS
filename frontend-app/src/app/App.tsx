@@ -1,6 +1,7 @@
 import { RouterProvider } from 'react-router-dom';
 import { appRouter } from '@/routes/router';
 import { Spinner } from '@/components/feedback/Spinner';
+import { AppErrorBoundary } from '@/components/feedback/AppErrorBoundary';
 import { useAppBootstrap } from '@/hooks/useAppBootstrap';
 
 export function App() {
@@ -17,5 +18,9 @@ export function App() {
     );
   }
 
-  return <RouterProvider router={appRouter} />;
+  return (
+    <AppErrorBoundary>
+      <RouterProvider router={appRouter} />
+    </AppErrorBoundary>
+  );
 }

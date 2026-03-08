@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Command } from 'cmdk';
 import { navigationItems } from '@/routes/navigation';
 import { usePermissionsStore } from '@/stores/permissionsStore';
+import { useContextStore } from '@/stores/contextStore';
 import { useUIStore } from '@/stores/uiStore';
 
 export function CommandPalette() {
@@ -11,8 +12,15 @@ export function CommandPalette() {
   const open = useUIStore((state) => state.commandPaletteOpen);
   const setOpen = useUIStore((state) => state.setCommandPaletteOpen);
   const hasPermission = usePermissionsStore((state) => state.hasPermission);
+  const hasAny = usePermissionsStore((state) => state.hasAny);
+  const _permissionsVersion = usePermissionsStore((state) => state.version);
+  void _permissionsVersion;
+  const activeContext = useContextStore((state) => state.activeContext);
 
-  const items = navigationItems.filter((item) => !item.permission || hasPermission(item.permission));
+  const items = (activeContext?.id === 'app:citizen' ? [] : navigationItems).filter((item) => {
+    if (!item.permission) return true;
+    return Array.isArray(item.permission) ? hasAny(item.permission) : hasPermission(item.permission);
+  });
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>

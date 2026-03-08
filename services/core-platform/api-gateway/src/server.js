@@ -178,7 +178,13 @@ function getTokenIdentity(req) {
 
 function rateLimitPolicy(req) {
   const routePath = req.routeOptions?.url || req.url.split('?')[0];
-  if (routePath.startsWith('/auth/')) {
+  const strictAuthRoutes = new Set([
+    '/auth/login',
+    '/auth/password/forgot',
+    '/auth/password/reset',
+    '/auth/token/refresh',
+  ]);
+  if (strictAuthRoutes.has(routePath)) {
     return [{ key: `ip:${getClientIp(req)}:auth`, max: 10, windowSec: 60 }];
   }
   if (routePath === '/emergency/requests' && req.method === 'POST') {

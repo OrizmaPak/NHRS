@@ -88,10 +88,10 @@ export function CaseDetailsPage() {
         breadcrumbs={[{ label: 'Taskforce' }, { label: 'Cases', href: '/app/taskforce/cases' }, { label: id }]}
         actions={
           <div className="flex items-center gap-2">
-            <PermissionGate permission="cases.assign">
+            <PermissionGate permission="governance.case.update_status">
               <Button variant="outline" onClick={() => setAssignmentOpen(true)}>Assign</Button>
             </PermissionGate>
-            <PermissionGate permission="cases.escalate">
+            <PermissionGate permission="governance.case.escalate">
               <Button variant="outline" onClick={() => setEscalateOpen(true)}>Escalate</Button>
             </PermissionGate>
           </div>

@@ -1,6 +1,6 @@
 import { Command, PanelLeft } from 'lucide-react';
 import { ContextSwitcher } from '@/components/navigation/ContextSwitcher';
-import { NotificationMenu } from '@/components/navigation/NotificationMenu';
+import { NotificationBell } from '@/components/navigation/NotificationBell';
 import { ProfileMenu } from '@/components/navigation/ProfileMenu';
 import { Button } from '@/components/ui/Button';
 import { useUIStore } from '@/stores/uiStore';
@@ -21,7 +21,7 @@ export function Topbar() {
             <Command className="h-4 w-4" />
             Command Palette
           </Button>
-          <NotificationMenu />
+          <NotificationBell />
           <ProfileMenu />
         </div>
       </div>

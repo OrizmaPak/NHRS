@@ -15,6 +15,7 @@ export function useAssignComplaint() {
   return useMutation({
     mutationFn: async (payload: AssignPayload) =>
       apiClient.patch(endpoints.taskforce.assignComplaint(payload.complaintId), {
+        status: 'in_review',
         assignedOfficer: payload.assigneeId,
         dueDate: payload.dueDate,
         priority: payload.priority,

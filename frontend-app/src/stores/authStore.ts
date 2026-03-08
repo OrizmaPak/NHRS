@@ -96,7 +96,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       get().setSession({
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
-        user: response.user ?? null,
+        user: response.user
+          ? {
+              ...response.user,
+              requiresPasswordChange:
+                response.user.requiresPasswordChange ?? Boolean(response.requiresPasswordChange),
+            }
+          : null,
       });
     } catch (error) {
       set({ error: error instanceof Error ? error.message : 'Login failed' });
@@ -140,7 +146,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: async () => {
     try {
       if (get().isAuthenticated) {
-        await apiClient.post(endpoints.auth.logout, {});
+        const refreshToken = get().refreshToken ?? getRefreshToken();
+        await apiClient.post(endpoints.auth.logout, { refreshToken });
       }
     } catch {
       // noop: always clear local session

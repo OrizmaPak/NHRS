@@ -17,6 +17,45 @@ const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const fileDocumentApiBaseUrl = process.env.FILE_DOCUMENT_API_BASE_URL || 'http://file-document-service:8102';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
 const maxLogoBytes = Number(process.env.UI_THEME_MAX_LOGO_BYTES) || 3 * 1024 * 1024;
+const reconnectIntervalMs = Number(process.env.UI_THEME_RECONNECT_INTERVAL_MS) || 15000;
+
+const fallbackPlatformTheme = {
+  id: 'platform-fallback',
+  scope_type: 'platform',
+  scope_id: null,
+  parent_theme_id: null,
+  version: 1,
+  theme_tokens: {
+    colors: {
+      primary: '#0B5FFF',
+      secondary: '#1F2937',
+      accent: '#0EA5E9',
+      background: '#F8FAFC',
+      surface: '#FFFFFF',
+      text: '#0F172A',
+      muted: '#64748B',
+      border: '#E2E8F0',
+      success: '#16A34A',
+      warning: '#D97706',
+      danger: '#DC2626',
+    },
+    typography: {
+      fontFamily: '"Sora", "Inter", sans-serif',
+      headingFontFamily: '"Sora", "Inter", sans-serif',
+      baseFontSize: 16,
+      lineHeight: 1.5,
+    },
+    radius: { sm: 8, md: 12, lg: 16 },
+    logo: {},
+    ui: { sidebarStyle: 'default', topbarStyle: 'default' },
+  },
+  accessibility_defaults: {
+    highContrastDefault: false,
+    reduceMotionDefault: false,
+    dyslexiaFontDefault: false,
+    fontScaleDefault: 1,
+  },
+};
 
 function nowIso() {
   return new Date().toISOString();
@@ -257,11 +296,13 @@ function createApp(options = {}) {
 
   const state = {
     dbReady: false,
+    connecting: false,
     db: options.db || null,
     repository: options.db ? buildRepository(options.db) : null,
     mongoClient: null,
     fetchClient: options.fetchImpl || ((...args) => fetch(...args)),
     injectedDb: Boolean(options.db),
+    reconnectTimer: null,
   };
 
   if (Object.prototype.hasOwnProperty.call(options, 'dbReady')) {
@@ -324,8 +365,10 @@ function createApp(options = {}) {
   }
 
   fastify.addHook('onRequest', async (req, reply) => {
-    if (req.url === '/health') return;
+    const routePath = req.url.split('?')[0];
+    if (routePath === '/health') return;
     if (!state.dbReady) {
+      if (routePath === '/ui/theme/effective' || routePath === '/ui/theme/platform') return;
       return reply.code(503).send({ message: 'UI theme storage unavailable' });
     }
   });
@@ -358,9 +401,24 @@ function createApp(options = {}) {
       },
     },
   }, async (req, reply) => {
+    if (!state.dbReady || !state.repository) {
+      const resolvedFallback = resolveTheme({ platformTheme: fallbackPlatformTheme, parentThemes: [], tenantTheme: null });
+      return sendWithEtag(req, reply, {
+        scope_type: 'platform',
+        scope_id: null,
+        fallback: true,
+        theme: resolvedFallback,
+      }, resolvedFallback.sources);
+    }
     const platformTheme = await state.repository.findScopeTheme('platform', null);
     if (!platformTheme) {
-      return reply.code(404).send({ message: 'Platform theme not configured' });
+      const resolvedFallback = resolveTheme({ platformTheme: fallbackPlatformTheme, parentThemes: [], tenantTheme: null });
+      return sendWithEtag(req, reply, {
+        scope_type: 'platform',
+        scope_id: null,
+        fallback: true,
+        theme: resolvedFallback,
+      }, resolvedFallback.sources);
     }
     const resolved = resolveTheme({ platformTheme, parentThemes: [], tenantTheme: null });
     return sendWithEtag(req, reply, {
@@ -395,9 +453,27 @@ function createApp(options = {}) {
       return reply.code(400).send({ message: 'scope_id is required for non-platform scope_type' });
     }
 
+    if (!state.dbReady || !state.repository) {
+      const resolvedFallback = resolveTheme({ platformTheme: fallbackPlatformTheme, parentThemes: [], tenantTheme: null });
+      return sendWithEtag(req, reply, {
+        scope_type: scopeType,
+        scope_id: scopeType === 'platform' ? null : scopeId,
+        inheritedOnly: scopeType !== 'platform',
+        fallback: true,
+        theme: resolvedFallback,
+      }, resolvedFallback.sources);
+    }
+
     const platformTheme = await state.repository.findScopeTheme('platform', null);
     if (!platformTheme) {
-      return reply.code(404).send({ message: 'Platform theme not configured' });
+      const resolvedFallback = resolveTheme({ platformTheme: fallbackPlatformTheme, parentThemes: [], tenantTheme: null });
+      return sendWithEtag(req, reply, {
+        scope_type: scopeType,
+        scope_id: scopeType === 'platform' ? null : scopeId,
+        inheritedOnly: scopeType !== 'platform',
+        fallback: true,
+        theme: resolvedFallback,
+      }, resolvedFallback.sources);
     }
 
     if (scopeType === 'platform') {
@@ -627,6 +703,8 @@ function createApp(options = {}) {
       fastify.log.warn('Missing MONGODB_URI; ui-theme-service running in degraded mode');
       return;
     }
+    if (state.connecting) return;
+    state.connecting = true;
     try {
       const client = new MongoClient(mongoUri, {
         serverApi: {
@@ -643,12 +721,19 @@ function createApp(options = {}) {
       state.repository = buildRepository(db);
       state.dbReady = true;
       await state.repository.createIndexes();
+      fastify.log.info({ dbName }, 'UI theme service connected to MongoDB');
     } catch (err) {
       fastify.log.warn({ err }, 'MongoDB connection failed');
+    } finally {
+      state.connecting = false;
     }
   }
 
   async function closeService() {
+    if (state.reconnectTimer) {
+      clearInterval(state.reconnectTimer);
+      state.reconnectTimer = null;
+    }
     if (state.mongoClient) {
       await state.mongoClient.close();
     }
@@ -658,6 +743,13 @@ function createApp(options = {}) {
   fastify.decorate('connect', connect);
   fastify.decorate('closeService', closeService);
   fastify.decorate('repository', state.repository);
+  if (!state.injectedDb) {
+    state.reconnectTimer = setInterval(() => {
+      if (!state.dbReady) {
+        void connect();
+      }
+    }, reconnectIntervalMs);
+  }
   setStandardErrorHandler(fastify);
   return fastify;
 }

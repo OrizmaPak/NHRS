@@ -11,11 +11,14 @@ import { StatusBadge } from '@/components/feedback/StatusBadge';
 import { LoadingSkeleton } from '@/components/feedback/LoadingSkeleton';
 import { ErrorState } from '@/components/feedback/ErrorState';
 import { PermissionGate } from '@/components/navigation/PermissionGate';
+import { Timeline } from '@/components/data/Timeline';
+import { TimelineItem } from '@/components/data/TimelineItem';
 import { usePatientProfile } from '@/api/hooks/usePatientProfile';
 import { useEncounters, type EncounterRow } from '@/api/hooks/useEncounters';
 import { useLabs, type LabRow } from '@/api/hooks/useLabs';
 import { usePharmacyRecords, type PharmacyRow } from '@/api/hooks/usePharmacyRecords';
 import { usePatientHistory } from '@/api/hooks/usePatientHistory';
+import { exportRowsToCsv, exportRowsToExcelLike } from '@/lib/export';
 
 export function PatientProfilePage() {
   const navigate = useNavigate();
@@ -51,7 +54,7 @@ export function PatientProfilePage() {
               View
             </Button>
             <PermissionGate permission="encounters.update">
-              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/encounters/${row.original.id}?mode=edit`)}>
+              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/encounters/${row.original.id}/edit`)}>
                 Edit
               </Button>
             </PermissionGate>
@@ -82,7 +85,7 @@ export function PatientProfilePage() {
               View
             </Button>
             <PermissionGate permission="labs.update">
-              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/labs/${row.original.id}?mode=edit`)}>
+              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/labs/${row.original.id}/edit`)}>
                 Result
               </Button>
             </PermissionGate>
@@ -113,7 +116,7 @@ export function PatientProfilePage() {
               View
             </Button>
             <PermissionGate permission="pharmacy.dispense">
-              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/pharmacy/${row.original.id}?mode=edit`)}>
+              <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/pharmacy/${row.original.id}/edit`)}>
                 Dispense
               </Button>
             </PermissionGate>
@@ -183,6 +186,18 @@ export function PatientProfilePage() {
                   <Link to={`/app/provider/patient/${nin}/pharmacy/new`}>New Prescription</Link>
                 </Button>
               </PermissionGate>
+              <Button
+                variant="outline"
+                onClick={() => exportRowsToCsv('patient-metrics', historyQuery.history as unknown as Array<Record<string, unknown>>)}
+              >
+                Export CSV
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => exportRowsToExcelLike('patient-metrics', historyQuery.history as unknown as Array<Record<string, unknown>>)}
+              >
+                Export Excel
+              </Button>
             </ActionBar>
           </div>
         </Card>
@@ -238,15 +253,38 @@ export function PatientProfilePage() {
           />
         </Tabs.Content>
         <Tabs.Content value="history">
-          <DataTable
-            columns={historyColumns}
-            data={historyQuery.history}
-            total={historyQuery.history.length}
-            loading={historyQuery.isLoading}
-            pagination={historyPagination}
-            onPaginationChange={setHistoryPagination}
-            pageCount={Math.max(1, Math.ceil((historyQuery.history.length || 0) / historyPagination.pageSize))}
-          />
+          <div className="space-y-4">
+            <Card>
+              <h3 className="text-base font-semibold text-foreground">Clinical Activity Timeline</h3>
+              <p className="mt-1 text-sm text-muted">Chronological stream merged from encounters, labs, and pharmacy events.</p>
+              <div className="mt-4">
+                <Timeline>
+                  {historyQuery.history.slice(0, 10).map((item) => (
+                    <TimelineItem
+                      key={`timeline-${item.id}`}
+                      title={`${item.type.toUpperCase()} - ${item.title}`}
+                      timestamp={item.date}
+                      badge={item.provider}
+                    >
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-foreground">{item.summary}</p>
+                        <StatusBadge status={item.status} />
+                      </div>
+                    </TimelineItem>
+                  ))}
+                </Timeline>
+              </div>
+            </Card>
+            <DataTable
+              columns={historyColumns}
+              data={historyQuery.history}
+              total={historyQuery.history.length}
+              loading={historyQuery.isLoading}
+              pagination={historyPagination}
+              onPaginationChange={setHistoryPagination}
+              pageCount={Math.max(1, Math.ceil((historyQuery.history.length || 0) / historyPagination.pageSize))}
+            />
+          </div>
         </Tabs.Content>
       </Tabs.Root>
     </div>

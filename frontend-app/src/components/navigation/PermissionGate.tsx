@@ -15,6 +15,8 @@ export function PermissionGate({
 }: PermissionGateProps) {
   const hasPermission = usePermissionsStore((state) => state.hasPermission);
   const hasAny = usePermissionsStore((state) => state.hasAny);
+  const _permissionsVersion = usePermissionsStore((state) => state.version);
+  void _permissionsVersion;
 
   const allowed = Array.isArray(permission)
     ? hasAny(permission)

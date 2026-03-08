@@ -5,14 +5,18 @@ import { usePermissionsStore } from '@/stores/permissionsStore';
 
 type ProtectedRouteProps = {
   requiredPermission?: string;
+  allowPasswordSetup?: boolean;
 };
 
-export function ProtectedRoute({ requiredPermission }: ProtectedRouteProps) {
+export function ProtectedRoute({ requiredPermission, allowPasswordSetup = false }: ProtectedRouteProps) {
   const location = useLocation();
   const initialized = useAuthStore((state) => state.initialized);
   const loading = useAuthStore((state) => state.loading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore((state) => state.user);
   const hasPermission = usePermissionsStore((state) => state.hasPermission);
+  const _permissionsVersion = usePermissionsStore((state) => state.version);
+  void _permissionsVersion;
 
   if (!initialized || loading) {
     return (
@@ -27,6 +31,10 @@ export function ProtectedRoute({ requiredPermission }: ProtectedRouteProps) {
 
   if (!isAuthenticated) {
     return <Navigate to="/auth/login" replace state={{ from: location }} />;
+  }
+
+  if (user?.requiresPasswordChange && !allowPasswordSetup) {
+    return <Navigate to="/auth/password/setup" replace />;
   }
 
   if (requiredPermission && !hasPermission(requiredPermission)) {

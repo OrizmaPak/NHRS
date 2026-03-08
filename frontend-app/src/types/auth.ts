@@ -1,4 +1,5 @@
-export type ScopeType = 'platform' | 'organization' | 'state' | 'taskforce';
+export type ScopeType = 'public' | 'platform' | 'organization' | 'state' | 'taskforce';
+export type ThemeScopeType = 'platform' | 'organization' | 'state' | 'taskforce';
 
 export type AppContext = {
   id: string;
@@ -6,9 +7,11 @@ export type AppContext = {
   name: string;
   subtitle?: string;
   logoUrl?: string;
-  themeScopeType: ScopeType;
+  themeScopeType: ThemeScopeType;
   themeScopeId: string | null;
   permissions: string[];
+  organizationId?: string;
+  branchId?: string;
 };
 
 export type UserProfile = {
@@ -19,6 +22,7 @@ export type UserProfile = {
   email: string;
   phone?: string;
   roles: string[];
+  requiresPasswordChange?: boolean;
 };
 
 export type IdentityResponse = {
@@ -41,6 +45,7 @@ export type LoginResponse = {
   accessToken: string;
   refreshToken: string;
   user?: UserProfile;
+  requiresPasswordChange?: boolean;
 };
 
 export type RefreshResponse = {

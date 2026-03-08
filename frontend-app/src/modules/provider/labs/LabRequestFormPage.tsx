@@ -30,6 +30,9 @@ const schema = z.object({
 
 type Values = z.infer<typeof schema>;
 
+const testCategories = ['hematology', 'chemistry', 'microbiology', 'immunology', 'radiology', 'other'];
+const urgencyLevels = ['routine', 'urgent', 'stat'];
+
 export function LabRequestFormPage() {
   const navigate = useNavigate();
   const { nin: ninParam } = useParams();
@@ -115,7 +118,16 @@ export function LabRequestFormPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-foreground">Test Category</label>
-              <Input {...register('testCategory')} placeholder="hematology" />
+              <select
+                {...register('testCategory')}
+                className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+              >
+                {testCategories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
               {errors.testCategory ? <p className="text-xs text-danger">{errors.testCategory.message}</p> : null}
             </div>
             <div className="space-y-1">
@@ -125,7 +137,16 @@ export function LabRequestFormPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-foreground">Urgency</label>
-              <Input {...register('urgency')} placeholder="routine" />
+              <select
+                {...register('urgency')}
+                className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+              >
+                {urgencyLevels.map((urgency) => (
+                  <option key={urgency} value={urgency}>
+                    {urgency}
+                  </option>
+                ))}
+              </select>
               {errors.urgency ? <p className="text-xs text-danger">{errors.urgency.message}</p> : null}
             </div>
             <div className="space-y-1 md:col-span-2 xl:col-span-1">

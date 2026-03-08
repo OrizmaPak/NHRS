@@ -16,25 +16,26 @@ export function useComplaint(id: string) {
     enabled: Boolean(id),
     queryFn: async (): Promise<ComplaintDetail> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.taskforce.complaintById(id));
-      const location = (response.location as Record<string, unknown> | undefined) ?? {};
-      const notes = Array.isArray(response.notes) ? response.notes : [];
-      const actions = Array.isArray(response.actions) ? response.actions : [];
+      const root = response.case && typeof response.case === 'object' ? (response.case as Record<string, unknown>) : response;
+      const location = (root.location as Record<string, unknown> | undefined) ?? {};
+      const notes = Array.isArray(root.notes) ? root.notes : [];
+      const actions = Array.isArray(response.recentActions) ? response.recentActions : Array.isArray(root.actions) ? root.actions : [];
       return {
-        id: String(response.caseId ?? response.complaintId ?? response.id ?? id),
-        complaintId: String(response.caseId ?? response.complaintId ?? response.id ?? id),
-        complainant: String(response.complainant ?? response.createdByUserId ?? 'Anonymous'),
-        anonymous: Boolean(response.anonymous ?? false),
-        institution: String(response.institution ?? response.organizationId ?? 'N/A'),
-        provider: String(response.provider ?? response.providerUserId ?? 'N/A'),
-        state: String(location.state ?? response.state ?? 'N/A'),
-        lga: String(location.lga ?? response.lga ?? 'N/A'),
-        complaintType: String(response.caseType ?? response.complaintType ?? 'GENERAL'),
-        priority: String(response.urgency ?? response.priority ?? 'medium'),
-        status: String(response.status ?? 'open'),
-        createdAt: String(response.createdAt ?? new Date().toISOString()),
-        assignedTo: String(response.assignedOfficer ?? response.assignedTo ?? 'Unassigned'),
-        linkedCaseId: response.linkedCaseId ? String(response.linkedCaseId) : undefined,
-        summary: String(response.description ?? response.subject ?? 'No complaint summary available.'),
+        id: String(root.caseId ?? root.complaintId ?? root.id ?? id),
+        complaintId: String(root.caseId ?? root.complaintId ?? root.id ?? id),
+        complainant: String(root.complainant ?? root.createdByUserId ?? 'Anonymous'),
+        anonymous: Boolean(root.anonymous ?? false),
+        institution: String(root.institution ?? root.organizationId ?? 'N/A'),
+        provider: String(root.provider ?? root.providerUserId ?? 'N/A'),
+        state: String(location.state ?? root.state ?? 'N/A'),
+        lga: String(location.lga ?? root.lga ?? 'N/A'),
+        complaintType: String(root.caseType ?? root.complaintType ?? 'GENERAL'),
+        priority: String(root.urgency ?? root.priority ?? 'medium'),
+        status: String(root.status ?? 'open'),
+        createdAt: String(root.createdAt ?? new Date().toISOString()),
+        assignedTo: String(root.assignedOfficer ?? root.assignedTo ?? 'Unassigned'),
+        linkedCaseId: root.linkedCaseId ? String(root.linkedCaseId) : undefined,
+        summary: String(root.description ?? root.subject ?? 'No complaint summary available.'),
         notes: notes.map((note, index) => {
           const item = note as Record<string, unknown>;
           return {

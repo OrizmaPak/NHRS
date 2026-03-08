@@ -1,0 +1,2316 @@
+{
+  "timestamp": "2026-03-08T06:34:56.550Z",
+  "counts": {
+    "openapiPaths": 104,
+    "frontendEndpointDefs": 103,
+    "frontendUsedEndpointKeys": 96,
+    "usedResolved": 96,
+    "usedNotInOpenapi": 52,
+    "usedMissingDefinition": 0,
+    "definedNotUsed": 7,
+    "openapiPathsNotUsedByFrontend": 72,
+    "unresolvedApiClientCalls": 0
+  },
+  "usedResolved": [
+    {
+      "key": "admin.institutions",
+      "path": "/admin/institutions",
+      "normalizedPath": "/admin/institutions",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useInstitutions.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "admin.roleById",
+      "path": "/admin/roles/__ARG1__",
+      "normalizedPath": "/admin/roles/{param}",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAdminRoles.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "admin.roles",
+      "path": "/admin/roles",
+      "normalizedPath": "/admin/roles",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAdminRoles.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "admin.userById",
+      "path": "/admin/users/__ARG1__",
+      "normalizedPath": "/admin/users/{param}",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAdminUsers.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "admin.users",
+      "path": "/admin/users",
+      "normalizedPath": "/admin/users",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAdminUsers.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "alerts.list",
+      "path": "/alerts",
+      "normalizedPath": "/alerts",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAlerts.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "analytics.dashboard",
+      "path": "/analytics/dashboard",
+      "normalizedPath": "/analytics/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAnalyticsDashboard.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "analytics.metrics",
+      "path": "/analytics/metrics",
+      "normalizedPath": "/analytics/metrics",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useHealthMetrics.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "auth.login",
+      "path": "/auth/login",
+      "normalizedPath": "/auth/login",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\stores\\authStore.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "auth.logout",
+      "path": "/auth/logout",
+      "normalizedPath": "/auth/logout",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\stores\\authStore.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "auth.meFallback",
+      "path": "/auth/me",
+      "normalizedPath": "/auth/me",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useMe.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "auth.refresh",
+      "path": "/auth/token/refresh",
+      "normalizedPath": "/auth/token/refresh",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\stores\\authStore.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "compliance.dataQuality",
+      "path": "/compliance/data-quality",
+      "normalizedPath": "/compliance/data-quality",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useComplianceIssues.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "compliance.summary",
+      "path": "/compliance/summary",
+      "normalizedPath": "/compliance/summary",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useComplianceSummary.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "doctorRegistry.profile",
+      "path": "/doctors/__ARG1__",
+      "normalizedPath": "/doctors/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\modules\\public\\doctor-registry\\DoctorProfilePage.tsx"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "doctorRegistry.search",
+      "path": "/doctors/search",
+      "normalizedPath": "/doctors/search",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useDoctorSearch.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "emergency.caseById",
+      "path": "/emergency/requests/__ARG1__",
+      "normalizedPath": "/emergency/requests/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEmergencyCases.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "emergency.caseResponses",
+      "path": "/emergency/requests/__ARG1__/responses",
+      "normalizedPath": "/emergency/requests/{param}/responses",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEmergencyCases.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "emergency.caseRoom",
+      "path": "/emergency/requests/__ARG1__/room",
+      "normalizedPath": "/emergency/requests/{param}/room",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEmergencyCases.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "emergency.inventorySearch",
+      "path": "/emergency/inventory/search",
+      "normalizedPath": "/emergency/inventory/search",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEmergencyInventory.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "emergency.requests",
+      "path": "/emergency/requests",
+      "normalizedPath": "/emergency/requests",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEmergencyCases.ts",
+        "frontend-app\\src\\api\\hooks\\useEmergencyInventory.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "emergency.roomMessages",
+      "path": "/emergency/rooms/__ARG1__/messages",
+      "normalizedPath": "/emergency/rooms/{param}/messages",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEmergencyCases.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "emergency.updateStatus",
+      "path": "/emergency/requests/__ARG1__/status",
+      "normalizedPath": "/emergency/requests/{param}/status",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEmergencyCases.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "governance.auditEvents",
+      "path": "/audit/events",
+      "normalizedPath": "/audit/events",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAuditEvents.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "governance.oversight",
+      "path": "/cases",
+      "normalizedPath": "/cases",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useOversightSummary.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "identity.contexts",
+      "path": "/me/contexts",
+      "normalizedPath": "/me/contexts",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useContexts.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "identity.me",
+      "path": "/auth/me",
+      "normalizedPath": "/auth/me",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useContexts.ts",
+        "frontend-app\\src\\api\\hooks\\useMe.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "identity.switchContext",
+      "path": "/me/context/switch",
+      "normalizedPath": "/me/context/switch",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSwitchContext.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "institution.dashboard",
+      "path": "/institution/dashboard",
+      "normalizedPath": "/institution/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useInstitutionDashboard.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.apiKeys",
+      "path": "/integrations/api-keys",
+      "normalizedPath": "/integrations/api-keys",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useApiKeys.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.byId",
+      "path": "/integrations/__ARG1__",
+      "normalizedPath": "/integrations/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useIntegrations.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.disable",
+      "path": "/integrations/__ARG1__/disable",
+      "normalizedPath": "/integrations/{param}/disable",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useIntegrations.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.list",
+      "path": "/integrations",
+      "normalizedPath": "/integrations",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useIntegrations.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.revokeApiKey",
+      "path": "/integrations/api-keys/__ARG1__/revoke",
+      "normalizedPath": "/integrations/api-keys/{param}/revoke",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useApiKeys.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.rotateApiKey",
+      "path": "/integrations/api-keys/__ARG1__/rotate",
+      "normalizedPath": "/integrations/api-keys/{param}/rotate",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useApiKeys.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.syncEvents",
+      "path": "/integrations/sync",
+      "normalizedPath": "/integrations/sync",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSyncEvents.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.test",
+      "path": "/integrations/__ARG1__/test",
+      "normalizedPath": "/integrations/{param}/test",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useIntegrations.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "notifications.list",
+      "path": "/notifications",
+      "normalizedPath": "/notifications",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useNotifications.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "notifications.read",
+      "path": "/notifications/__ARG1__/read",
+      "normalizedPath": "/notifications/{param}/read",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useNotifications.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "notifications.readAll",
+      "path": "/notifications/read-all",
+      "normalizedPath": "/notifications/read-all",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useNotifications.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "provider.completeLabById",
+      "path": "/labs/results/id/__ARG1__/complete",
+      "normalizedPath": "/labs/results/id/{param}/complete",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCompleteLab.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "provider.createEncounterByNin",
+      "path": "/encounters/__ARG1__",
+      "normalizedPath": "/encounters/{param}",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCreateEncounter.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.createLabByNin",
+      "path": "/labs/__ARG1__/results",
+      "normalizedPath": "/labs/{param}/results",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCreateLabRequest.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.createPharmacyByNin",
+      "path": "/pharmacy/__ARG1__/dispenses",
+      "normalizedPath": "/pharmacy/{param}/dispenses",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCreatePrescription.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.dispensePharmacyById",
+      "path": "/pharmacy/dispenses/id/__ARG1__/dispense",
+      "normalizedPath": "/pharmacy/dispenses/id/{param}/dispense",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useDispensePrescription.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "provider.encounterById",
+      "path": "/encounters/id/__ARG1__",
+      "normalizedPath": "/encounters/id/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEncounter.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.encountersByNin",
+      "path": "/encounters/__ARG1__",
+      "normalizedPath": "/encounters/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEncounters.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.finalizeEncounterById",
+      "path": "/encounters/id/__ARG1__/finalize",
+      "normalizedPath": "/encounters/id/{param}/finalize",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useFinalizeEncounter.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "provider.labById",
+      "path": "/labs/results/id/__ARG1__",
+      "normalizedPath": "/labs/results/id/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useLab.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.labsByNin",
+      "path": "/labs/__ARG1__/results",
+      "normalizedPath": "/labs/{param}/results",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useLabs.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.patientProfileByNin",
+      "path": "/profile/by-nin/__ARG1__",
+      "normalizedPath": "/profile/by-nin/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\usePatientProfile.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.patientSearch",
+      "path": "/profile/search",
+      "normalizedPath": "/profile/search",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\usePatientSearch.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.pharmacyById",
+      "path": "/pharmacy/dispenses/id/__ARG1__",
+      "normalizedPath": "/pharmacy/dispenses/id/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\usePharmacyRecord.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.pharmacyByNin",
+      "path": "/pharmacy/__ARG1__/dispenses",
+      "normalizedPath": "/pharmacy/{param}/dispenses",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\usePharmacyRecords.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.updateEncounterById",
+      "path": "/encounters/id/__ARG1__",
+      "normalizedPath": "/encounters/id/{param}",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useFinalizeEncounter.ts",
+        "frontend-app\\src\\api\\hooks\\useUpdateEncounter.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.updateLabById",
+      "path": "/labs/results/id/__ARG1__",
+      "normalizedPath": "/labs/results/id/{param}",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCompleteLab.ts",
+        "frontend-app\\src\\api\\hooks\\useUpdateLabResult.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "provider.updatePharmacyById",
+      "path": "/pharmacy/dispenses/id/__ARG1__",
+      "normalizedPath": "/pharmacy/dispenses/id/{param}",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useDispensePrescription.ts",
+        "frontend-app\\src\\api\\hooks\\useUpdatePrescription.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "rbac.appPermissionByKey",
+      "path": "/rbac/permissions/__ARG1__",
+      "normalizedPath": "/rbac/permissions/{param}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appPermissions",
+      "path": "/rbac/permissions",
+      "normalizedPath": "/rbac/permissions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appRoleById",
+      "path": "/rbac/roles/__ARG1__",
+      "normalizedPath": "/rbac/roles/{param}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appRoles",
+      "path": "/rbac/roles",
+      "normalizedPath": "/rbac/roles",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appUserOverrides",
+      "path": "/rbac/users/__ARG1__/overrides",
+      "normalizedPath": "/rbac/users/{param}/overrides",
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appUserRoles",
+      "path": "/rbac/users/__ARG1__/roles",
+      "normalizedPath": "/rbac/users/{param}/roles",
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.orgPermissionByKey",
+      "path": "/rbac/org/permissions/__ARG1__",
+      "normalizedPath": "/rbac/org/permissions/{param}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.orgPermissions",
+      "path": "/rbac/org/permissions",
+      "normalizedPath": "/rbac/org/permissions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.orgRoleById",
+      "path": "/rbac/org/roles/__ARG1__",
+      "normalizedPath": "/rbac/org/roles/{param}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.orgRoles",
+      "path": "/rbac/org/roles",
+      "normalizedPath": "/rbac/org/roles",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.userAccess",
+      "path": "/rbac/users/__ARG1__/access",
+      "normalizedPath": "/rbac/users/{param}/access",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "records.addSymptom",
+      "path": "/records/me/symptoms",
+      "normalizedPath": "/records/me/symptoms",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useTimeline.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "records.me",
+      "path": "/records/me",
+      "normalizedPath": "/records/me",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useTimeline.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "reports.byId",
+      "path": "/reports/__ARG1__",
+      "normalizedPath": "/reports/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useReports.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "reports.download",
+      "path": "/reports/__ARG1__/download",
+      "normalizedPath": "/reports/{param}/download",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useReports.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "reports.generate",
+      "path": "/reports/__ARG1__/generate",
+      "normalizedPath": "/reports/{param}/generate",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useReports.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "reports.list",
+      "path": "/reports",
+      "normalizedPath": "/reports",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useReports.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.activity",
+      "path": "/system/activity",
+      "normalizedPath": "/system/activity",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemActivityFeed.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.configuration",
+      "path": "/system/configuration",
+      "normalizedPath": "/system/configuration",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemSettings.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.devTools",
+      "path": "/system/dev-tools",
+      "normalizedPath": "/system/dev-tools",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useDevTools.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.health",
+      "path": "/system/health",
+      "normalizedPath": "/system/health",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemHealth.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.incidents",
+      "path": "/system/incidents",
+      "normalizedPath": "/system/incidents",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemHealthOverview.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.monitoring",
+      "path": "/system/monitoring",
+      "normalizedPath": "/system/monitoring",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemMonitoring.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.assignCase",
+      "path": "/cases/__ARG1__/assign",
+      "normalizedPath": "/cases/{param}/assign",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAssignCase.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.assignComplaint",
+      "path": "/cases/__ARG1__/assign",
+      "normalizedPath": "/cases/{param}/assign",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAssignComplaint.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.caseById",
+      "path": "/cases/__ARG1__",
+      "normalizedPath": "/cases/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCase.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "taskforce.caseNotes",
+      "path": "/cases/__ARG1__/notes",
+      "normalizedPath": "/cases/{param}/notes",
+      "methods": [
+        "POST",
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAddCaseNote.ts",
+        "frontend-app\\src\\api\\hooks\\useCaseNotes.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.cases",
+      "path": "/cases",
+      "normalizedPath": "/cases",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCases.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "taskforce.complaintById",
+      "path": "/cases/__ARG1__",
+      "normalizedPath": "/cases/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useComplaint.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "taskforce.complaints",
+      "path": "/cases",
+      "normalizedPath": "/cases",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useComplaints.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "taskforce.convertComplaintToCase",
+      "path": "/cases/__ARG1__/convert",
+      "normalizedPath": "/cases/{param}/convert",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCreateCaseFromComplaint.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.dashboard",
+      "path": "/cases",
+      "normalizedPath": "/cases",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useTaskforceDashboard.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "taskforce.escalateCase",
+      "path": "/cases/__ARG1__/escalate",
+      "normalizedPath": "/cases/{param}/escalate",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEscalateCase.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "taskforce.escalateComplaint",
+      "path": "/cases/__ARG1__/escalate",
+      "normalizedPath": "/cases/{param}/escalate",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useEscalateComplaint.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "uiTheme.effective",
+      "path": "/ui/theme/effective",
+      "normalizedPath": "/ui/theme/effective",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\stores\\themeStore.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "uiTheme.list",
+      "path": "/ui/theme",
+      "normalizedPath": "/ui/theme",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\stores\\themeStore.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "uiTheme.logo",
+      "path": "/ui/theme/__ARG1__/logo",
+      "normalizedPath": "/ui/theme/{param}/logo",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\components\\forms\\LogoUploader.tsx"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "uiTheme.platform",
+      "path": "/ui/theme/platform",
+      "normalizedPath": "/ui/theme/platform",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\stores\\themeStore.ts"
+      ],
+      "inOpenapi": true
+    },
+    {
+      "key": "uiTheme.update",
+      "path": "/ui/theme/__ARG1__",
+      "normalizedPath": "/ui/theme/{param}",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\components\\theme\\ThemeEditor.tsx",
+        "frontend-app\\src\\modules\\settings\\pages\\BrandSettingsPage.tsx"
+      ],
+      "inOpenapi": true
+    }
+  ],
+  "usedNotInOpenapi": [
+    {
+      "key": "admin.institutions",
+      "path": "/admin/institutions",
+      "normalizedPath": "/admin/institutions",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useInstitutions.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "admin.roleById",
+      "path": "/admin/roles/__ARG1__",
+      "normalizedPath": "/admin/roles/{param}",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAdminRoles.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "admin.roles",
+      "path": "/admin/roles",
+      "normalizedPath": "/admin/roles",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAdminRoles.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "admin.userById",
+      "path": "/admin/users/__ARG1__",
+      "normalizedPath": "/admin/users/{param}",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAdminUsers.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "admin.users",
+      "path": "/admin/users",
+      "normalizedPath": "/admin/users",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAdminUsers.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "alerts.list",
+      "path": "/alerts",
+      "normalizedPath": "/alerts",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAlerts.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "analytics.dashboard",
+      "path": "/analytics/dashboard",
+      "normalizedPath": "/analytics/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAnalyticsDashboard.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "analytics.metrics",
+      "path": "/analytics/metrics",
+      "normalizedPath": "/analytics/metrics",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useHealthMetrics.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "compliance.dataQuality",
+      "path": "/compliance/data-quality",
+      "normalizedPath": "/compliance/data-quality",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useComplianceIssues.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "compliance.summary",
+      "path": "/compliance/summary",
+      "normalizedPath": "/compliance/summary",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useComplianceSummary.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "identity.contexts",
+      "path": "/me/contexts",
+      "normalizedPath": "/me/contexts",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useContexts.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "identity.switchContext",
+      "path": "/me/context/switch",
+      "normalizedPath": "/me/context/switch",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSwitchContext.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "institution.dashboard",
+      "path": "/institution/dashboard",
+      "normalizedPath": "/institution/dashboard",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useInstitutionDashboard.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.apiKeys",
+      "path": "/integrations/api-keys",
+      "normalizedPath": "/integrations/api-keys",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useApiKeys.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.byId",
+      "path": "/integrations/__ARG1__",
+      "normalizedPath": "/integrations/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useIntegrations.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.disable",
+      "path": "/integrations/__ARG1__/disable",
+      "normalizedPath": "/integrations/{param}/disable",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useIntegrations.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.list",
+      "path": "/integrations",
+      "normalizedPath": "/integrations",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useIntegrations.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.revokeApiKey",
+      "path": "/integrations/api-keys/__ARG1__/revoke",
+      "normalizedPath": "/integrations/api-keys/{param}/revoke",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useApiKeys.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.rotateApiKey",
+      "path": "/integrations/api-keys/__ARG1__/rotate",
+      "normalizedPath": "/integrations/api-keys/{param}/rotate",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useApiKeys.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.syncEvents",
+      "path": "/integrations/sync",
+      "normalizedPath": "/integrations/sync",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSyncEvents.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "integrations.test",
+      "path": "/integrations/__ARG1__/test",
+      "normalizedPath": "/integrations/{param}/test",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useIntegrations.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "notifications.list",
+      "path": "/notifications",
+      "normalizedPath": "/notifications",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useNotifications.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "notifications.read",
+      "path": "/notifications/__ARG1__/read",
+      "normalizedPath": "/notifications/{param}/read",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useNotifications.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "notifications.readAll",
+      "path": "/notifications/read-all",
+      "normalizedPath": "/notifications/read-all",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useNotifications.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "provider.completeLabById",
+      "path": "/labs/results/id/__ARG1__/complete",
+      "normalizedPath": "/labs/results/id/{param}/complete",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCompleteLab.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "provider.dispensePharmacyById",
+      "path": "/pharmacy/dispenses/id/__ARG1__/dispense",
+      "normalizedPath": "/pharmacy/dispenses/id/{param}/dispense",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useDispensePrescription.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "provider.finalizeEncounterById",
+      "path": "/encounters/id/__ARG1__/finalize",
+      "normalizedPath": "/encounters/id/{param}/finalize",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useFinalizeEncounter.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appPermissionByKey",
+      "path": "/rbac/permissions/__ARG1__",
+      "normalizedPath": "/rbac/permissions/{param}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appPermissions",
+      "path": "/rbac/permissions",
+      "normalizedPath": "/rbac/permissions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appRoleById",
+      "path": "/rbac/roles/__ARG1__",
+      "normalizedPath": "/rbac/roles/{param}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appRoles",
+      "path": "/rbac/roles",
+      "normalizedPath": "/rbac/roles",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appUserOverrides",
+      "path": "/rbac/users/__ARG1__/overrides",
+      "normalizedPath": "/rbac/users/{param}/overrides",
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.appUserRoles",
+      "path": "/rbac/users/__ARG1__/roles",
+      "normalizedPath": "/rbac/users/{param}/roles",
+      "methods": [
+        "POST",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.orgPermissionByKey",
+      "path": "/rbac/org/permissions/__ARG1__",
+      "normalizedPath": "/rbac/org/permissions/{param}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.orgPermissions",
+      "path": "/rbac/org/permissions",
+      "normalizedPath": "/rbac/org/permissions",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.orgRoleById",
+      "path": "/rbac/org/roles/__ARG1__",
+      "normalizedPath": "/rbac/org/roles/{param}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.orgRoles",
+      "path": "/rbac/org/roles",
+      "normalizedPath": "/rbac/org/roles",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "rbac.userAccess",
+      "path": "/rbac/users/__ARG1__/access",
+      "normalizedPath": "/rbac/users/{param}/access",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAccessControl.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "reports.byId",
+      "path": "/reports/__ARG1__",
+      "normalizedPath": "/reports/{param}",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useReports.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "reports.download",
+      "path": "/reports/__ARG1__/download",
+      "normalizedPath": "/reports/{param}/download",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useReports.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "reports.generate",
+      "path": "/reports/__ARG1__/generate",
+      "normalizedPath": "/reports/{param}/generate",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useReports.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "reports.list",
+      "path": "/reports",
+      "normalizedPath": "/reports",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useReports.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.activity",
+      "path": "/system/activity",
+      "normalizedPath": "/system/activity",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemActivityFeed.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.configuration",
+      "path": "/system/configuration",
+      "normalizedPath": "/system/configuration",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemSettings.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.devTools",
+      "path": "/system/dev-tools",
+      "normalizedPath": "/system/dev-tools",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useDevTools.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.health",
+      "path": "/system/health",
+      "normalizedPath": "/system/health",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemHealth.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.incidents",
+      "path": "/system/incidents",
+      "normalizedPath": "/system/incidents",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemHealthOverview.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "system.monitoring",
+      "path": "/system/monitoring",
+      "normalizedPath": "/system/monitoring",
+      "methods": [
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useSystemMonitoring.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.assignCase",
+      "path": "/cases/__ARG1__/assign",
+      "normalizedPath": "/cases/{param}/assign",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAssignCase.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.assignComplaint",
+      "path": "/cases/__ARG1__/assign",
+      "normalizedPath": "/cases/{param}/assign",
+      "methods": [
+        "PATCH"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAssignComplaint.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.caseNotes",
+      "path": "/cases/__ARG1__/notes",
+      "normalizedPath": "/cases/{param}/notes",
+      "methods": [
+        "POST",
+        "GET"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useAddCaseNote.ts",
+        "frontend-app\\src\\api\\hooks\\useCaseNotes.ts"
+      ],
+      "inOpenapi": false
+    },
+    {
+      "key": "taskforce.convertComplaintToCase",
+      "path": "/cases/__ARG1__/convert",
+      "normalizedPath": "/cases/{param}/convert",
+      "methods": [
+        "POST"
+      ],
+      "files": [
+        "frontend-app\\src\\api\\hooks\\useCreateCaseFromComplaint.ts"
+      ],
+      "inOpenapi": false
+    }
+  ],
+  "usedMissingDefinition": [],
+  "definedNotUsed": [
+    {
+      "key": "admin.institutionById",
+      "path": "/admin/institutions/__ARG1__"
+    },
+    {
+      "key": "admin.settings",
+      "path": "/admin/system-settings"
+    },
+    {
+      "key": "integrations.apiKeyById",
+      "path": "/integrations/api-keys/__ARG1__"
+    },
+    {
+      "key": "rbac.orgUserOverrides",
+      "path": "/rbac/org/users/__ARG1__/overrides"
+    },
+    {
+      "key": "rbac.orgUserRoles",
+      "path": "/rbac/org/users/__ARG1__/roles"
+    },
+    {
+      "key": "records.byNin",
+      "path": "/records/__ARG1__"
+    },
+    {
+      "key": "uiTheme.create",
+      "path": "/ui/theme"
+    }
+  ],
+  "openapiPathsNotUsedByFrontend": [
+    {
+      "path": "/audit/events/{eventId}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/auth/contact/email",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/contact/email/verify",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/contact/phone",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/contact/phone/verify",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/context/switch",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/password/change",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/password/forgot",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/password/reset",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/auth/password/set",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/case-rooms/{roomId}/messages",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/cases/{caseId}/corrections/approve",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/cases/{caseId}/corrections/propose",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/cases/{caseId}/corrections/reject",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/cases/{caseId}/room",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/cases/{caseId}/status",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/doctors/register",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/emergency/inventory/me",
+      "methods": [
+        "PUT"
+      ]
+    },
+    {
+      "path": "/licenses/{doctorId}/reinstate",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/licenses/{doctorId}/revoke",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/licenses/{doctorId}/suspend",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/licenses/{doctorId}/verify",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/nin/{nin}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/nin/refresh/{nin}",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/orgs",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}",
+      "methods": [
+        "GET",
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/assign-owner",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/branches",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/branches/{branchId}",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/members",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/members/{memberId}",
+      "methods": [
+        "GET",
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/members/{memberId}/branches",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/members/{memberId}/branches/{assignmentId}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/members/{memberId}/history",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/members/{memberId}/status",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/members/{memberId}/transfer",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/memberships",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/memberships/{membershipId}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/memberships/{membershipId}/branches",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/memberships/{membershipId}/branches/{branchId}",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/memberships/invite",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/orgs/{orgId}/owner",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/orgs/search",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/profile/{userId}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/profile/create-placeholder",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/profile/me",
+      "methods": [
+        "GET",
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/profile/me/request-nin-refresh",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/profile/me/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/rbac/app/permissions",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/rbac/app/roles",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/rbac/app/roles/{roleId}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/rbac/app/users/{userId}/access",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/rbac/app/users/{userId}/overrides",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/rbac/app/users/{userId}/roles",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/rbac/check",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/rbac/me/scope",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/rbac/org/{organizationId}/permissions",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/rbac/org/{organizationId}/roles",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/rbac/org/{organizationId}/roles/{roleId}",
+      "methods": [
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/rbac/org/{organizationId}/users/{userId}/access",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/rbac/org/{organizationId}/users/{userId}/overrides",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/rbac/org/{organizationId}/users/{userId}/roles",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/records/{nin}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/records/{nin}/entries",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/records/entries/{entryId}",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/records/entries/{entryId}/hide",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/taskforce/units",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/taskforce/units/{unitId}",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/taskforce/units/{unitId}/members",
+      "methods": [
+        "POST",
+        "GET"
+      ]
+    },
+    {
+      "path": "/taskforce/units/{unitId}/members/{memberId}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/users/{userId}/memberships",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/users/{userId}/movement-history",
+      "methods": [
+        "GET"
+      ]
+    }
+  ],
+  "unresolvedApiClientCalls": []
+}

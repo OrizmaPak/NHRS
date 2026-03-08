@@ -36,6 +36,8 @@ const schema = z.object({
 
 type Values = z.infer<typeof schema>;
 
+const administrationRoutes = ['oral', 'iv', 'im', 'sc', 'topical', 'inhalation', 'other'];
+
 export function PrescriptionFormPage() {
   const navigate = useNavigate();
   const { nin: ninParam } = useParams();
@@ -140,6 +142,20 @@ export function PrescriptionFormPage() {
               <Input {...register('prescribingProvider')} placeholder="Provider user or name" />
             </div>
             <div className="space-y-1">
+              <label className="text-sm font-medium text-foreground">Route</label>
+              <select
+                {...register('route')}
+                className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+              >
+                {administrationRoutes.map((route) => (
+                  <option key={route} value={route}>
+                    {route}
+                  </option>
+                ))}
+              </select>
+              {errors.route ? <p className="text-xs text-danger">{errors.route.message}</p> : null}
+            </div>
+            <div className="space-y-1">
               <label className="text-sm font-medium text-foreground">Prescribed Date</label>
               <Input type="datetime-local" {...register('prescribedDate')} />
               {errors.prescribedDate ? <p className="text-xs text-danger">{errors.prescribedDate.message}</p> : null}
@@ -159,11 +175,11 @@ export function PrescriptionFormPage() {
             </div>
           </CardHeader>
           <MedicationFormSection
+            showRoute={false}
             values={medicationValues}
             onChange={(next) => {
               setValue('medicationName', next.medicationName, { shouldValidate: true });
               setValue('dosage', next.dosage, { shouldValidate: true });
-              setValue('route', next.route, { shouldValidate: true });
               setValue('frequency', next.frequency, { shouldValidate: true });
               setValue('duration', next.duration, { shouldValidate: true });
               setValue('quantity', next.quantity, { shouldValidate: true });

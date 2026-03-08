@@ -1,60 +1,80 @@
+import { Suspense, lazy, type ReactElement } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
-import type { ReactElement } from 'react';
+import { Spinner } from '@/components/feedback/Spinner';
 import { AppShell } from '@/layouts/AppShell';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
 import { PermissionGate } from '@/components/navigation/PermissionGate';
-import { DashboardPage } from '@/modules/dashboard/pages/DashboardPage';
-import { LoginPage } from '@/modules/auth/pages/LoginPage';
-import { TimelinePage } from '@/modules/public/timeline/TimelinePage';
-import { DoctorRegistryPage } from '@/modules/public/doctor-registry/DoctorRegistryPage';
-import { DoctorProfilePage } from '@/modules/public/doctor-registry/DoctorProfilePage';
-import { ProviderDashboardPage } from '@/modules/provider/dashboard/ProviderDashboardPage';
-import { PatientSearchPage } from '@/modules/provider/patient-search/PatientSearchPage';
-import { PatientProfilePage } from '@/modules/provider/patient-profile/PatientProfilePage';
-import { EncountersListPage } from '@/modules/provider/encounters/EncountersListPage';
-import { EncounterDetailsPage } from '@/modules/provider/encounters/EncounterDetailsPage';
-import { EncounterFormPage } from '@/modules/provider/encounters/EncounterFormPage';
-import { LabsListPage } from '@/modules/provider/labs/LabsListPage';
-import { LabRequestFormPage } from '@/modules/provider/labs/LabRequestFormPage';
-import { LabDetailsPage } from '@/modules/provider/labs/LabDetailsPage';
-import { PharmacyListPage } from '@/modules/provider/pharmacy/PharmacyListPage';
-import { PrescriptionFormPage } from '@/modules/provider/pharmacy/PrescriptionFormPage';
-import { PharmacyDetailsPage } from '@/modules/provider/pharmacy/PharmacyDetailsPage';
-import { TaskforceDashboardPage } from '@/modules/taskforce/dashboard/TaskforceDashboardPage';
-import { ComplaintsListPage } from '@/modules/taskforce/complaints/ComplaintsListPage';
-import { ComplaintDetailsPage } from '@/modules/taskforce/complaints/ComplaintDetailsPage';
-import { CasesListPage } from '@/modules/taskforce/cases/CasesListPage';
-import { CaseDetailsPage } from '@/modules/taskforce/cases/CaseDetailsPage';
-import { EmergencyInventoryPage } from '@/modules/emergency/EmergencyInventoryPage';
-import { EmergencyRequestPage } from '@/modules/emergency/EmergencyRequestPage';
-import { SettingsPage } from '@/modules/settings/pages/SettingsPage';
-import { AppearanceSettingsPage } from '@/modules/settings/pages/AppearanceSettingsPage';
-import { BrandSettingsPage } from '@/modules/settings/pages/BrandSettingsPage';
-import { AccessibilitySettingsPage } from '@/modules/settings/pages/AccessibilitySettingsPage';
-import { NotFoundPage } from '@/modules/dashboard/pages/NotFoundPage';
-import { AnalyticsPage } from '@/modules/dashboard/pages/AnalyticsPage';
-import { UnauthorizedPage } from '@/modules/dashboard/pages/UnauthorizedPage';
-import { AuditPage } from '@/modules/governance/audit/AuditPage';
-import { OversightPage } from '@/modules/governance/audit/OversightPage';
 
-function restricted(element: ReactElement, permission: string | string[]) {
-  return <PermissionGate permission={permission} fallback={<UnauthorizedPage />}>{element}</PermissionGate>;
+const DashboardPage = lazy(async () => ({ default: (await import('@/modules/dashboard/pages/DashboardPage')).DashboardPage }));
+const LoginPage = lazy(async () => ({ default: (await import('@/modules/auth/pages/LoginPage')).LoginPage }));
+const SetPasswordPage = lazy(async () => ({ default: (await import('@/modules/auth/pages/SetPasswordPage')).SetPasswordPage }));
+const TimelinePage = lazy(async () => ({ default: (await import('@/modules/public/timeline/TimelinePage')).TimelinePage }));
+const DoctorRegistryPage = lazy(async () => ({ default: (await import('@/modules/public/doctor-registry/DoctorRegistryPage')).DoctorRegistryPage }));
+const DoctorProfilePage = lazy(async () => ({ default: (await import('@/modules/public/doctor-registry/DoctorProfilePage')).DoctorProfilePage }));
+const ProviderDashboardPage = lazy(async () => ({ default: (await import('@/modules/provider/dashboard/ProviderDashboardPage')).ProviderDashboardPage }));
+const PatientSearchPage = lazy(async () => ({ default: (await import('@/modules/provider/patient-search/PatientSearchPage')).PatientSearchPage }));
+const PatientProfilePage = lazy(async () => ({ default: (await import('@/modules/provider/patient-profile/PatientProfilePage')).PatientProfilePage }));
+const EncountersListPage = lazy(async () => ({ default: (await import('@/modules/provider/encounters/EncountersListPage')).EncountersListPage }));
+const EncounterDetailsPage = lazy(async () => ({ default: (await import('@/modules/provider/encounters/EncounterDetailsPage')).EncounterDetailsPage }));
+const EncounterFormPage = lazy(async () => ({ default: (await import('@/modules/provider/encounters/EncounterFormPage')).EncounterFormPage }));
+const LabsListPage = lazy(async () => ({ default: (await import('@/modules/provider/labs/LabsListPage')).LabsListPage }));
+const LabRequestFormPage = lazy(async () => ({ default: (await import('@/modules/provider/labs/LabRequestFormPage')).LabRequestFormPage }));
+const LabDetailsPage = lazy(async () => ({ default: (await import('@/modules/provider/labs/LabDetailsPage')).LabDetailsPage }));
+const PharmacyListPage = lazy(async () => ({ default: (await import('@/modules/provider/pharmacy/PharmacyListPage')).PharmacyListPage }));
+const PrescriptionFormPage = lazy(async () => ({ default: (await import('@/modules/provider/pharmacy/PrescriptionFormPage')).PrescriptionFormPage }));
+const PharmacyDetailsPage = lazy(async () => ({ default: (await import('@/modules/provider/pharmacy/PharmacyDetailsPage')).PharmacyDetailsPage }));
+const TaskforceDashboardPage = lazy(async () => ({ default: (await import('@/modules/taskforce/dashboard/TaskforceDashboardPage')).TaskforceDashboardPage }));
+const ComplaintsListPage = lazy(async () => ({ default: (await import('@/modules/taskforce/complaints/ComplaintsListPage')).ComplaintsListPage }));
+const ComplaintDetailsPage = lazy(async () => ({ default: (await import('@/modules/taskforce/complaints/ComplaintDetailsPage')).ComplaintDetailsPage }));
+const CasesListPage = lazy(async () => ({ default: (await import('@/modules/taskforce/cases/CasesListPage')).CasesListPage }));
+const CaseDetailsPage = lazy(async () => ({ default: (await import('@/modules/taskforce/cases/CaseDetailsPage')).CaseDetailsPage }));
+const EmergencyInventoryPage = lazy(async () => ({ default: (await import('@/modules/emergency/EmergencyInventoryPage')).EmergencyInventoryPage }));
+const EmergencyRequestPage = lazy(async () => ({ default: (await import('@/modules/emergency/EmergencyRequestPage')).EmergencyRequestPage }));
+const EmergencyCasesListPage = lazy(async () => ({ default: (await import('@/modules/emergency/cases/EmergencyCasesListPage')).EmergencyCasesListPage }));
+const EmergencyCaseDetailsPage = lazy(async () => ({ default: (await import('@/modules/emergency/cases/EmergencyCaseDetailsPage')).EmergencyCaseDetailsPage }));
+const SettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/SettingsPage')).SettingsPage }));
+const AppearanceSettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/AppearanceSettingsPage')).AppearanceSettingsPage }));
+const BrandSettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/BrandSettingsPage')).BrandSettingsPage }));
+const AccessibilitySettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/AccessibilitySettingsPage')).AccessibilitySettingsPage }));
+const NotFoundPage = lazy(async () => ({ default: (await import('@/modules/dashboard/pages/NotFoundPage')).NotFoundPage }));
+const UnauthorizedPage = lazy(async () => ({ default: (await import('@/modules/dashboard/pages/UnauthorizedPage')).UnauthorizedPage }));
+const AuditPage = lazy(async () => ({ default: (await import('@/modules/governance/audit/AuditPage')).AuditPage }));
+const OversightPage = lazy(async () => ({ default: (await import('@/modules/governance/audit/OversightPage')).OversightPage }));
+const AppPermissionsPage = lazy(async () => ({ default: (await import('@/modules/admin/access/AppPermissionsPage')).AppPermissionsPage }));
+const AppRolesPage = lazy(async () => ({ default: (await import('@/modules/admin/access/AppRolesPage')).AppRolesPage }));
+const AppUserAccessPage = lazy(async () => ({ default: (await import('@/modules/admin/access/AppUserAccessPage')).AppUserAccessPage }));
+const OrgPermissionsPage = lazy(async () => ({ default: (await import('@/modules/org/access/OrgPermissionsPage')).OrgPermissionsPage }));
+const OrgRolesPage = lazy(async () => ({ default: (await import('@/modules/org/access/OrgRolesPage')).OrgRolesPage }));
+const OrgStaffAccessPage = lazy(async () => ({ default: (await import('@/modules/org/access/OrgStaffAccessPage')).OrgStaffAccessPage }));
+
+function withSuspense(element: ReactElement) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center text-muted">
+          <Spinner className="h-5 w-5" />
+          <span className="ml-2 text-sm">Loading module...</span>
+        </div>
+      }
+    >
+      {element}
+    </Suspense>
+  );
 }
 
-const brandAdminPermissions = ['ui.theme.update', 'organization.admin', 'state.admin', 'taskforce.admin'];
+function restricted(element: ReactElement, permission: string | string[]) {
+  return <PermissionGate permission={permission} fallback={withSuspense(<UnauthorizedPage />)}>{withSuspense(element)}</PermissionGate>;
+}
+
+const brandAdminPermissions = ['ui.theme.write', 'rbac.org.manage', 'rbac.app.manage'];
 
 export const appRouter = createBrowserRouter([
+  { path: '/', element: <Navigate to="/app" replace /> },
+  { path: '/login', element: <Navigate to="/auth/login" replace /> },
+  { path: '/auth/login', element: withSuspense(<LoginPage />) },
   {
-    path: '/',
-    element: <Navigate to="/app" replace />,
-  },
-  {
-    path: '/login',
-    element: <Navigate to="/auth/login" replace />,
-  },
-  {
-    path: '/auth/login',
-    element: <LoginPage />,
+    element: <ProtectedRoute allowPasswordSetup />,
+    children: [{ path: '/auth/password/setup', element: withSuspense(<SetPasswordPage />) }],
   },
   {
     element: <ProtectedRoute />,
@@ -63,57 +83,55 @@ export const appRouter = createBrowserRouter([
         path: '/app',
         element: <AppShell />,
         children: [
-          { index: true, element: <DashboardPage /> },
-          { path: 'public/timeline', element: <TimelinePage /> },
-          { path: 'public/doctor-registry', element: restricted(<DoctorRegistryPage />, 'doctor.registry.read') },
-          { path: 'public/doctor-registry/:doctorId', element: restricted(<DoctorProfilePage />, 'doctor.registry.read') },
+          { index: true, element: withSuspense(<DashboardPage />) },
+          { path: 'public/timeline', element: withSuspense(<TimelinePage />) },
+          { path: 'public/doctor-registry', element: withSuspense(<DoctorRegistryPage />) },
+          { path: 'public/doctor-registry/:doctorId', element: restricted(<DoctorProfilePage />, 'doctor.read') },
           { path: 'provider', element: <Navigate to="/app/provider/dashboard" replace /> },
-          { path: 'provider/dashboard', element: restricted(<ProviderDashboardPage />, 'provider.patient.read') },
-          { path: 'provider/patients', element: restricted(<PatientSearchPage />, 'provider.patient.read') },
-          { path: 'provider/patient/:nin', element: restricted(<PatientProfilePage />, 'provider.patient.read') },
-          { path: 'provider/encounters', element: restricted(<EncountersListPage />, 'encounters.view') },
+          { path: 'provider/dashboard', element: restricted(<ProviderDashboardPage />, 'profile.search') },
+          { path: 'provider/patients', element: restricted(<PatientSearchPage />, 'profile.search') },
+          { path: 'provider/patient/:nin', element: restricted(<PatientProfilePage />, 'profile.user.read') },
+          { path: 'provider/encounters', element: restricted(<EncountersListPage />, 'encounters.read') },
           { path: 'provider/encounters/new', element: restricted(<EncounterFormPage />, 'encounters.create') },
-          { path: 'provider/encounters/:id', element: restricted(<EncounterDetailsPage />, 'encounters.view') },
+          { path: 'provider/encounters/:id', element: restricted(<EncounterDetailsPage />, 'encounters.read') },
           { path: 'provider/encounters/:id/edit', element: restricted(<EncounterFormPage />, 'encounters.update') },
           { path: 'provider/patient/:nin/encounters/new', element: restricted(<EncounterFormPage />, 'encounters.create') },
-          { path: 'provider/labs', element: restricted(<LabsListPage />, 'labs.view') },
+          { path: 'provider/labs', element: restricted(<LabsListPage />, 'labs.read') },
           { path: 'provider/labs/new', element: restricted(<LabRequestFormPage />, 'labs.create') },
-          { path: 'provider/labs/:id', element: restricted(<LabDetailsPage />, 'labs.view') },
+          { path: 'provider/labs/:id', element: restricted(<LabDetailsPage />, 'labs.read') },
           { path: 'provider/labs/:id/edit', element: restricted(<LabDetailsPage />, 'labs.update') },
           { path: 'provider/patient/:nin/labs/new', element: restricted(<LabRequestFormPage />, 'labs.create') },
-          { path: 'provider/pharmacy', element: restricted(<PharmacyListPage />, 'pharmacy.view') },
+          { path: 'provider/pharmacy', element: restricted(<PharmacyListPage />, 'pharmacy.read') },
           { path: 'provider/pharmacy/new', element: restricted(<PrescriptionFormPage />, 'pharmacy.create') },
-          { path: 'provider/pharmacy/:id', element: restricted(<PharmacyDetailsPage />, 'pharmacy.view') },
+          { path: 'provider/pharmacy/:id', element: restricted(<PharmacyDetailsPage />, 'pharmacy.read') },
           { path: 'provider/pharmacy/:id/edit', element: restricted(<PharmacyDetailsPage />, 'pharmacy.update') },
           { path: 'provider/patient/:nin/pharmacy/new', element: restricted(<PrescriptionFormPage />, 'pharmacy.create') },
           { path: 'taskforce', element: <Navigate to="/app/taskforce/dashboard" replace /> },
-          { path: 'taskforce/dashboard', element: restricted(<TaskforceDashboardPage />, 'cases.view') },
-          { path: 'taskforce/complaints', element: restricted(<ComplaintsListPage />, 'complaints.view') },
-          { path: 'taskforce/complaints/:id', element: restricted(<ComplaintDetailsPage />, 'complaints.view') },
-          { path: 'taskforce/cases', element: restricted(<CasesListPage />, 'cases.view') },
-          { path: 'taskforce/cases/:id', element: restricted(<CaseDetailsPage />, 'cases.view') },
-          { path: 'governance/audit', element: restricted(<AuditPage />, 'audit.view') },
-          { path: 'governance/oversight', element: restricted(<OversightPage />, 'oversight.view') },
-          { path: 'emergency', element: restricted(<EmergencyInventoryPage />, 'emergency.request.read') },
+          { path: 'taskforce/dashboard', element: restricted(<TaskforceDashboardPage />, 'governance.case.read') },
+          { path: 'taskforce/complaints', element: restricted(<ComplaintsListPage />, 'governance.case.read') },
+          { path: 'taskforce/complaints/:id', element: restricted(<ComplaintDetailsPage />, 'governance.case.read') },
+          { path: 'taskforce/cases', element: restricted(<CasesListPage />, 'governance.case.read') },
+          { path: 'taskforce/cases/:id', element: restricted(<CaseDetailsPage />, 'governance.case.read') },
+          { path: 'governance/audit', element: restricted(<AuditPage />, 'audit.read') },
+          { path: 'governance/oversight', element: restricted(<OversightPage />, 'governance.case.read') },
+          { path: 'emergency', element: restricted(<EmergencyInventoryPage />, 'emergency.inventory.search') },
           { path: 'emergency/request', element: restricted(<EmergencyRequestPage />, 'emergency.request.create') },
-          { path: 'analytics', element: restricted(<AnalyticsPage />, 'analytics.read') },
-          { path: 'settings', element: <SettingsPage /> },
-          { path: 'settings/appearance', element: <AppearanceSettingsPage /> },
-          {
-            path: 'settings/brand',
-            element: restricted(<BrandSettingsPage />, brandAdminPermissions),
-          },
-          { path: 'settings/accessibility', element: <AccessibilitySettingsPage /> },
+          { path: 'emergency/cases', element: restricted(<EmergencyCasesListPage />, 'emergency.request.read') },
+          { path: 'emergency/cases/:id', element: restricted(<EmergencyCaseDetailsPage />, 'emergency.request.read') },
+          { path: 'admin/access/app-permissions', element: restricted(<AppPermissionsPage />, 'superadmin.only') },
+          { path: 'admin/access/app-roles', element: restricted(<AppRolesPage />, 'rbac.app.manage') },
+          { path: 'admin/access/users/:userId', element: restricted(<AppUserAccessPage />, 'rbac.app.manage') },
+          { path: 'org/access/permissions', element: restricted(<OrgPermissionsPage />, 'rbac.org.manage') },
+          { path: 'org/access/roles', element: restricted(<OrgRolesPage />, 'rbac.org.manage') },
+          { path: 'org/access/staff/:userId', element: restricted(<OrgStaffAccessPage />, 'rbac.org.manage') },
+          { path: 'settings', element: withSuspense(<SettingsPage />) },
+          { path: 'settings/appearance', element: withSuspense(<AppearanceSettingsPage />) },
+          { path: 'settings/brand', element: restricted(<BrandSettingsPage />, brandAdminPermissions) },
+          { path: 'settings/accessibility', element: withSuspense(<AccessibilitySettingsPage />) },
         ],
       },
     ],
   },
-  {
-    path: '/unauthorized',
-    element: <UnauthorizedPage />,
-  },
-  {
-    path: '*',
-    element: <NotFoundPage />,
-  },
+  { path: '/unauthorized', element: withSuspense(<UnauthorizedPage />) },
+  { path: '*', element: withSuspense(<NotFoundPage />) },
 ]);

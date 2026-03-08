@@ -8,10 +8,10 @@ export const ALLOW_CONTEXT_SWITCH_FALLBACK =
   import.meta.env.VITE_CONTEXT_SWITCH_FALLBACK === 'true';
 
 export const permissionMap = {
-  dashboard: 'dashboard.read',
-  providerPatientSearch: 'provider.patient.read',
-  providerPatientWrite: 'provider.patient.write',
+  dashboard: 'auth.me.read',
+  providerPatientSearch: 'profile.search',
+  providerPatientWrite: 'profile.user.read',
   taskforceCasesRead: 'governance.case.read',
   emergencyRequestsRead: 'emergency.request.read',
-  appearanceWrite: 'ui.theme.update',
+  appearanceWrite: 'ui.theme.write',
 } as const;

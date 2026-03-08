@@ -21,6 +21,7 @@ import { useEscalateCase } from '@/api/hooks/useEscalateCase';
 import type { CaseRow } from '@/api/hooks/taskforceTypes';
 import { useContextStore } from '@/stores/contextStore';
 import { deriveTaskforceScope } from '@/modules/taskforce/utils/scope';
+import { exportRowsToCsv, exportRowsToExcelLike } from '@/lib/export';
 
 const officers = [
   { value: 'officer-1', label: 'Ayo Bello', description: 'State reviewer' },
@@ -88,7 +89,7 @@ export function CasesListPage() {
                 <DropdownMenu.Item asChild className="cursor-pointer rounded px-2 py-1.5 text-sm outline-none focus:bg-primary/10">
                   <Link to={`/app/taskforce/cases/${row.original.id}`}>View case</Link>
                 </DropdownMenu.Item>
-                <PermissionGate permission="cases.assign">
+                <PermissionGate permission="governance.case.update_status">
                   <DropdownMenu.Item
                     onSelect={() => {
                       setSelected(row.original);
@@ -99,7 +100,7 @@ export function CasesListPage() {
                     Assign case
                   </DropdownMenu.Item>
                 </PermissionGate>
-                <PermissionGate permission="cases.escalate">
+                <PermissionGate permission="governance.case.escalate">
                   <DropdownMenu.Item
                     onSelect={() => {
                       setSelected(row.original);
@@ -125,6 +126,22 @@ export function CasesListPage() {
         title="Case Management"
         description={`Formal enforcement and investigation cases for ${scope.label} scope.`}
         breadcrumbs={[{ label: 'Taskforce' }, { label: 'Cases' }]}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => exportRowsToCsv('cases', (casesQuery.data?.rows ?? []) as Array<Record<string, unknown>>)}
+            >
+              Export CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => exportRowsToExcelLike('cases', (casesQuery.data?.rows ?? []) as Array<Record<string, unknown>>)}
+            >
+              Export Excel
+            </Button>
+          </div>
+        }
       />
 
       <FilterBar>
@@ -191,7 +208,7 @@ export function CasesListPage() {
           </div>
         ) : null}
         <ActionBar>
-          <PermissionGate permission="complaints.view">
+          <PermissionGate permission="governance.case.read">
             <Button asChild variant="outline">
               <Link to="/app/taskforce/complaints">Open Complaints</Link>
             </Button>

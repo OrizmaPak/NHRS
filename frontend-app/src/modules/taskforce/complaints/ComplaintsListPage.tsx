@@ -23,6 +23,7 @@ import { useCreateCaseFromComplaint } from '@/api/hooks/useCreateCaseFromComplai
 import type { ComplaintRow } from '@/api/hooks/taskforceTypes';
 import { useContextStore } from '@/stores/contextStore';
 import { deriveTaskforceScope } from '@/modules/taskforce/utils/scope';
+import { exportRowsToCsv, exportRowsToExcelLike } from '@/lib/export';
 
 const officers = [
   { value: 'officer-1', label: 'Ayo Bello', description: 'State reviewer' },
@@ -94,7 +95,7 @@ export function ComplaintsListPage() {
                 <DropdownMenu.Item asChild className="cursor-pointer rounded px-2 py-1.5 text-sm outline-none focus:bg-primary/10">
                   <Link to={`/app/taskforce/complaints/${row.original.id}`}>View complaint</Link>
                 </DropdownMenu.Item>
-                <PermissionGate permission="complaints.assign">
+                <PermissionGate permission="governance.case.update_status">
                   <DropdownMenu.Item
                     onSelect={() => {
                       setSelected(row.original);
@@ -105,7 +106,7 @@ export function ComplaintsListPage() {
                     Assign complaint
                   </DropdownMenu.Item>
                 </PermissionGate>
-                <PermissionGate permission="complaints.escalate">
+                <PermissionGate permission="governance.case.escalate">
                   <DropdownMenu.Item
                     onSelect={() => {
                       setSelected(row.original);
@@ -116,7 +117,7 @@ export function ComplaintsListPage() {
                     Escalate complaint
                   </DropdownMenu.Item>
                 </PermissionGate>
-                <PermissionGate permission="complaints.resolve">
+                <PermissionGate permission="governance.case.update_status">
                   <DropdownMenu.Item
                     onSelect={async () => {
                       await assignComplaint.mutateAsync({
@@ -132,7 +133,7 @@ export function ComplaintsListPage() {
                     Mark in review
                   </DropdownMenu.Item>
                 </PermissionGate>
-                <PermissionGate permission="cases.create">
+                <PermissionGate permission="governance.case.create">
                   <DropdownMenu.Item
                     onSelect={async () => {
                       await createCaseFromComplaint.mutateAsync(row.original.id);
@@ -158,6 +159,22 @@ export function ComplaintsListPage() {
         title="Complaints Triage"
         description={`Complaint intake and triage for ${scope.label} jurisdiction.`}
         breadcrumbs={[{ label: 'Taskforce' }, { label: 'Complaints' }]}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => exportRowsToCsv('complaints', (complaintsQuery.data?.rows ?? []) as Array<Record<string, unknown>>)}
+            >
+              Export CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => exportRowsToExcelLike('complaints', (complaintsQuery.data?.rows ?? []) as Array<Record<string, unknown>>)}
+            >
+              Export Excel
+            </Button>
+          </div>
+        }
       />
 
       <FilterBar>
@@ -204,7 +221,7 @@ export function ComplaintsListPage() {
           </div>
         ) : null}
         <ActionBar>
-          <PermissionGate permission="cases.create">
+          <PermissionGate permission="governance.case.create">
             <Button asChild variant="outline">
               <Link to="/app/taskforce/cases">Open Cases</Link>
             </Button>

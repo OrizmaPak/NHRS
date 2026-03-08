@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ColumnDef, PaginationState } from '@tanstack/react-table';
+import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { FilterBar } from '@/components/data/FilterBar';
 import { SearchInput } from '@/components/data/SearchInput';
@@ -8,21 +9,29 @@ import { DataTable } from '@/components/data/DataTable';
 import { ErrorState } from '@/components/feedback/ErrorState';
 import { useAuditEvents } from '@/api/hooks/useAuditEvents';
 import type { AuditEventRow } from '@/api/hooks/taskforceTypes';
+import { Input } from '@/components/ui/Input';
+import { exportRowsToCsv, exportRowsToExcelLike } from '@/lib/export';
 
 export function AuditPage() {
   const [actor, setActor] = useState('');
+  const [actorType, setActorType] = useState<string | null>(null);
   const [moduleFilter, setModuleFilter] = useState<string | null>(null);
   const [actionFilter, setActionFilter] = useState<string | null>(null);
   const [institution, setInstitution] = useState('');
   const [stateFilter, setStateFilter] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 12 });
 
   const auditQuery = useAuditEvents({
     actor: actor || undefined,
+    actorType: actorType || undefined,
     module: moduleFilter || undefined,
     action: actionFilter || undefined,
     institution: institution || undefined,
     state: stateFilter || undefined,
+    from: from || undefined,
+    to: to || undefined,
     page: pagination.pageIndex + 1,
     limit: pagination.pageSize,
   });
@@ -31,6 +40,7 @@ export function AuditPage() {
     () => [
       { accessorKey: 'eventId', header: 'Event ID' },
       { accessorKey: 'actor', header: 'Actor' },
+      { accessorKey: 'actorType', header: 'Actor Type' },
       { accessorKey: 'actorRole', header: 'Role' },
       { accessorKey: 'action', header: 'Action' },
       { accessorKey: 'module', header: 'Module' },
@@ -38,6 +48,8 @@ export function AuditPage() {
       { accessorKey: 'targetId', header: 'Target ID' },
       { accessorKey: 'institution', header: 'Institution' },
       { accessorKey: 'state', header: 'State' },
+      { accessorKey: 'outcome', header: 'Outcome' },
+      { accessorKey: 'summary', header: 'Before/After Summary' },
       { accessorKey: 'timestamp', header: 'Timestamp' },
     ],
     [],
@@ -47,13 +59,41 @@ export function AuditPage() {
     <div className="space-y-6">
       <PageHeader
         title="Governance Audit Trail"
-        description="Read-heavy event visibility for oversight and compliance operations."
+        description="Global audit search with actor, module, action, and timeline filters."
         breadcrumbs={[{ label: 'Governance' }, { label: 'Audit' }]}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => exportRowsToCsv('audit-events', (auditQuery.data?.rows ?? []) as Array<Record<string, unknown>>)}
+            >
+              Export CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => exportRowsToExcelLike('audit-events', (auditQuery.data?.rows ?? []) as Array<Record<string, unknown>>)}
+            >
+              Export Excel
+            </Button>
+          </div>
+        }
       />
 
       <FilterBar>
         <div className="w-full md:max-w-sm">
           <SearchInput value={actor} onChange={setActor} placeholder="Filter by actor" />
+        </div>
+        <div className="w-full md:max-w-[170px]">
+          <SmartSelect
+            value={actorType}
+            onChange={setActorType}
+            placeholder="Actor Type"
+            loadOptions={async () => [
+              { value: 'user', label: 'User' },
+              { value: 'service', label: 'Service' },
+              { value: 'system', label: 'System' },
+            ]}
+          />
         </div>
         <div className="w-full md:max-w-[170px]">
           <SmartSelect
@@ -89,6 +129,27 @@ export function AuditPage() {
         <div className="w-full md:max-w-[150px]">
           <SearchInput value={stateFilter} onChange={setStateFilter} placeholder="State" />
         </div>
+        <div className="w-full md:max-w-[160px]">
+          <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+        </div>
+        <div className="w-full md:max-w-[160px]">
+          <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setActor('');
+            setActorType(null);
+            setModuleFilter(null);
+            setActionFilter(null);
+            setInstitution('');
+            setStateFilter('');
+            setFrom('');
+            setTo('');
+          }}
+        >
+          Clear
+        </Button>
       </FilterBar>
 
       {auditQuery.isError ? (

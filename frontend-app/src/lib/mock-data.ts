@@ -20,7 +20,7 @@ export const mockContexts: AppContext[] = [
     subtitle: 'National citizen portal',
     themeScopeType: 'platform',
     themeScopeId: null,
-    permissions: ['dashboard.read', 'doctor.registry.read'],
+    permissions: ['records.me.read', 'doctor.read'],
   },
   {
     id: 'ctx-hospital-01',
@@ -30,7 +30,7 @@ export const mockContexts: AppContext[] = [
     logoUrl: providerLogo,
     themeScopeType: 'organization',
     themeScopeId: 'org-001',
-    permissions: ['dashboard.read', 'provider.patient.read', 'provider.patient.write', 'records.read', 'records.write', 'ui.theme.update'],
+    permissions: ['profile.search', 'profile.user.read', 'records.nin.read', 'records.entry.create', 'ui.theme.write'],
   },
   {
     id: 'ctx-state-lagos',
@@ -39,7 +39,7 @@ export const mockContexts: AppContext[] = [
     subtitle: 'Government context',
     themeScopeType: 'state',
     themeScopeId: 'state-lagos',
-    permissions: ['dashboard.read', 'analytics.read', 'governance.case.read', 'ui.theme.update'],
+    permissions: ['governance.case.read', 'audit.read', 'ui.theme.write'],
   },
   {
     id: 'ctx-taskforce-state',

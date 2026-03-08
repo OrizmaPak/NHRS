@@ -15,6 +15,7 @@ export function useAssignCase() {
   return useMutation({
     mutationFn: async (payload: AssignPayload) =>
       apiClient.patch(endpoints.taskforce.assignCase(payload.caseId), {
+        status: 'in_review',
         assignedOfficer: payload.assigneeId,
         dueDate: payload.dueDate,
         priority: payload.priority,

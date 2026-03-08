@@ -13,9 +13,11 @@ export type MedicationFormValues = {
 export function MedicationFormSection({
   values,
   onChange,
+  showRoute = true,
 }: {
   values: MedicationFormValues;
   onChange: (values: MedicationFormValues) => void;
+  showRoute?: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -28,10 +30,12 @@ export function MedicationFormSection({
           <label className="text-sm font-medium text-foreground">Dosage</label>
           <Input value={values.dosage} onChange={(e) => onChange({ ...values, dosage: e.target.value })} />
         </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-foreground">Route</label>
-          <Input value={values.route} onChange={(e) => onChange({ ...values, route: e.target.value })} />
-        </div>
+        {showRoute ? (
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-foreground">Route</label>
+            <Input value={values.route} onChange={(e) => onChange({ ...values, route: e.target.value })} />
+          </div>
+        ) : null}
         <div className="space-y-1">
           <label className="text-sm font-medium text-foreground">Frequency</label>
           <Input value={values.frequency} onChange={(e) => onChange({ ...values, frequency: e.target.value })} />

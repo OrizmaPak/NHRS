@@ -66,7 +66,7 @@ export function PharmacyDetailsPage() {
               </Button>
             ) : null}
             <PermissionGate permission="pharmacy.update">
-              <Button variant="outline" onClick={() => navigate(`/app/provider/pharmacy/${id}?mode=edit`)}>
+              <Button variant="outline" onClick={() => navigate(`/app/provider/pharmacy/${id}/edit`)}>
                 Edit Prescription
               </Button>
             </PermissionGate>

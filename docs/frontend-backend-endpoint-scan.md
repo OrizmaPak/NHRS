@@ -1,0 +1,203 @@
+# NHRS Frontend ? Backend Endpoint Scan
+
+Generated: 2026-03-08T06:34:56.550Z
+
+## Summary
+- OpenAPI paths (gateway): **104**
+- Frontend endpoint definitions: **103**
+- Frontend endpoint keys used in code: **96**
+- Used endpoints that match OpenAPI path: **44**
+- Used endpoints not found in OpenAPI path: **52**
+- Defined frontend endpoints not used in code: **7**
+- OpenAPI paths not used by frontend: **72**
+
+## A) Used by Frontend AND present in OpenAPI
+
+- [GET] `/audit/events`  <- `governance.auditEvents`
+- [POST] `/auth/login`  <- `auth.login`
+- [POST] `/auth/logout`  <- `auth.logout`
+- [GET] `/auth/me`  <- `auth.meFallback`
+- [GET] `/auth/me`  <- `identity.me`
+- [POST] `/auth/token/refresh`  <- `auth.refresh`
+- [GET] `/cases`  <- `governance.oversight`
+- [GET] `/cases`  <- `taskforce.cases`
+- [GET] `/cases`  <- `taskforce.complaints`
+- [GET] `/cases`  <- `taskforce.dashboard`
+- [GET] `/cases/{param}`  <- `taskforce.caseById`
+- [GET] `/cases/{param}`  <- `taskforce.complaintById`
+- [POST] `/cases/{param}/escalate`  <- `taskforce.escalateCase`
+- [POST] `/cases/{param}/escalate`  <- `taskforce.escalateComplaint`
+- [GET] `/doctors/{param}`  <- `doctorRegistry.profile`
+- [GET] `/doctors/search`  <- `doctorRegistry.search`
+- [GET] `/emergency/inventory/search`  <- `emergency.inventorySearch`
+- [GET,POST] `/emergency/requests`  <- `emergency.requests`
+- [GET] `/emergency/requests/{param}`  <- `emergency.caseById`
+- [GET,POST] `/emergency/requests/{param}/responses`  <- `emergency.caseResponses`
+- [GET] `/emergency/requests/{param}/room`  <- `emergency.caseRoom`
+- [PATCH] `/emergency/requests/{param}/status`  <- `emergency.updateStatus`
+- [POST] `/emergency/rooms/{param}/messages`  <- `emergency.roomMessages`
+- [POST] `/encounters/{param}`  <- `provider.createEncounterByNin`
+- [GET] `/encounters/{param}`  <- `provider.encountersByNin`
+- [GET] `/encounters/id/{param}`  <- `provider.encounterById`
+- [PATCH] `/encounters/id/{param}`  <- `provider.updateEncounterById`
+- [POST] `/labs/{param}/results`  <- `provider.createLabByNin`
+- [GET] `/labs/{param}/results`  <- `provider.labsByNin`
+- [GET] `/labs/results/id/{param}`  <- `provider.labById`
+- [PATCH] `/labs/results/id/{param}`  <- `provider.updateLabById`
+- [POST] `/pharmacy/{param}/dispenses`  <- `provider.createPharmacyByNin`
+- [GET] `/pharmacy/{param}/dispenses`  <- `provider.pharmacyByNin`
+- [GET] `/pharmacy/dispenses/id/{param}`  <- `provider.pharmacyById`
+- [PATCH] `/pharmacy/dispenses/id/{param}`  <- `provider.updatePharmacyById`
+- [GET] `/profile/by-nin/{param}`  <- `provider.patientProfileByNin`
+- [GET] `/profile/search`  <- `provider.patientSearch`
+- [GET] `/records/me`  <- `records.me`
+- [POST] `/records/me/symptoms`  <- `records.addSymptom`
+- [GET] `/ui/theme`  <- `uiTheme.list`
+- [PATCH] `/ui/theme/{param}`  <- `uiTheme.update`
+- [POST] `/ui/theme/{param}/logo`  <- `uiTheme.logo`
+- [GET] `/ui/theme/effective`  <- `uiTheme.effective`
+- [GET] `/ui/theme/platform`  <- `uiTheme.platform`
+
+## B) Used by Frontend but NOT present in OpenAPI (contract mismatch/risk)
+
+- [GET] `/admin/institutions`  <- `admin.institutions`
+- [PATCH] `/admin/roles/{param}`  <- `admin.roleById`
+- [GET,POST] `/admin/roles`  <- `admin.roles`
+- [PATCH] `/admin/users/{param}`  <- `admin.userById`
+- [GET] `/admin/users`  <- `admin.users`
+- [GET] `/alerts`  <- `alerts.list`
+- [GET] `/analytics/dashboard`  <- `analytics.dashboard`
+- [GET] `/analytics/metrics`  <- `analytics.metrics`
+- [GET] `/compliance/data-quality`  <- `compliance.dataQuality`
+- [GET] `/compliance/summary`  <- `compliance.summary`
+- [GET] `/me/contexts`  <- `identity.contexts`
+- [POST] `/me/context/switch`  <- `identity.switchContext`
+- [GET] `/institution/dashboard`  <- `institution.dashboard`
+- [GET,POST] `/integrations/api-keys`  <- `integrations.apiKeys`
+- [GET] `/integrations/{param}`  <- `integrations.byId`
+- [PATCH] `/integrations/{param}/disable`  <- `integrations.disable`
+- [GET] `/integrations`  <- `integrations.list`
+- [POST] `/integrations/api-keys/{param}/revoke`  <- `integrations.revokeApiKey`
+- [POST] `/integrations/api-keys/{param}/rotate`  <- `integrations.rotateApiKey`
+- [GET] `/integrations/sync`  <- `integrations.syncEvents`
+- [POST] `/integrations/{param}/test`  <- `integrations.test`
+- [GET] `/notifications`  <- `notifications.list`
+- [PATCH] `/notifications/{param}/read`  <- `notifications.read`
+- [POST] `/notifications/read-all`  <- `notifications.readAll`
+- [POST] `/labs/results/id/{param}/complete`  <- `provider.completeLabById`
+- [POST] `/pharmacy/dispenses/id/{param}/dispense`  <- `provider.dispensePharmacyById`
+- [POST] `/encounters/id/{param}/finalize`  <- `provider.finalizeEncounterById`
+- [PATCH,DELETE] `/rbac/permissions/{param}`  <- `rbac.appPermissionByKey`
+- [GET,POST] `/rbac/permissions`  <- `rbac.appPermissions`
+- [PATCH,DELETE] `/rbac/roles/{param}`  <- `rbac.appRoleById`
+- [GET,POST] `/rbac/roles`  <- `rbac.appRoles`
+- [POST,DELETE] `/rbac/users/{param}/overrides`  <- `rbac.appUserOverrides`
+- [POST,DELETE] `/rbac/users/{param}/roles`  <- `rbac.appUserRoles`
+- [PATCH,DELETE] `/rbac/org/permissions/{param}`  <- `rbac.orgPermissionByKey`
+- [GET,POST] `/rbac/org/permissions`  <- `rbac.orgPermissions`
+- [PATCH,DELETE] `/rbac/org/roles/{param}`  <- `rbac.orgRoleById`
+- [GET,POST] `/rbac/org/roles`  <- `rbac.orgRoles`
+- [GET] `/rbac/users/{param}/access`  <- `rbac.userAccess`
+- [GET] `/reports/{param}`  <- `reports.byId`
+- [POST] `/reports/{param}/download`  <- `reports.download`
+- [POST] `/reports/{param}/generate`  <- `reports.generate`
+- [GET] `/reports`  <- `reports.list`
+- [GET] `/system/activity`  <- `system.activity`
+- [GET,PATCH] `/system/configuration`  <- `system.configuration`
+- [GET] `/system/dev-tools`  <- `system.devTools`
+- [GET] `/system/health`  <- `system.health`
+- [GET] `/system/incidents`  <- `system.incidents`
+- [GET] `/system/monitoring`  <- `system.monitoring`
+- [PATCH] `/cases/{param}/assign`  <- `taskforce.assignCase`
+- [PATCH] `/cases/{param}/assign`  <- `taskforce.assignComplaint`
+- [POST,GET] `/cases/{param}/notes`  <- `taskforce.caseNotes`
+- [POST] `/cases/{param}/convert`  <- `taskforce.convertComplaintToCase`
+
+## C) Defined in Frontend endpoint registry but currently NOT used
+
+- `/admin/institutions/__ARG1__` <- `admin.institutionById`
+- `/admin/system-settings` <- `admin.settings`
+- `/integrations/api-keys/__ARG1__` <- `integrations.apiKeyById`
+- `/rbac/org/users/__ARG1__/overrides` <- `rbac.orgUserOverrides`
+- `/rbac/org/users/__ARG1__/roles` <- `rbac.orgUserRoles`
+- `/records/__ARG1__` <- `records.byNin`
+- `/ui/theme` <- `uiTheme.create`
+
+## D) OpenAPI paths NOT used anywhere in frontend
+
+- [GET] `/audit/events/{eventId}`
+- [POST] `/auth/contact/email`
+- [POST] `/auth/contact/email/verify`
+- [POST] `/auth/contact/phone`
+- [POST] `/auth/contact/phone/verify`
+- [POST] `/auth/context/switch`
+- [POST] `/auth/password/change`
+- [POST] `/auth/password/forgot`
+- [POST] `/auth/password/reset`
+- [POST] `/auth/password/set`
+- [POST,GET] `/case-rooms/{roomId}/messages`
+- [POST] `/cases/{caseId}/corrections/approve`
+- [POST] `/cases/{caseId}/corrections/propose`
+- [POST] `/cases/{caseId}/corrections/reject`
+- [GET] `/cases/{caseId}/room`
+- [PATCH] `/cases/{caseId}/status`
+- [POST] `/doctors/register`
+- [PUT] `/emergency/inventory/me`
+- [POST] `/licenses/{doctorId}/reinstate`
+- [POST] `/licenses/{doctorId}/revoke`
+- [POST] `/licenses/{doctorId}/suspend`
+- [POST] `/licenses/{doctorId}/verify`
+- [GET] `/nin/{nin}`
+- [POST] `/nin/refresh/{nin}`
+- [POST,GET] `/orgs`
+- [GET,PATCH] `/orgs/{orgId}`
+- [POST] `/orgs/{orgId}/assign-owner`
+- [POST,GET] `/orgs/{orgId}/branches`
+- [GET,PATCH,DELETE] `/orgs/{orgId}/branches/{branchId}`
+- [POST,GET] `/orgs/{orgId}/members`
+- [GET,PATCH] `/orgs/{orgId}/members/{memberId}`
+- [POST] `/orgs/{orgId}/members/{memberId}/branches`
+- [PATCH,DELETE] `/orgs/{orgId}/members/{memberId}/branches/{assignmentId}`
+- [GET] `/orgs/{orgId}/members/{memberId}/history`
+- [PATCH] `/orgs/{orgId}/members/{memberId}/status`
+- [POST] `/orgs/{orgId}/members/{memberId}/transfer`
+- [GET] `/orgs/{orgId}/memberships`
+- [GET] `/orgs/{orgId}/memberships/{membershipId}`
+- [POST] `/orgs/{orgId}/memberships/{membershipId}/branches`
+- [PATCH] `/orgs/{orgId}/memberships/{membershipId}/branches/{branchId}`
+- [POST] `/orgs/{orgId}/memberships/invite`
+- [PATCH] `/orgs/{orgId}/owner`
+- [GET] `/orgs/search`
+- [GET] `/profile/{userId}`
+- [POST] `/profile/create-placeholder`
+- [GET,PATCH] `/profile/me`
+- [POST] `/profile/me/request-nin-refresh`
+- [GET] `/profile/me/status`
+- [POST,GET] `/rbac/app/permissions`
+- [POST,GET] `/rbac/app/roles`
+- [PATCH,DELETE] `/rbac/app/roles/{roleId}`
+- [GET] `/rbac/app/users/{userId}/access`
+- [POST] `/rbac/app/users/{userId}/overrides`
+- [POST] `/rbac/app/users/{userId}/roles`
+- [POST] `/rbac/check`
+- [GET] `/rbac/me/scope`
+- [POST,GET] `/rbac/org/{organizationId}/permissions`
+- [POST,GET] `/rbac/org/{organizationId}/roles`
+- [PATCH,DELETE] `/rbac/org/{organizationId}/roles/{roleId}`
+- [GET] `/rbac/org/{organizationId}/users/{userId}/access`
+- [POST] `/rbac/org/{organizationId}/users/{userId}/overrides`
+- [POST] `/rbac/org/{organizationId}/users/{userId}/roles`
+- [GET] `/records/{nin}`
+- [POST] `/records/{nin}/entries`
+- [PATCH] `/records/entries/{entryId}`
+- [POST] `/records/entries/{entryId}/hide`
+- [POST,GET] `/taskforce/units`
+- [PATCH] `/taskforce/units/{unitId}`
+- [POST,GET] `/taskforce/units/{unitId}/members`
+- [DELETE] `/taskforce/units/{unitId}/members/{memberId}`
+- [GET] `/users/{userId}/memberships`
+- [GET] `/users/{userId}/movement-history`
+
+## Notes
+- This scan is static (source + OpenAPI contract). It does not imply runtime authorization success.
+- Main mismatch cluster is RBAC/Admin/System/Integrations paths: frontend uses short forms (e.g., `/rbac/roles`) while OpenAPI exposes `/rbac/app/roles` and org-scoped variants with `{organizationId}`.

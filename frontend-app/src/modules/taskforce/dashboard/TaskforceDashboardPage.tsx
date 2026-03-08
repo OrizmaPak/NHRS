@@ -29,7 +29,7 @@ export function TaskforceDashboardPage() {
         breadcrumbs={[{ label: 'Taskforce' }, { label: 'Dashboard' }]}
         actions={
           <ActionBar>
-            <PermissionGate permission="complaints.view">
+            <PermissionGate permission="governance.case.read">
               <Button asChild variant="outline">
                 <Link to="/app/taskforce/complaints">
                   <ListChecks className="h-4 w-4" />
@@ -37,7 +37,7 @@ export function TaskforceDashboardPage() {
                 </Link>
               </Button>
             </PermissionGate>
-            <PermissionGate permission="cases.view">
+            <PermissionGate permission="governance.case.read">
               <Button asChild variant="outline">
                 <Link to="/app/taskforce/cases">
                   <FileClock className="h-4 w-4" />
@@ -45,7 +45,7 @@ export function TaskforceDashboardPage() {
                 </Link>
               </Button>
             </PermissionGate>
-            <PermissionGate permission={['audit.view', 'oversight.view']}>
+            <PermissionGate permission={['audit.read', 'governance.case.read']}>
               <Button asChild>
                 <Link to="/app/governance/oversight">
                   <ArrowUpRight className="h-4 w-4" />
@@ -103,7 +103,7 @@ export function TaskforceDashboardPage() {
             </div>
           </CardHeader>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <PermissionGate permission="complaints.assign">
+            <PermissionGate permission="governance.case.update_status">
               <Button asChild variant="outline" className="justify-start">
                 <Link to="/app/taskforce/complaints">
                   <ShieldCheck className="h-4 w-4" />
@@ -111,7 +111,7 @@ export function TaskforceDashboardPage() {
                 </Link>
               </Button>
             </PermissionGate>
-            <PermissionGate permission="cases.create">
+            <PermissionGate permission="governance.case.create">
               <Button asChild variant="outline" className="justify-start">
                 <Link to="/app/taskforce/complaints">
                   <FilePlus2 className="h-4 w-4" />
@@ -119,7 +119,7 @@ export function TaskforceDashboardPage() {
                 </Link>
               </Button>
             </PermissionGate>
-            <PermissionGate permission="cases.escalate">
+            <PermissionGate permission="governance.case.escalate">
               <Button asChild variant="outline" className="justify-start">
                 <Link to="/app/taskforce/cases">
                   <ArrowUpRight className="h-4 w-4" />
@@ -127,7 +127,7 @@ export function TaskforceDashboardPage() {
                 </Link>
               </Button>
             </PermissionGate>
-            <PermissionGate permission="audit.view">
+            <PermissionGate permission="audit.read">
               <Button asChild variant="outline" className="justify-start">
                 <Link to="/app/governance/audit">
                   <AlertTriangle className="h-4 w-4" />

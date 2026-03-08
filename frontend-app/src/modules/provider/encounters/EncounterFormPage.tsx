@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -39,11 +39,15 @@ const schema = z.object({
 
 type Values = z.infer<typeof schema>;
 
+const encounterTypes = ['outpatient', 'inpatient', 'emergency'];
+const encounterStatuses = ['draft', 'in_progress', 'finalized'];
+
 export function EncounterFormPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { nin: ninParam, id } = useParams();
   const [searchParams] = useSearchParams();
-  const isEdit = Boolean(id) && searchParams.get('mode') === 'edit';
+  const isEdit = Boolean(id) && (location.pathname.endsWith('/edit') || searchParams.get('mode') === 'edit');
 
   const encounterQuery = useEncounter(id ?? '');
   const initialNin = ninParam || encounterQuery.data?.nin || '';
@@ -174,7 +178,16 @@ export function EncounterFormPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-foreground">Encounter Type</label>
-              <Input {...register('encounterType')} placeholder="outpatient" />
+              <select
+                {...register('encounterType')}
+                className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+              >
+                {encounterTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
               {errors.encounterType ? <p className="text-xs text-danger">{errors.encounterType.message}</p> : null}
             </div>
             <div className="space-y-1">
@@ -184,7 +197,16 @@ export function EncounterFormPage() {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-foreground">Status</label>
-              <Input {...register('status')} placeholder="draft" />
+              <select
+                {...register('status')}
+                className="h-10 w-full rounded-md border border-border bg-white px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+              >
+                {encounterStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
               {errors.status ? <p className="text-xs text-danger">{errors.status.message}</p> : null}
             </div>
           </div>

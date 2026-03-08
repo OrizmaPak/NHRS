@@ -42,6 +42,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export function LoginPage() {
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore((state) => state.user);
   const loginMutation = useLogin();
 
   const form = useForm<LoginFormValues>({
@@ -55,6 +56,15 @@ export function LoginPage() {
     },
   });
   const method = form.watch('method');
+  const switchMethod = (nextMethod: LoginFormValues['method']) => {
+    form.setValue('method', nextMethod, { shouldValidate: true });
+    if (nextMethod === 'email') {
+      form.setValue('email', 'superadmin@nhrs.local', { shouldDirty: true, shouldValidate: true });
+      form.setValue('password', 'Admin@1234', { shouldDirty: true, shouldValidate: true });
+      form.setValue('nin', '', { shouldDirty: true, shouldValidate: false });
+      form.setValue('phone', '', { shouldDirty: true, shouldValidate: false });
+    }
+  };
 
   const submitLogin = async (values: LoginFormValues) => {
     const payload: LoginPayload = { method: values.method, password: values.password };
@@ -66,9 +76,9 @@ export function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/app', { replace: true });
+      navigate(user?.requiresPasswordChange ? '/auth/password/setup' : '/app', { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, user?.requiresPasswordChange]);
 
   return (
     <div className="grid min-h-screen place-items-center bg-gradient-to-br from-background via-white to-primary/10 px-4 py-8">
@@ -86,7 +96,8 @@ export function LoginPage() {
             try {
               await submitLogin(values);
               toast.success('Session initialized');
-              navigate('/app', { replace: true });
+              const currentUser = useAuthStore.getState().user;
+              navigate(currentUser?.requiresPasswordChange ? '/auth/password/setup' : '/app', { replace: true });
             } catch (error) {
               toast.error(error instanceof Error ? error.message : 'Unable to login');
             }
@@ -97,21 +108,21 @@ export function LoginPage() {
               <Button
                 type="button"
                 variant={method === 'nin' ? 'default' : 'outline'}
-                onClick={() => form.setValue('method', 'nin', { shouldValidate: true })}
+                onClick={() => switchMethod('nin')}
               >
                 NIN
               </Button>
               <Button
                 type="button"
                 variant={method === 'email' ? 'default' : 'outline'}
-                onClick={() => form.setValue('method', 'email', { shouldValidate: true })}
+                onClick={() => switchMethod('email')}
               >
                 Email
               </Button>
               <Button
                 type="button"
                 variant={method === 'phone' ? 'default' : 'outline'}
-                onClick={() => form.setValue('method', 'phone', { shouldValidate: true })}
+                onClick={() => switchMethod('phone')}
               >
                 Phone
               </Button>

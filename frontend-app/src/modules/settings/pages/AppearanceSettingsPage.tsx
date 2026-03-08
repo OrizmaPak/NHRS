@@ -14,7 +14,7 @@ export function AppearanceSettingsPage() {
       />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-        <PermissionGate permission={['ui.theme.update', 'organization.admin', 'state.admin', 'taskforce.admin']}>
+        <PermissionGate permission={['ui.theme.write', 'rbac.org.manage', 'rbac.app.manage']}>
           <Card className="shadow-subtle">
             <CardHeader>
               <div>
