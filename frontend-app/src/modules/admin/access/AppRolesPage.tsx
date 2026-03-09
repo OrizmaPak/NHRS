@@ -80,6 +80,7 @@ export function AppRolesPage() {
             <Button
               size="sm"
               variant="outline"
+              disabled={!canDeleteRole(row.original)}
               onClick={() => setDeleteTarget(row.original)}
             >
               Delete
@@ -111,6 +112,11 @@ export function AppRolesPage() {
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
+    if (!canDeleteRole(deleteTarget)) {
+      toast.error('This role cannot be deleted.');
+      setDeleteTarget(null);
+      return;
+    }
     try {
       await deleteRole.mutateAsync(deleteTarget.id);
       toast.success(`Role "${deleteTarget.name}" deleted`);
@@ -249,3 +255,4 @@ export function AppRolesPage() {
     </div>
   );
 }
+  const canDeleteRole = (role: RoleRow) => String(role.id || '').trim().length > 0;

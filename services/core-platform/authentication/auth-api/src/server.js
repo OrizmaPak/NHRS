@@ -571,6 +571,13 @@ async function requireAdmin(req, reply) {
   }
 }
 
+async function requireInternal(req, reply) {
+  const incoming = req.headers['x-internal-token'];
+  if (!incoming || incoming !== internalServiceToken) {
+    return reply.code(401).send({ message: 'Unauthorized internal call' });
+  }
+}
+
 async function connect() {
   if (!mongoUri) {
     fastify.log.warn('Missing MONGODB_URI; starting without database connection');
@@ -1505,6 +1512,87 @@ fastify.post('/context/switch', { preHandler: requireAuth }, async (req, reply) 
   });
 });
 
+fastify.get('/users/search', { preHandler: requireAuth }, async (req, reply) => {
+  const q = String(req.query?.q ?? '').trim();
+  const page = Math.max(1, Number(req.query?.page ?? 1));
+  const limit = Math.min(50, Math.max(1, Number(req.query?.limit ?? 10)));
+  const skip = (page - 1) * limit;
+
+  if (!q || q.length < 1) {
+    return reply.send({ items: [], page, limit, total: 0 });
+  }
+
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(escaped, 'i');
+
+  const baseFilter = {
+    $or: [
+      { nin: { $regex: regex } },
+      { email: { $regex: regex } },
+      { phone: { $regex: regex } },
+      { firstName: { $regex: regex } },
+      { lastName: { $regex: regex } },
+      { otherName: { $regex: regex } },
+      { fullName: { $regex: regex } },
+      { bvn: { $regex: regex } },
+    ],
+  };
+
+  const directUsers = await collections.users().find(baseFilter).limit(limit).toArray();
+
+  const ninFromCache = await collections
+    .ninCache()
+    .find({
+      $or: [
+        { nin: { $regex: regex } },
+        { bvn: { $regex: regex } },
+        { email: { $regex: regex } },
+        { phone: { $regex: regex } },
+        { firstName: { $regex: regex } },
+        { lastName: { $regex: regex } },
+        { otherName: { $regex: regex } },
+      ],
+    })
+    .project({ nin: 1 })
+    .limit(limit)
+    .toArray();
+
+  const ninSet = new Set(ninFromCache.map((entry) => String(entry.nin || '')).filter(Boolean));
+  const usersByNin = ninSet.size > 0
+    ? await collections.users().find({ nin: { $in: Array.from(ninSet) } }).limit(limit).toArray()
+    : [];
+
+  const merged = new Map();
+  for (const row of [...directUsers, ...usersByNin]) {
+    merged.set(String(row._id), row);
+  }
+
+  const items = Array.from(merged.values())
+    .slice(skip, skip + limit)
+    .map((user) => ({
+      id: String(user._id),
+      userId: String(user._id),
+      displayName: user.fullName || [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || `User ${user.nin || String(user._id)}`,
+      firstName: user.firstName || null,
+      lastName: user.lastName || null,
+      otherName: user.otherName || null,
+      nin: user.nin || null,
+      bvn: user.bvn || null,
+      email: user.email || null,
+      phone: user.phone || null,
+      roles: Array.isArray(user.roles) ? user.roles : [],
+      status: user.status || 'active',
+    }));
+
+  return reply.send({
+    items,
+    page,
+    limit,
+    total: items.length,
+    q,
+  });
+});
+
 fastify.post('/contact/phone', { preHandler: requireAuth }, async (req, reply) => {
   const { phone } = req.body || {};
   if (!phone) {
@@ -1820,6 +1908,25 @@ fastify.get('/rbac/user/:userId/scope', { preHandler: requireAuth }, async (req,
     userId,
     roles: user.roles || [],
     scope,
+  });
+});
+
+fastify.post('/internal/users/roles/remove', { preHandler: requireInternal }, async (req, reply) => {
+  const roleName = String(req.body?.roleName || '').trim();
+  if (!roleName) {
+    return reply.code(400).send({ message: 'roleName is required' });
+  }
+
+  const result = await collections.users().updateMany(
+    { roles: roleName },
+    { $pull: { roles: roleName }, $set: { updatedAt: new Date() } },
+  );
+
+  return reply.send({
+    message: 'Role removed from users',
+    roleName,
+    matchedUsers: result.matchedCount || 0,
+    modifiedUsers: result.modifiedCount || 0,
   });
 });
 

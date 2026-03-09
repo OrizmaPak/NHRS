@@ -102,6 +102,53 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
   suppressGlobalErrors?: boolean;
 };
 
+function inferPermissionFromRequest(method: string, path: string): string | undefined {
+  const m = method.toUpperCase();
+  const p = path.toLowerCase();
+
+  if (m === 'GET' && (p === '/auth/me' || p === '/me')) return 'auth.me.read';
+  if (m === 'GET' && p === '/records/me') return 'records.me.read';
+  if (m === 'POST' && p === '/records/me/symptoms') return 'records.symptoms.create';
+  if (p.startsWith('/records/') && p.includes('/entries') && m === 'POST') return 'records.entry.create';
+  if (p.startsWith('/records/') && p.includes('/entries') && m === 'PATCH') return 'records.entry.update';
+
+  if (p.startsWith('/encounters')) {
+    if (m === 'GET') return 'encounters.read';
+    if (m === 'POST') return 'encounters.create';
+    if (m === 'PATCH') return 'encounters.update';
+  }
+
+  if (p.startsWith('/labs')) {
+    if (m === 'GET') return 'labs.read';
+    if (m === 'POST') return 'labs.create';
+    if (m === 'PATCH') return 'labs.update';
+  }
+
+  if (p.startsWith('/pharmacy')) {
+    if (m === 'GET') return 'pharmacy.read';
+    if (m === 'POST') return 'pharmacy.create';
+    if (m === 'PATCH') return 'pharmacy.update';
+  }
+
+  if (p.startsWith('/emergency')) {
+    if (m === 'GET') return 'emergency.request.read';
+    if (m === 'POST') return 'emergency.request.create';
+    if (m === 'PATCH') return 'emergency.request.update_status';
+    if (m === 'PUT' && p.includes('/inventory')) return 'emergency.inventory.upsert';
+  }
+
+  if (p.startsWith('/cases')) {
+    if (m === 'GET') return 'governance.case.read';
+    if (m === 'POST') return 'governance.case.create';
+    if (m === 'PATCH') return 'governance.case.update_status';
+  }
+
+  if (p.startsWith('/rbac/app')) return 'rbac.app.manage';
+  if (p.startsWith('/rbac/org')) return 'rbac.org.manage';
+
+  return undefined;
+}
+
 function extractDeniedPermission(details?: Record<string, unknown>): string | undefined {
   if (!details || typeof details !== 'object') return undefined;
 
@@ -167,7 +214,8 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     const deniedPermission =
       extractDeniedPermission(payload?.details)
       ?? extractPermissionFromText(payload?.message)
-      ?? extractPermissionFromText(payload?.code);
+      ?? extractPermissionFromText(payload?.code)
+      ?? inferPermissionFromRequest(method, path);
 
     if (!suppressGlobalErrors && (response.status === 401 || response.status === 403 || response.status === 429 || response.status >= 500)) {
       window.dispatchEvent(
@@ -177,6 +225,8 @@ async function request<T>(method: string, path: string, options: RequestOptions 
             message: payload?.message,
             code: payload?.code,
             deniedPermission,
+            method: method.toUpperCase(),
+            path,
           },
         }),
       );
@@ -202,5 +252,5 @@ export const apiClient = {
   get: <T>(path: string, options?: Omit<RequestOptions, 'body'>) => request<T>('GET', path, options),
   post: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'body'>) => request<T>('POST', path, { ...options, body }),
   patch: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'body'>) => request<T>('PATCH', path, { ...options, body }),
-  delete: <T>(path: string, options?: Omit<RequestOptions, 'body'>) => request<T>('DELETE', path, options),
+  delete: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'body'>) => request<T>('DELETE', path, { ...options, body }),
 };

@@ -6,6 +6,7 @@ import { ProtectedRoute } from '@/routes/ProtectedRoute';
 import { PermissionGate } from '@/components/navigation/PermissionGate';
 import { InterfaceAccessGate } from '@/routes/InterfaceAccessGate';
 import { navigationItems } from '@/routes/navigation';
+import { useContextStore } from '@/stores/contextStore';
 import { usePermissionsStore } from '@/stores/permissionsStore';
 import { getFirstAllowedNavigationPath } from '@/lib/navigationAccess';
 
@@ -105,6 +106,29 @@ function AccessFallback({ deniedPermission }: { deniedPermission?: string | stri
   return withSuspense(<UnauthorizedPage deniedPermission={deniedPermission} />);
 }
 
+function AppEntryRoute() {
+  const hasPermission = usePermissionsStore((state) => state.hasPermission);
+  const hasAny = usePermissionsStore((state) => state.hasAny);
+  const _permissionsVersion = usePermissionsStore((state) => state.version);
+  void _permissionsVersion;
+  const activeContext = useContextStore((state) => state.activeContext);
+
+  const firstAllowedByResolved = getFirstAllowedNavigationPath(navigationItems, hasPermission, hasAny);
+  const contextPermissions = new Set(Array.isArray(activeContext?.permissions) ? activeContext.permissions : []);
+  const hasContextPermission = (permission: string) => contextPermissions.has('*') || contextPermissions.has(permission);
+  const hasContextAny = (permissions: string[]) => permissions.some((permission) => hasContextPermission(permission));
+  const firstAllowedByContext = getFirstAllowedNavigationPath(navigationItems, hasContextPermission, hasContextAny);
+
+  const target = firstAllowedByResolved ?? firstAllowedByContext;
+  if (target === '/app') {
+    return withSuspense(<DashboardPage />);
+  }
+  if (target) {
+    return <Navigate to={target} replace />;
+  }
+  return withSuspense(<UnauthorizedPage deniedPermission="No permitted interface for active context" />);
+}
+
 function restricted(element: ReactElement, permission: string | string[]) {
   return (
     <InterfaceAccessGate permission={permission} fallback={<AccessFallback deniedPermission={permission} />}>
@@ -132,7 +156,7 @@ export const appRouter = createBrowserRouter([
         path: '/app',
         element: <AppShell />,
         children: [
-          { index: true, element: restricted(<DashboardPage />, 'auth.me.read') },
+          { index: true, element: <AppEntryRoute /> },
           { path: 'public/timeline', element: restricted(<TimelinePage />, 'records.me.read') },
           { path: 'public/doctor-registry', element: restricted(<DoctorRegistryPage />, 'auth.me.read') },
           { path: 'public/doctor-registry/:doctorId', element: restricted(<DoctorProfilePage />, 'doctor.read') },

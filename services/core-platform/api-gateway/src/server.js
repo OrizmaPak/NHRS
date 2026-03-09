@@ -770,6 +770,28 @@ function registerAuthRoutes() {
     });
   }
 
+  registerProxyRoute({
+    method: 'GET',
+    url: '/auth/users/search',
+    targetBase: authApiBaseUrl,
+    targetPath: '/users/search',
+    schema: {
+      tags: ['Auth'],
+      summary: 'Search identity users by NIN/BVN/email/phone/name',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      querystring: {
+        type: 'object',
+        properties: {
+          q: { type: 'string' },
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 50 },
+        },
+      },
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
   const publicAuthRoutes = [
     { method: 'POST', path: '/auth/password/forgot', upstream: '/password/forgot' },
     { method: 'POST', path: '/auth/password/reset', upstream: '/password/reset' },

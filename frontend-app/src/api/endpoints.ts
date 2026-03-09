@@ -5,6 +5,7 @@ export const endpoints = {
     refresh: '/auth/token/refresh',
     passwordSet: '/auth/password/set',
     meFallback: '/auth/me',
+    userSearch: '/auth/users/search',
     ninLookup: (nin: string) => `/nin/${nin}`,
   },
   identity: {

@@ -11,6 +11,7 @@ const permissionRegistry = [
   { method: 'POST', path: '/auth/password/set', public: true },
   { method: 'POST', path: '/auth/password/change', public: true },
   { method: 'GET', path: '/auth/me', public: true },
+  { method: 'GET', path: '/auth/users/search', permissionKey: 'rbac.app.manage' },
   { method: 'POST', path: '/auth/context/switch', permissionKey: 'auth.me.read' },
   { method: 'POST', path: '/auth/contact/phone', permissionKey: 'auth.contact.phone.write' },
   { method: 'POST', path: '/auth/contact/phone/verify', permissionKey: 'auth.contact.phone.write' },

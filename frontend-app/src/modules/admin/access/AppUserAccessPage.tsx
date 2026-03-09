@@ -1,57 +1,94 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { ErrorState } from '@/components/feedback/ErrorState';
+import { SmartSelect } from '@/components/data/SmartSelect';
+import { SearchInput } from '@/components/data/SearchInput';
 import {
   useAppPermissions,
   useAppRoles,
   useReplaceUserOverrides,
   useReplaceUserRoles,
   useUserAccess,
-  useUserSearch,
+  searchAccessUsers,
   type UserSearchResult,
 } from '@/api/hooks/useAccessControl';
 import { useAuthStore } from '@/stores/authStore';
 import { findInterfacePermissions } from '@/lib/interfacePermissions';
-import { useDebounce } from '@/hooks/useDebounce';
 
 type OverrideEffect = 'allow' | 'deny';
+
+function looksLikeOpaqueIdentifier(value?: string | null) {
+  if (!value) return false;
+  const v = value.trim();
+  if (!v) return false;
+  if (/^[a-f0-9]{24}$/i.test(v)) return true; // Mongo ObjectId
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)) return true; // UUID
+  if (/^[A-Za-z0-9_-]{18,}$/.test(v) && !/\s/.test(v)) return true; // opaque auth ids
+  return false;
+}
 
 export function AppUserAccessPage() {
   const { userId = '' } = useParams();
   const authUser = useAuthStore((state) => state.user);
   const initialUserId = userId === 'self' ? String(authUser?.id ?? '') : userId;
 
-  const [searchInput, setSearchInput] = useState('');
+  const [userLookup, setUserLookup] = useState<Record<string, UserSearchResult>>({});
+  const [selectedUserValue, setSelectedUserValue] = useState<string | null>(initialUserId || null);
   const [selectedCandidate, setSelectedCandidate] = useState<UserSearchResult | null>(null);
   const [targetUserId, setTargetUserId] = useState(initialUserId || '');
+  const [roleSearch, setRoleSearch] = useState('');
   const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
   const [overrideMap, setOverrideMap] = useState<Record<string, OverrideEffect>>({});
 
-  const debouncedSearch = useDebounce(searchInput, 250);
-  const searchQuery = useUserSearch(debouncedSearch);
   const rolesQuery = useAppRoles();
   const permissionsQuery = useAppPermissions();
   const userAccessQuery = useUserAccess(targetUserId);
   const replaceRoles = useReplaceUserRoles('app');
   const replaceOverrides = useReplaceUserOverrides('app');
 
-  const candidates = searchQuery.data ?? [];
+  const displayedCandidate =
+    selectedCandidate
+    ?? (targetUserId ? userLookup[targetUserId] ?? null : null);
+  const apiReportedName = userAccessQuery.data?.userName?.trim() ?? '';
+  const displayedName =
+    displayedCandidate?.displayName
+    ?? (apiReportedName && !looksLikeOpaqueIdentifier(apiReportedName) ? apiReportedName : null)
+    ?? (initialUserId && authUser?.id === initialUserId ? authUser.fullName : null)
+    ?? 'Loading...';
+  const displayedNin =
+    displayedCandidate?.nin
+    ?? (initialUserId && authUser?.id === initialUserId ? authUser.nin : undefined)
+    ?? 'Not available';
+
+  useEffect(() => {
+    if (!targetUserId) return;
+    setSelectedRoleIds(new Set());
+    setOverrideMap({});
+  }, [targetUserId]);
 
   useEffect(() => {
     if (!userAccessQuery.data) return;
-    setSelectedRoleIds(new Set(userAccessQuery.data.roleIds));
+    const explicitRoleIds = userAccessQuery.data.roleIds ?? [];
+    if (explicitRoleIds.length > 0) {
+      setSelectedRoleIds(new Set(explicitRoleIds));
+    } else {
+      const roleIdByName = new Map((rolesQuery.data ?? []).map((role) => [role.name.toLowerCase(), role.id] as const));
+      const resolved = (userAccessQuery.data.roles ?? [])
+        .map((name) => roleIdByName.get(String(name).toLowerCase()))
+        .filter((entry): entry is string => Boolean(entry));
+      setSelectedRoleIds(new Set(resolved));
+    }
     const mapped: Record<string, OverrideEffect> = {};
     for (const override of userAccessQuery.data.overrides) {
       mapped[override.key] = override.effect;
     }
     setOverrideMap(mapped);
-  }, [userAccessQuery.data]);
+  }, [rolesQuery.data, userAccessQuery.data]);
 
   const permissionRows = useMemo(() => {
     const rows = permissionsQuery.data ?? [];
@@ -69,6 +106,13 @@ export function AppUserAccessPage() {
     return granted;
   }, [rolesQuery.data, selectedRoleIds]);
 
+  const filteredRoles = useMemo(() => {
+    const roles = rolesQuery.data ?? [];
+    const key = roleSearch.trim().toLowerCase();
+    if (!key) return roles;
+    return roles.filter((role) => `${role.name} ${role.description}`.toLowerCase().includes(key));
+  }, [roleSearch, rolesQuery.data]);
+
   const effectivePermissionState = (permissionKey: string): 'allow' | 'deny' | 'inherit' => {
     if (overrideMap[permissionKey] === 'deny') return 'deny';
     if (overrideMap[permissionKey] === 'allow') return 'allow';
@@ -76,29 +120,23 @@ export function AppUserAccessPage() {
     return 'inherit';
   };
 
-  const onSearchSubmit = () => {
-    const trimmed = searchInput.trim().toLowerCase();
-    if (!trimmed) return;
-
-    const bestMatch =
-      selectedCandidate ??
-      candidates.find((entry) =>
-        [entry.displayName, entry.nin ?? '', entry.email ?? '', entry.phone ?? '']
-          .join(' ')
-          .toLowerCase()
-          .includes(trimmed),
-      ) ??
-      null;
-
-    if (!bestMatch?.id) {
-      toast.error('Select a user from suggestions first.');
-      return;
+  const loadUserOptions = useCallback(async (term: string) => {
+    const users = await searchAccessUsers(term);
+    if (users.length > 0) {
+      setUserLookup((prev) => {
+        const next = { ...prev };
+        users.forEach((user) => {
+          next[user.id] = user;
+        });
+        return next;
+      });
     }
-
-    setTargetUserId(bestMatch.id);
-    setSelectedCandidate(bestMatch);
-    setSearchInput(bestMatch.displayName);
-  };
+    return users.map((user) => ({
+      value: user.id,
+      label: user.displayName,
+      description: [user.nin, user.bvn ? `BVN:${user.bvn}` : undefined, user.email, user.phone].filter(Boolean).join(' | ') || user.id,
+    }));
+  }, []);
 
   if (userId === 'self' && !authUser?.id) {
     return <ErrorState title="Loading user context" description="Fetching your account context..." />;
@@ -116,41 +154,26 @@ export function AppUserAccessPage() {
         <CardHeader>
           <div>
             <CardTitle>Find User</CardTitle>
-            <CardDescription>Type NIN, email, phone, or name. Select from suggestions and submit.</CardDescription>
+            <CardDescription>Type NIN, BVN, email, phone, or name. Results filter live as you type.</CardDescription>
           </div>
         </CardHeader>
-        <div className="space-y-3">
-          <div className="flex flex-col gap-2 md:flex-row">
-            <Input
-              value={searchInput}
-              onChange={(event) => {
-                setSearchInput(event.target.value);
-                setSelectedCandidate(null);
-              }}
-              placeholder="Search by NIN, email, phone, or name"
-            />
-            <Button onClick={onSearchSubmit}>Submit</Button>
-          </div>
-          {searchInput.trim().length >= 2 && candidates.length > 0 ? (
-            <div className="max-h-52 overflow-y-auto rounded-md border border-border">
-              {candidates.map((candidate) => (
-                <button
-                  key={candidate.id}
-                  type="button"
-                  className="flex w-full flex-col items-start border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-muted/10"
-                  onClick={() => {
-                    setSelectedCandidate(candidate);
-                    setSearchInput(candidate.displayName);
-                  }}
-                >
-                  <span className="text-sm font-medium text-foreground">{candidate.displayName}</span>
-                  <span className="text-xs text-muted">
-                    {[candidate.nin, candidate.email, candidate.phone].filter(Boolean).join(' | ') || candidate.id}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
+        <div className="w-full md:max-w-xl">
+          <SmartSelect
+            value={selectedUserValue}
+            onChange={(value) => {
+              setSelectedUserValue(value);
+              const candidate = userLookup[value] ?? null;
+              if (!candidate) {
+                toast.error('Unable to resolve selected user. Please try again.');
+                return;
+              }
+              setSelectedCandidate(candidate);
+              setTargetUserId(candidate.id);
+            }}
+            placeholder="Search by NIN, email, phone, or name"
+            emptyLabel="No matching user found"
+            loadOptions={loadUserOptions}
+          />
         </div>
       </Card>
 
@@ -164,10 +187,10 @@ export function AppUserAccessPage() {
                 <CardHeader>
                   <div>
                     <CardTitle>User Information</CardTitle>
-                    <CardDescription>User ID: {userAccessQuery.data?.userId ?? targetUserId}</CardDescription>
+                    <CardDescription>NIN: {displayedNin}</CardDescription>
                   </div>
                 </CardHeader>
-                <p className="text-sm text-foreground">Name: {userAccessQuery.data?.userName ?? selectedCandidate?.displayName ?? 'Loading...'}</p>
+                <p className="text-sm text-foreground">Name: {displayedName}</p>
               </Card>
 
               <Card>
@@ -177,8 +200,11 @@ export function AppUserAccessPage() {
                     <CardDescription>Current rows are preselected. Add/remove rows with multi-select.</CardDescription>
                   </div>
                 </CardHeader>
+                <div className="mb-3 md:max-w-md">
+                  <SearchInput value={roleSearch} onChange={setRoleSearch} placeholder="Search roles by name or description" />
+                </div>
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {(rolesQuery.data ?? []).map((role) => {
+                  {filteredRoles.map((role) => {
                     const checked = selectedRoleIds.has(role.id);
                     return (
                       <label key={role.id} className="flex items-center justify-between rounded border border-border p-2">

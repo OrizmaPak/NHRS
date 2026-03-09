@@ -60,7 +60,7 @@ export function SmartSelect({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content sideOffset={8} className="z-50 w-[var(--radix-popover-trigger-width)] rounded-lg border border-border bg-surface p-2 shadow-soft">
-          <Command className="w-full">
+          <Command className="w-full" shouldFilter={false}>
             <Command.Input
               value={query}
               onValueChange={(next) => {
@@ -82,7 +82,7 @@ export function SmartSelect({
                   {options.map((option) => (
                     <Command.Item
                       key={option.value}
-                      value={option.label}
+                      value={`${option.label} ${option.description ?? ''}`}
                       onSelect={() => {
                         onChange(option.value);
                         setOpen(false);

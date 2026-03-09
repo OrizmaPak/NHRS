@@ -15,6 +15,7 @@ const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const cacheTtlSec = Number(process.env.RBAC_CACHE_TTL_SEC) || 60;
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
+const authApiBaseUrl = process.env.AUTH_API_BASE_URL || 'http://auth-api:8081';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
@@ -968,24 +969,83 @@ fastify.delete('/rbac/app/roles/:roleId', { preHandler: requireAuth }, async (re
   if (!(await isPlatformAdmin(req.auth.userId))) {
     return reply.code(403).send({ message: 'Platform admin required' });
   }
-  const { roleId } = req.params;
-  if (!ObjectId.isValid(roleId)) {
-    return reply.code(400).send({ message: 'Invalid roleId' });
+  const roleIdParam = String(req.params.roleId || '').trim();
+  if (!roleIdParam) {
+    return reply.code(400).send({ message: 'roleId is required' });
   }
 
-  await collections.roles().deleteOne({ _id: new ObjectId(roleId), scope: 'app', isSystem: { $ne: true } });
+  let role = null;
+  if (ObjectId.isValid(roleIdParam)) {
+    role = await collections.roles().findOne({ _id: new ObjectId(roleIdParam), scope: 'app' });
+  }
+  if (!role) {
+    role = await collections.roles().findOne({ name: roleIdParam, scope: 'app' });
+  }
+  if (!role) {
+    return reply.code(404).send({ message: 'Role not found' });
+  }
+
+  const roleObjectId = role._id instanceof ObjectId ? role._id : null;
+  const roleObjectIdString = roleObjectId ? String(roleObjectId) : null;
+  const roleName = String(role.name || '').trim();
+
+  await collections.roles().deleteOne({ _id: role._id, scope: 'app' });
+
+  const pullCandidates = [roleName];
+  if (roleObjectIdString) {
+    pullCandidates.push(roleObjectIdString);
+    pullCandidates.push(new ObjectId(roleObjectIdString));
+  }
+
+  const roleAssignmentsUpdate = await collections.roleAssignments().updateMany(
+    { scope: 'app' },
+    { $pull: { roleIds: { $in: pullCandidates } }, $set: { updatedAt: new Date() } },
+  );
+
+  let authUsersUpdated = 0;
+  if (roleName) {
+    try {
+      const authSyncResponse = await fetch(`${authApiBaseUrl}/internal/users/roles/remove`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-internal-token': internalServiceToken,
+        },
+        body: JSON.stringify({ roleName }),
+      });
+      if (authSyncResponse.ok) {
+        const payload = await authSyncResponse.json().catch(() => ({}));
+        authUsersUpdated = Number(payload?.matchedUsers || payload?.modifiedUsers || 0);
+      } else {
+        fastify.log.warn({ status: authSyncResponse.status, roleName }, 'Auth role cleanup call failed');
+      }
+    } catch (err) {
+      fastify.log.warn({ err, roleName }, 'Auth role cleanup call failed');
+    }
+  }
+
   await bumpCacheVersion();
   emitAuditEvent({
     userId: req.auth.userId,
     organizationId: null,
     eventType: 'RBAC_ROLE_DELETED',
     action: 'rbac.app.role.delete',
-    resource: { type: 'role', id: roleId },
+    resource: { type: 'role', id: roleObjectIdString || roleName },
     permissionKey: 'rbac.app.manage',
     outcome: 'success',
-    metadata: { scope: 'app' },
+    metadata: {
+      scope: 'app',
+      roleName: roleName || null,
+      assignmentDocsUpdated: roleAssignmentsUpdate.modifiedCount || 0,
+      authUsersUpdated,
+    },
   });
-  return reply.send({ message: 'Role deleted' });
+  return reply.send({
+    message: 'Role deleted',
+    roleName: roleName || null,
+    assignmentDocsUpdated: roleAssignmentsUpdate.modifiedCount || 0,
+    authUsersUpdated,
+  });
 });
 
 fastify.post('/rbac/app/users/:userId/roles', { preHandler: requireAuth }, async (req, reply) => {

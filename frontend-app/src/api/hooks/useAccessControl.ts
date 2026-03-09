@@ -22,6 +22,7 @@ export type RoleRow = {
   scope: PermissionScope;
   permissions: string[];
   createdAt: string;
+  isSystem?: boolean;
 };
 
 export type UserAccessData = {
@@ -40,16 +41,17 @@ const fallbackPermissions: PermissionRow[] = [
 ];
 
 const fallbackRoles: RoleRow[] = [
-  { id: 'role-super', name: 'super', description: 'Super access role', scope: 'app', permissions: ['*'], createdAt: new Date().toISOString() },
-  { id: 'role-citizen', name: 'citizen', description: 'Citizen default role', scope: 'app', permissions: [], createdAt: new Date().toISOString() },
-  { id: 'role-admin', name: 'app_admin', description: 'Platform administrator', scope: 'app', permissions: ['*'], createdAt: new Date().toISOString() },
-  { id: 'role-provider', name: 'org_staff', description: 'Clinical provider role', scope: 'app', permissions: ['records.read', 'records.create'], createdAt: new Date().toISOString() },
+  { id: 'role-super', name: 'super', description: 'Super access role', scope: 'app', permissions: ['*'], createdAt: new Date().toISOString(), isSystem: true },
+  { id: 'role-citizen', name: 'citizen', description: 'Citizen default role', scope: 'app', permissions: [], createdAt: new Date().toISOString(), isSystem: true },
+  { id: 'role-admin', name: 'app_admin', description: 'Platform administrator', scope: 'app', permissions: ['*'], createdAt: new Date().toISOString(), isSystem: true },
+  { id: 'role-provider', name: 'org_staff', description: 'Clinical provider role', scope: 'app', permissions: ['records.read', 'records.create'], createdAt: new Date().toISOString(), isSystem: true },
 ];
 
 export type UserSearchResult = {
   id: string;
   displayName: string;
   nin?: string;
+  bvn?: string;
   email?: string;
   phone?: string;
 };
@@ -67,6 +69,12 @@ function asStringId(raw: unknown): string {
   if (typeof obj.$oid === 'string') return obj.$oid;
   if (typeof obj.oid === 'string') return obj.oid;
   if (typeof obj.id === 'string') return obj.id;
+  if (typeof (raw as { toString?: unknown }).toString === 'function') {
+    const value = String((raw as { toString: () => string }).toString());
+    if (value && value !== '[object Object]') {
+      return value;
+    }
+  }
   return '';
 }
 
@@ -119,7 +127,7 @@ function toRoleRows(raw: unknown, scope: PermissionScope): RoleRow[] {
     const fromUnderscoreId = asStringId(item._id);
     const fromId = asStringId(item.id);
     const fromRoleId = asStringId(item.roleId);
-    const resolvedId = fromUnderscoreId || fromId || fromRoleId || crypto.randomUUID();
+    const resolvedId = fromUnderscoreId || fromId || fromRoleId || String(item.name ?? '').trim() || crypto.randomUUID();
     return {
       id: resolvedId,
       name: String(item.name ?? 'role'),
@@ -127,6 +135,7 @@ function toRoleRows(raw: unknown, scope: PermissionScope): RoleRow[] {
       scope,
       permissions,
       createdAt: String(item.createdAt ?? new Date().toISOString()),
+      isSystem: Boolean(item.isSystem),
     };
   });
 }
@@ -277,7 +286,7 @@ export function useSaveAppRole() {
 export function useDeleteAppRole() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => apiClient.delete(endpoints.rbac.appRoleById(id)),
+    mutationFn: async (id: string) => apiClient.delete(endpoints.rbac.appRoleById(id), { roleId: id }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['access', 'app', 'roles'] });
     },
@@ -457,80 +466,102 @@ export function useReplaceUserOverrides(scope: PermissionScope) {
   });
 }
 
+export async function searchAccessUsers(term: string): Promise<UserSearchResult[]> {
+  const trimmed = term.trim();
+  if (trimmed.length < 2) {
+    return [];
+  }
+
+  const normalizeItems = (items: unknown[]): UserSearchResult[] =>
+    items
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+      .map((item, index) => {
+        const id = String(item.id ?? item.userId ?? item._id ?? item.sub ?? item.nin ?? '');
+        const firstName = String(item.firstName ?? item.first_name ?? '');
+        const lastName = String(item.lastName ?? item.last_name ?? '');
+        const displayName = String(
+          item.displayName ??
+            item.fullName ??
+            item.name ??
+            [firstName, lastName].filter(Boolean).join(' ') ??
+            (item.nin ? `User ${String(item.nin)}` : `User ${index + 1}`),
+        );
+        return {
+          id,
+          displayName,
+          nin: item.nin ? String(item.nin) : undefined,
+          bvn: item.bvn ? String(item.bvn) : undefined,
+          email: item.email ? String(item.email) : undefined,
+          phone: item.phone ? String(item.phone) : undefined,
+        } as UserSearchResult;
+      })
+      .filter((item) => Boolean(item.id));
+
+  try {
+    const identitySearch = await apiClient.get<Record<string, unknown>>(endpoints.auth.userSearch, {
+      query: { q: trimmed, page: 1, limit: 15 },
+      suppressGlobalErrors: true,
+    });
+    const identityItems =
+      (Array.isArray(identitySearch.items) ? identitySearch.items : null) ??
+      (Array.isArray(identitySearch.data) ? identitySearch.data : null) ??
+      [];
+    const normalizedIdentity = normalizeItems(identityItems);
+    if (normalizedIdentity.length > 0) return normalizedIdentity;
+  } catch {
+    // Continue to profile and NIN fallback.
+  }
+
+  try {
+    const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.patientSearch, {
+      query: { q: trimmed, page: 1, limit: 10 },
+      suppressGlobalErrors: true,
+    });
+    const items =
+      (Array.isArray(response.items) ? response.items : null) ??
+      (Array.isArray(response.data) ? response.data : null) ??
+      [];
+    const normalized = normalizeItems(items);
+    if (normalized.length > 0) return normalized;
+  } catch {
+    // Continue to fallbacks below.
+  }
+
+  if (/^\d{11}$/.test(trimmed)) {
+    try {
+      const ninRecord = await apiClient.get<Record<string, unknown>>(`/nin/${trimmed}`, {
+        suppressGlobalErrors: true,
+        skipAuth: true,
+      });
+      const displayName = String(
+        ninRecord.displayName ??
+        ninRecord.fullName ??
+        [ninRecord.firstName, ninRecord.lastName].filter(Boolean).join(' ') ??
+        `User ${trimmed}`,
+      );
+      return [{
+        id: String(ninRecord.userId ?? ninRecord.id ?? ninRecord._id ?? trimmed),
+        displayName,
+        nin: trimmed,
+        bvn: ninRecord.bvn ? String(ninRecord.bvn) : undefined,
+        email: ninRecord.email ? String(ninRecord.email) : undefined,
+        phone: ninRecord.phone ? String(ninRecord.phone) : undefined,
+      }];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
 export function useUserSearch(term: string) {
   return useQuery({
     queryKey: ['access', 'user-search', term],
     enabled: term.trim().length >= 2,
     retry: false,
     staleTime: 10_000,
-    queryFn: async (): Promise<UserSearchResult[]> => {
-      const trimmed = term.trim();
-
-      const normalizeItems = (items: unknown[]): UserSearchResult[] =>
-        items
-          .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-          .map((item, index) => {
-            const id = String(item.id ?? item.userId ?? item._id ?? item.sub ?? item.nin ?? '');
-            const firstName = String(item.firstName ?? item.first_name ?? '');
-            const lastName = String(item.lastName ?? item.last_name ?? '');
-            const displayName = String(
-              item.displayName ??
-                item.fullName ??
-                item.name ??
-                [firstName, lastName].filter(Boolean).join(' ') ??
-                (item.nin ? `User ${String(item.nin)}` : `User ${index + 1}`),
-            );
-            return {
-              id,
-              displayName,
-              nin: item.nin ? String(item.nin) : undefined,
-              email: item.email ? String(item.email) : undefined,
-              phone: item.phone ? String(item.phone) : undefined,
-            } as UserSearchResult;
-          })
-          .filter((item) => Boolean(item.id));
-
-      try {
-        const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.patientSearch, {
-          query: { q: trimmed, page: 1, limit: 10 },
-          suppressGlobalErrors: true,
-        });
-        const items =
-          (Array.isArray(response.items) ? response.items : null) ??
-          (Array.isArray(response.data) ? response.data : null) ??
-          [];
-        const normalized = normalizeItems(items);
-        if (normalized.length > 0) return normalized;
-      } catch {
-        // Continue to fallbacks below.
-      }
-
-      if (/^\d{11}$/.test(trimmed)) {
-        try {
-          const ninRecord = await apiClient.get<Record<string, unknown>>(`/nin/${trimmed}`, {
-            suppressGlobalErrors: true,
-            skipAuth: true,
-          });
-          const displayName = String(
-            ninRecord.displayName ??
-            ninRecord.fullName ??
-            [ninRecord.firstName, ninRecord.lastName].filter(Boolean).join(' ') ??
-            `User ${trimmed}`,
-          );
-          return [{
-            id: String(ninRecord.userId ?? ninRecord.id ?? ninRecord._id ?? trimmed),
-            displayName,
-            nin: trimmed,
-            email: ninRecord.email ? String(ninRecord.email) : undefined,
-            phone: ninRecord.phone ? String(ninRecord.phone) : undefined,
-          }];
-        } catch {
-          return [];
-        }
-      }
-
-      return [];
-    },
+    queryFn: async (): Promise<UserSearchResult[]> => searchAccessUsers(term),
   });
 }
 
@@ -641,7 +672,10 @@ export function useDeleteOrgRole() {
   return useMutation({
     mutationFn: async (payload: { id: string; organizationId?: string }) => {
       if (!payload.organizationId) throw new Error('Active organization context is required');
-      return apiClient.delete(endpoints.rbac.orgRoleById(payload.organizationId, payload.id));
+      return apiClient.delete(
+        endpoints.rbac.orgRoleById(payload.organizationId, payload.id),
+        { roleId: payload.id, organizationId: payload.organizationId },
+      );
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['access', 'org'] });

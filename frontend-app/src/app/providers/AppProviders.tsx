@@ -39,6 +39,8 @@ export function AppProviders({ children }: PropsWithChildren) {
         deniedPermission?: string;
         message?: string;
         code?: string;
+        method?: string;
+        path?: string;
       }>;
 
       if (custom.detail?.status === 401 && custom.detail?.forceLogout) {
@@ -56,10 +58,15 @@ export function AppProviders({ children }: PropsWithChildren) {
           custom.detail?.deniedPermission
           ?? extractPermissionFromText(custom.detail?.message)
           ?? extractPermissionFromText(custom.detail?.code);
+        const action = custom.detail?.method && custom.detail?.path
+          ? `${custom.detail.method} ${custom.detail.path}`
+          : undefined;
         toast.error(
           deniedPermission
-            ? `Access denied (${deniedPermission}).`
-            : 'Access denied for this action.',
+            ? `Access denied (${deniedPermission})${action ? ` while calling ${action}` : ''}.`
+            : action
+              ? `Access denied for action: ${action}.`
+              : 'Access denied for this action.',
         );
       }
 
