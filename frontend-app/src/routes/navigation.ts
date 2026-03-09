@@ -49,11 +49,11 @@ export type NavigationItem = {
 };
 
 export const navigationItems: NavigationItem[] = [
-  { label: 'Dashboard', to: '/app', permission: 'interface.dashboard.view', icon: LayoutDashboard, group: 'Core' },
-  { label: 'Settings', to: '/app/settings', permission: 'interface.settings.view', icon: Settings, group: 'Core' },
+  { label: 'Dashboard', to: '/app', permission: 'auth.me.read', icon: LayoutDashboard, group: 'Core' },
+  { label: 'Settings', to: '/app/settings', permission: 'auth.me.read', icon: Settings, group: 'Core' },
 
-  { label: 'Public Timeline', to: '/app/public/timeline', permission: 'interface.public.timeline.view', icon: Activity, group: 'Public' },
-  { label: 'Doctor Registry', to: '/app/public/doctor-registry', permission: 'interface.public.doctor_registry.view', icon: UserRoundSearch, group: 'Public' },
+  { label: 'Public Timeline', to: '/app/public/timeline', permission: 'records.me.read', icon: Activity, group: 'Public' },
+  { label: 'Doctor Registry', to: '/app/public/doctor-registry', permission: 'auth.me.read', icon: UserRoundSearch, group: 'Public' },
 
   { label: 'Provider Hub', to: '/app/provider/dashboard', permission: 'profile.search', icon: Building2, group: 'Provider' },
   { label: 'Patient Search', to: '/app/provider/patients', permission: 'profile.search', icon: Search, group: 'Provider' },

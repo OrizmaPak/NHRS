@@ -99,10 +99,44 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;
   skipAuth?: boolean;
   skipRefresh?: boolean;
+  suppressGlobalErrors?: boolean;
 };
 
+function extractDeniedPermission(details?: Record<string, unknown>): string | undefined {
+  if (!details || typeof details !== 'object') return undefined;
+
+  const direct = details.permission ?? details.permissionKey ?? details.requiredPermission;
+  if (typeof direct === 'string' && direct.trim().length > 0) {
+    return direct.trim();
+  }
+
+  const list = details.permissions ?? details.requiredPermissions;
+  if (Array.isArray(list)) {
+    const keys = list.map((entry) => String(entry ?? '').trim()).filter(Boolean);
+    if (keys.length === 1) return keys[0];
+    if (keys.length > 1) return `Any of: ${keys.join(', ')}`;
+  }
+
+  return undefined;
+}
+
+function extractPermissionFromText(text?: string): string | undefined {
+  if (!text) return undefined;
+  const patterns = [
+    /permission(?:\s+key)?\s*[:=]\s*([a-z0-9*._:-]+)/i,
+    /requires?\s+permission\s+([a-z0-9*._:-]+)/i,
+    /missing\s+permission\s+([a-z0-9*._:-]+)/i,
+    /denied\s+permission\s+([a-z0-9*._:-]+)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+  return undefined;
+}
+
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
-  const { query, body, headers, skipAuth, skipRefresh, ...rest } = options;
+  const { query, body, headers, skipAuth, skipRefresh, suppressGlobalErrors, ...rest } = options;
   const accessToken = getAccessToken();
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   const requestHeaders: Record<string, string> = {
@@ -129,10 +163,25 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   }
 
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403 || response.status === 429 || response.status >= 500) {
-      window.dispatchEvent(new CustomEvent('nhrs:api-error', { detail: { status: response.status } }));
-    }
     const payload = await parseJson<{ message?: string; code?: string; details?: Record<string, unknown> }>(response);
+    const deniedPermission =
+      extractDeniedPermission(payload?.details)
+      ?? extractPermissionFromText(payload?.message)
+      ?? extractPermissionFromText(payload?.code);
+
+    if (!suppressGlobalErrors && (response.status === 401 || response.status === 403 || response.status === 429 || response.status >= 500)) {
+      window.dispatchEvent(
+        new CustomEvent('nhrs:api-error', {
+          detail: {
+            status: response.status,
+            message: payload?.message,
+            code: payload?.code,
+            deniedPermission,
+          },
+        }),
+      );
+    }
+
     throw new ApiClientError(
       payload?.message ?? `Request failed with status ${response.status}`,
       response.status,

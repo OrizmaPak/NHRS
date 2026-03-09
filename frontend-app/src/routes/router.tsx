@@ -89,7 +89,7 @@ function withSuspense(element: ReactElement) {
   );
 }
 
-function AccessFallback() {
+function AccessFallback({ deniedPermission }: { deniedPermission?: string | string[] }) {
   const location = useLocation();
   const hasPermission = usePermissionsStore((state) => state.hasPermission);
   const hasAny = usePermissionsStore((state) => state.hasAny);
@@ -102,13 +102,13 @@ function AccessFallback() {
     return <Navigate to={firstAllowedRoute} replace />;
   }
 
-  return withSuspense(<UnauthorizedPage />);
+  return withSuspense(<UnauthorizedPage deniedPermission={deniedPermission} />);
 }
 
 function restricted(element: ReactElement, permission: string | string[]) {
   return (
-    <InterfaceAccessGate permission={permission} fallback={<AccessFallback />}>
-      <PermissionGate permission={permission} fallback={<AccessFallback />}>
+    <InterfaceAccessGate permission={permission} fallback={<AccessFallback deniedPermission={permission} />}>
+      <PermissionGate permission={permission} fallback={<AccessFallback deniedPermission={permission} />}>
         {withSuspense(element)}
       </PermissionGate>
     </InterfaceAccessGate>
@@ -132,9 +132,9 @@ export const appRouter = createBrowserRouter([
         path: '/app',
         element: <AppShell />,
         children: [
-          { index: true, element: restricted(<DashboardPage />, 'interface.dashboard.view') },
-          { path: 'public/timeline', element: restricted(<TimelinePage />, 'interface.public.timeline.view') },
-          { path: 'public/doctor-registry', element: restricted(<DoctorRegistryPage />, 'interface.public.doctor_registry.view') },
+          { index: true, element: restricted(<DashboardPage />, 'auth.me.read') },
+          { path: 'public/timeline', element: restricted(<TimelinePage />, 'records.me.read') },
+          { path: 'public/doctor-registry', element: restricted(<DoctorRegistryPage />, 'auth.me.read') },
           { path: 'public/doctor-registry/:doctorId', element: restricted(<DoctorProfilePage />, 'doctor.read') },
           { path: 'provider', element: <Navigate to="/app/provider/dashboard" replace /> },
           { path: 'provider/dashboard', element: restricted(<ProviderDashboardPage />, 'profile.search') },
@@ -196,10 +196,10 @@ export const appRouter = createBrowserRouter([
           { path: 'org/access/permissions', element: restricted(<OrgPermissionsPage />, 'rbac.org.manage') },
           { path: 'org/access/roles', element: restricted(<OrgRolesPage />, 'rbac.org.manage') },
           { path: 'org/access/staff/:userId', element: restricted(<OrgStaffAccessPage />, 'rbac.org.manage') },
-          { path: 'settings', element: restricted(<SettingsPage />, 'interface.settings.view') },
-          { path: 'settings/appearance', element: restricted(<AppearanceSettingsPage />, 'interface.settings.appearance.view') },
+          { path: 'settings', element: restricted(<SettingsPage />, 'auth.me.read') },
+          { path: 'settings/appearance', element: restricted(<AppearanceSettingsPage />, 'auth.me.read') },
           { path: 'settings/brand', element: restricted(<BrandSettingsPage />, brandAdminPermissions) },
-          { path: 'settings/accessibility', element: restricted(<AccessibilitySettingsPage />, 'interface.settings.accessibility.view') },
+          { path: 'settings/accessibility', element: restricted(<AccessibilitySettingsPage />, 'auth.me.read') },
           { path: 'unauthorized', element: withSuspense(<UnauthorizedPage />) },
         ],
       },

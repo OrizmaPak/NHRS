@@ -45,6 +45,21 @@ function toEffectiveEntries(
   ];
 }
 
+function applyOverridesToPermissions(
+  basePermissions: string[],
+  overrides: Record<string, 'allow' | 'deny'>,
+): string[] {
+  const next = new Set(basePermissions);
+  Object.entries(overrides).forEach(([key, effect]) => {
+    if (effect === 'deny') {
+      next.delete(key);
+    } else if (effect === 'allow') {
+      next.add(key);
+    }
+  });
+  return Array.from(next);
+}
+
 export function usePermissionContextSync() {
   const user = useAuthStore((state) => state.user);
   const activeContext = useContextStore((state) => state.activeContext);
@@ -85,7 +100,12 @@ export function usePermissionContextSync() {
       if (activeContext.id.startsWith('app:') && user?.id) {
         try {
           const resolved = await resolveSyntheticContextPermissions(String(user.id), activeContext.id, activeContext.name);
-          applyResolved(resolved.permissions, resolved.overrides);
+          const contextFallbackPermissions = Array.isArray(activeContext.permissions) ? activeContext.permissions : [];
+          const resolvedPermissions =
+            resolved.permissions.length > 0
+              ? resolved.permissions
+              : applyOverridesToPermissions(contextFallbackPermissions, resolved.overrides);
+          applyResolved(resolvedPermissions, resolved.overrides);
           return;
         } catch {
           const fallbackPermissions = Array.isArray(activeContext.permissions) ? activeContext.permissions : [];

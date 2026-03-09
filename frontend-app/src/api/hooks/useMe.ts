@@ -45,14 +45,17 @@ export function useMe(enabled = true) {
     setUser(query.data.user);
     setAvailableContexts(query.data.availableContexts);
     const contextState = useContextStore.getState();
+    const hasCurrentContext =
+      Boolean(contextState.activeContext)
+      && query.data.availableContexts.some((context) => context.id === contextState.activeContext?.id);
     const activeContext =
-      contextState.activeContext && query.data.availableContexts.some((context) => context.id === contextState.activeContext?.id)
+      hasCurrentContext
         ? contextState.activeContext
         : query.data.availableContexts.find((context) => context.id === query.data.defaultContextId) ??
           query.data.availableContexts[0] ??
           null;
 
-    if (!contextState.activeContext && activeContext) {
+    if ((!hasCurrentContext || contextState.activeContext?.id !== activeContext?.id) && activeContext) {
       setActiveContext(activeContext);
     }
     setRoles(query.data.roles ?? []);

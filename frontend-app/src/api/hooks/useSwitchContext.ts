@@ -62,6 +62,21 @@ function toEffectiveEntries(
   ];
 }
 
+function applyOverridesToPermissions(
+  basePermissions: string[],
+  overrides: Record<string, 'allow' | 'deny'>,
+): string[] {
+  const next = new Set(basePermissions);
+  Object.entries(overrides).forEach(([key, effect]) => {
+    if (effect === 'deny') {
+      next.delete(key);
+    } else if (effect === 'allow') {
+      next.add(key);
+    }
+  });
+  return Array.from(next);
+}
+
 function normalizePermissionKey(entry: unknown): string {
   if (typeof entry === 'string') return entry;
   if (!entry || typeof entry !== 'object') return '';
@@ -314,8 +329,13 @@ export function useSwitchContext() {
       if (next.id.startsWith('app:') && userId) {
         try {
           const resolved = await resolveSyntheticContextPermissions(userId, next.id, next.name);
+          const contextFallbackPermissions = Array.isArray(next.permissions) ? next.permissions : [];
+          const resolvedPermissions =
+            resolved.permissions.length > 0
+              ? resolved.permissions
+              : applyOverridesToPermissions(contextFallbackPermissions, resolved.overrides);
           setOverrides(resolved.overrides);
-          setEffectivePermissions(toEffectiveEntries(resolved.permissions, resolved.overrides));
+          setEffectivePermissions(toEffectiveEntries(resolvedPermissions, resolved.overrides));
         } catch {
           const fallbackPermissions = Array.isArray(next.permissions) ? next.permissions : [];
           setOverrides({});

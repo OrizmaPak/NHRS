@@ -461,37 +461,75 @@ export function useUserSearch(term: string) {
   return useQuery({
     queryKey: ['access', 'user-search', term],
     enabled: term.trim().length >= 2,
+    retry: false,
     staleTime: 10_000,
     queryFn: async (): Promise<UserSearchResult[]> => {
-      const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.patientSearch, {
-        query: { q: term, page: 1, limit: 10 },
-      });
-      const items =
-        (Array.isArray(response.items) ? response.items : null) ??
-        (Array.isArray(response.data) ? response.data : null) ??
-        [];
-      return items
-        .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-        .map((item, index) => {
-          const id = String(item.id ?? item.userId ?? item._id ?? item.sub ?? '');
-          const firstName = String(item.firstName ?? item.first_name ?? '');
-          const lastName = String(item.lastName ?? item.last_name ?? '');
+      const trimmed = term.trim();
+
+      const normalizeItems = (items: unknown[]): UserSearchResult[] =>
+        items
+          .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+          .map((item, index) => {
+            const id = String(item.id ?? item.userId ?? item._id ?? item.sub ?? item.nin ?? '');
+            const firstName = String(item.firstName ?? item.first_name ?? '');
+            const lastName = String(item.lastName ?? item.last_name ?? '');
+            const displayName = String(
+              item.displayName ??
+                item.fullName ??
+                item.name ??
+                [firstName, lastName].filter(Boolean).join(' ') ??
+                (item.nin ? `User ${String(item.nin)}` : `User ${index + 1}`),
+            );
+            return {
+              id,
+              displayName,
+              nin: item.nin ? String(item.nin) : undefined,
+              email: item.email ? String(item.email) : undefined,
+              phone: item.phone ? String(item.phone) : undefined,
+            } as UserSearchResult;
+          })
+          .filter((item) => Boolean(item.id));
+
+      try {
+        const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.patientSearch, {
+          query: { q: trimmed, page: 1, limit: 10 },
+          suppressGlobalErrors: true,
+        });
+        const items =
+          (Array.isArray(response.items) ? response.items : null) ??
+          (Array.isArray(response.data) ? response.data : null) ??
+          [];
+        const normalized = normalizeItems(items);
+        if (normalized.length > 0) return normalized;
+      } catch {
+        // Continue to fallbacks below.
+      }
+
+      if (/^\d{11}$/.test(trimmed)) {
+        try {
+          const ninRecord = await apiClient.get<Record<string, unknown>>(`/nin/${trimmed}`, {
+            suppressGlobalErrors: true,
+            skipAuth: true,
+          });
           const displayName = String(
-            item.displayName ??
-              item.fullName ??
-              item.name ??
-              [firstName, lastName].filter(Boolean).join(' ') ??
-              `User ${index + 1}`,
+            ninRecord.displayName ??
+            ninRecord.fullName ??
+            [ninRecord.firstName, ninRecord.lastName].filter(Boolean).join(' ') ??
+            `User ${trimmed}`,
           );
-          return {
-            id,
+          return [{
+            id: String(ninRecord.userId ?? ninRecord.id ?? ninRecord._id ?? trimmed),
             displayName,
-            nin: item.nin ? String(item.nin) : undefined,
-            email: item.email ? String(item.email) : undefined,
-            phone: item.phone ? String(item.phone) : undefined,
-          } as UserSearchResult;
-        })
-        .filter((item) => Boolean(item.id));
+            nin: trimmed,
+            email: ninRecord.email ? String(ninRecord.email) : undefined,
+            phone: ninRecord.phone ? String(ninRecord.phone) : undefined,
+          }];
+        } catch {
+          return [];
+        }
+      }
+
+      return [];
     },
   });
 }

@@ -57,7 +57,11 @@ function isSuperRole(role: string): boolean {
   return ['super', 'superadmin', 'super_admin', 'platform_admin', 'app_admin', 'admin'].includes(normalized);
 }
 
-function ensureAppLevelContexts(contexts: AppContext[], isSuperAdmin: boolean): AppContext[] {
+function ensureAppLevelContexts(
+  contexts: AppContext[],
+  isSuperAdmin: boolean,
+  citizenPermissions: string[],
+): AppContext[] {
   const byId = new Map(contexts.map((ctx) => [ctx.id, ctx] as const));
   const citizen: AppContext = byId.get('app:citizen') ?? {
     id: 'app:citizen',
@@ -66,8 +70,13 @@ function ensureAppLevelContexts(contexts: AppContext[], isSuperAdmin: boolean): 
     subtitle: 'App Level',
     themeScopeType: 'platform',
     themeScopeId: null,
-    permissions: [],
+    permissions: citizenPermissions,
   };
+  if (!byId.get('app:citizen') && citizenPermissions.length > 0) {
+    citizen.permissions = citizenPermissions;
+  } else if (byId.get('app:citizen')) {
+    citizen.permissions = citizen.permissions?.length ? citizen.permissions : citizenPermissions;
+  }
 
   if (isSuperAdmin) {
     const superContext: AppContext = byId.get('app:super') ?? {
@@ -173,8 +182,14 @@ export function toUserProfile(payload: Record<string, unknown>): UserProfile {
   const fallbackName = String(rawUser.fullName ?? rawUser.name ?? rawUser.displayName ?? '').trim();
   return {
     id: String(rawUser.id ?? rawUser.userId ?? rawUser.sub ?? payload.sub ?? ''),
+    nin: rawUser.nin ? String(rawUser.nin) : undefined,
     firstName: firstName || undefined,
     lastName: lastName || undefined,
+    otherName: rawUser.otherName ? String(rawUser.otherName) : undefined,
+    dob: rawUser.dob ? String(rawUser.dob) : undefined,
+    nationality: rawUser.nationality ? String(rawUser.nationality) : undefined,
+    stateOfOrigin: rawUser.stateOfOrigin ? String(rawUser.stateOfOrigin) : undefined,
+    localGovernment: rawUser.localGovernment ? String(rawUser.localGovernment) : undefined,
     fullName: fullNameFromParts || fallbackName || 'User',
     email: String(rawUser.email ?? ''),
     phone: rawUser.phone ? String(rawUser.phone) : undefined,
@@ -220,7 +235,9 @@ export function toIdentityResponse(payload: unknown): IdentityResponse {
       ? (source.defaultContext as Record<string, unknown>)
       : null;
   const isGlobalAdmin = roles.some(isSuperRole);
-  const withAppContexts = ensureAppLevelContexts(rawContexts, isGlobalAdmin);
+  const basePermissions = collectPermissions(source, undefined, rawContexts);
+  const citizenPermissions = isGlobalAdmin ? [] : basePermissions;
+  const withAppContexts = ensureAppLevelContexts(rawContexts, isGlobalAdmin, citizenPermissions);
   const availableContexts = ensureRoleContexts(withAppContexts, roles);
   const defaultContextId =
     isGlobalAdmin

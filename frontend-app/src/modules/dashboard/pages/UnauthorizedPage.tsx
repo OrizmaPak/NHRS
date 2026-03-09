@@ -2,7 +2,24 @@ import { ShieldX } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 
-export function UnauthorizedPage() {
+type UnauthorizedPageProps = {
+  deniedPermission?: string | string[];
+};
+
+function formatDeniedPermission(value?: string | string[]): string | null {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    const keys = value.map((entry) => String(entry).trim()).filter(Boolean);
+    if (keys.length === 0) return null;
+    return keys.length === 1 ? keys[0] : `Any of: ${keys.join(', ')}`;
+  }
+  const key = String(value).trim();
+  return key.length > 0 ? key : null;
+}
+
+export function UnauthorizedPage({ deniedPermission }: UnauthorizedPageProps) {
+  const denied = formatDeniedPermission(deniedPermission);
+
   return (
     <div className="grid min-h-[70vh] place-items-center">
       <div className="max-w-lg text-center">
@@ -19,6 +36,11 @@ export function UnauthorizedPage() {
             <Link to="/app/settings">Open settings</Link>
           </Button>
         </div>
+        {denied ? (
+          <p className="mt-4 text-xs text-muted">
+            Denied permission: <span className="font-mono text-foreground">{denied}</span>
+          </p>
+        ) : null}
         <p className="mt-4 text-xs text-muted">Try switching context from the top bar or contact an administrator for permission access.</p>
       </div>
     </div>

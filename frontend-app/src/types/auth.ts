@@ -16,8 +16,14 @@ export type AppContext = {
 
 export type UserProfile = {
   id: string;
+  nin?: string;
   firstName?: string;
   lastName?: string;
+  otherName?: string;
+  dob?: string;
+  nationality?: string;
+  stateOfOrigin?: string;
+  localGovernment?: string;
   fullName: string;
   email: string;
   phone?: string;

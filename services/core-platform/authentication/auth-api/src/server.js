@@ -50,6 +50,33 @@ const collections = {
   sessions: () => db.collection('sessions'),
 };
 
+// Local fallback for citizen UX if RBAC scope is transiently unavailable.
+const citizenFallbackPermissions = Object.freeze([
+  'profile:read:self',
+  'auth.me.read',
+  'auth.password.change',
+  'auth.contact.phone.write',
+  'auth.contact.email.write',
+  'nin.profile.read',
+  'profile.me.read',
+  'profile.me.update',
+  'profile.nin.refresh.request',
+  'records.me.read',
+  'records.symptoms.create',
+  'records.entry.update',
+  'records.entry.hide',
+  'doctor.register',
+  'emergency.request.create',
+  'emergency.request.read',
+  'emergency.room.read',
+  'emergency.room.message.create',
+  'emergency.inventory.search',
+  'governance.case.create',
+  'governance.case.read',
+  'governance.case.room.read',
+  'governance.case.room.message.create',
+]);
+
 function toObjectIdOrNull(value) {
   if (!value || !ObjectId.isValid(value)) {
     return null;
@@ -326,16 +353,35 @@ function signRefreshToken(userId, jti) {
 }
 
 async function getRolePermissions(roleNames) {
+  const normalizedRoleNames = Array.isArray(roleNames)
+    ? roleNames
+      .map((role) => String(role || '').trim())
+      .filter(Boolean)
+    : [];
+  if (normalizedRoleNames.length === 0) {
+    normalizedRoleNames.push('citizen');
+  }
+
   const roles = await collections
     .roles()
-    .find({ name: { $in: roleNames || [] } })
+    .find({ name: { $in: normalizedRoleNames } })
     .toArray();
 
-  return Array.from(
+  const combined = Array.from(
     new Set(
       roles.flatMap((role) => (Array.isArray(role.permissions) ? role.permissions : []))
     )
   );
+
+  if (normalizedRoleNames.includes('citizen')) {
+    for (const permission of citizenFallbackPermissions) {
+      if (!combined.includes(permission)) {
+        combined.push(permission);
+      }
+    }
+  }
+
+  return combined;
 }
 
 async function issueSessionAndTokens(user, meta = {}) {
@@ -376,6 +422,11 @@ function toUserResponse(user, scope = []) {
     nin: user.nin,
     firstName,
     lastName,
+    otherName: user.otherName || null,
+    dob: user.dob || null,
+    nationality: user.nationality || 'Nigeria',
+    stateOfOrigin: user.stateOfOrigin || null,
+    localGovernment: user.localGovernment || null,
     fullName,
     email: user.email || null,
     phone: user.phone || null,
@@ -388,6 +439,18 @@ function toUserResponse(user, scope = []) {
     failedLoginAttempts: Number(user.failedLoginAttempts || 0),
     lockUntil: user.lockUntil || null,
     scope,
+  };
+}
+
+function deriveNinProfileDefaults(ninCache = {}, user = {}) {
+  return {
+    firstName: user.firstName || ninCache.firstName || null,
+    lastName: user.lastName || ninCache.lastName || null,
+    otherName: user.otherName || ninCache.otherName || null,
+    dob: user.dob || ninCache.dob || null,
+    nationality: user.nationality || ninCache.nationality || 'Nigeria',
+    stateOfOrigin: user.stateOfOrigin || ninCache.stateOfOrigin || ninCache.state || 'Lagos',
+    localGovernment: user.localGovernment || ninCache.localGovernment || ninCache.lga || 'Ikeja',
   };
 }
 
@@ -556,7 +619,18 @@ async function connect() {
 
     await collections.roles().updateOne(
       { name: 'citizen' },
-      { $setOnInsert: { name: 'citizen', permissions: ['profile:read:self'] } },
+      {
+        $set: {
+          name: 'citizen',
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          createdAt: new Date(),
+        },
+        $addToSet: {
+          permissions: { $each: citizenFallbackPermissions },
+        },
+      },
       { upsert: true }
     );
 
@@ -722,6 +796,7 @@ fastify.post('/login', async (req, reply) => {
 
     let user = await collections.users().findOne({ nin });
     if (!user) {
+      const ninProfileDefaults = deriveNinProfileDefaults(ninCache, {});
       const insertResult = await collections.users().insertOne({
         nin,
         email: null,
@@ -736,10 +811,38 @@ fastify.post('/login', async (req, reply) => {
         failedLoginAttempts: 0,
         lockUntil: null,
         lastFailedLoginAt: null,
+        firstName: ninProfileDefaults.firstName,
+        lastName: ninProfileDefaults.lastName,
+        otherName: ninProfileDefaults.otherName,
+        dob: ninProfileDefaults.dob,
+        nationality: ninProfileDefaults.nationality,
+        stateOfOrigin: ninProfileDefaults.stateOfOrigin,
+        localGovernment: ninProfileDefaults.localGovernment,
+        fullName: [ninProfileDefaults.firstName, ninProfileDefaults.lastName].filter(Boolean).join(' ').trim() || null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
       user = await collections.users().findOne({ _id: insertResult.insertedId });
+    }
+
+    const ninProfileDefaults = deriveNinProfileDefaults(ninCache, user);
+    const profilePatch = {};
+    if (!user.firstName && ninProfileDefaults.firstName) profilePatch.firstName = ninProfileDefaults.firstName;
+    if (!user.lastName && ninProfileDefaults.lastName) profilePatch.lastName = ninProfileDefaults.lastName;
+    if (!user.otherName && ninProfileDefaults.otherName) profilePatch.otherName = ninProfileDefaults.otherName;
+    if (!user.dob && ninProfileDefaults.dob) profilePatch.dob = ninProfileDefaults.dob;
+    if (!user.nationality && ninProfileDefaults.nationality) profilePatch.nationality = ninProfileDefaults.nationality;
+    if (!user.stateOfOrigin && ninProfileDefaults.stateOfOrigin) profilePatch.stateOfOrigin = ninProfileDefaults.stateOfOrigin;
+    if (!user.localGovernment && ninProfileDefaults.localGovernment) profilePatch.localGovernment = ninProfileDefaults.localGovernment;
+    if ((!user.fullName || String(user.fullName).trim().length === 0) && (ninProfileDefaults.firstName || ninProfileDefaults.lastName)) {
+      profilePatch.fullName = [ninProfileDefaults.firstName, ninProfileDefaults.lastName].filter(Boolean).join(' ').trim();
+    }
+    if (Object.keys(profilePatch).length > 0) {
+      await collections.users().updateOne(
+        { _id: user._id },
+        { $set: { ...profilePatch, updatedAt: new Date() } },
+      );
+      user = { ...user, ...profilePatch };
     }
 
     if (isUserLocked(user)) {
@@ -1027,14 +1130,44 @@ fastify.post('/login', async (req, reply) => {
 });
 
 fastify.post('/password/set', { preHandler: requireAuth }, async (req, reply) => {
-  const { newPassword } = req.body || {};
+  const {
+    currentPassword,
+    newPassword,
+    profile,
+  } = req.body || {};
   if (!newPassword || String(newPassword).length < 8) {
     return reply.code(400).send({ message: 'newPassword must be at least 8 characters' });
+  }
+  if (!currentPassword) {
+    return reply.code(400).send({ message: 'currentPassword is required' });
   }
 
   if (req.user.passwordHash && !req.user.requiresPasswordChange) {
     return reply.code(400).send({ message: 'Password already set. Use /auth/password/change.' });
   }
+
+  if (req.user.passwordHash) {
+    const validCurrent = await bcrypt.compare(String(currentPassword), req.user.passwordHash);
+    if (!validCurrent) {
+      return reply.code(401).send({ message: 'Invalid credentials' });
+    }
+  } else {
+    const ninCache = await collections.ninCache().findOne({ nin: req.user.nin, isActive: { $ne: false } });
+    const expected = String(ninCache?.dob || '');
+    if (!expected || String(currentPassword) !== expected) {
+      return reply.code(401).send({ message: 'Invalid credentials' });
+    }
+  }
+
+  const sanitizedProfile = profile && typeof profile === 'object' ? profile : {};
+  const nextFirstName = sanitizedProfile.firstName ? String(sanitizedProfile.firstName).trim() : req.user.firstName || null;
+  const nextLastName = sanitizedProfile.lastName ? String(sanitizedProfile.lastName).trim() : req.user.lastName || null;
+  const nextOtherName = sanitizedProfile.otherName ? String(sanitizedProfile.otherName).trim() : req.user.otherName || null;
+  const nextDob = sanitizedProfile.dob ? String(sanitizedProfile.dob).trim() : req.user.dob || null;
+  const nextNationality = sanitizedProfile.nationality ? String(sanitizedProfile.nationality).trim() : (req.user.nationality || 'Nigeria');
+  const nextState = sanitizedProfile.stateOfOrigin ? String(sanitizedProfile.stateOfOrigin).trim() : (req.user.stateOfOrigin || 'Lagos');
+  const nextLga = sanitizedProfile.localGovernment ? String(sanitizedProfile.localGovernment).trim() : (req.user.localGovernment || 'Ikeja');
+  const nextFullName = [nextFirstName, nextLastName].filter(Boolean).join(' ').trim() || req.user.fullName || null;
 
   const passwordHash = await bcrypt.hash(newPassword, 12);
 
@@ -1045,13 +1178,21 @@ fastify.post('/password/set', { preHandler: requireAuth }, async (req, reply) =>
         passwordHash,
         passwordSetAt: new Date(),
         requiresPasswordChange: false,
-        failedLoginAttempts: 0,
-        lockUntil: null,
-        lastFailedLoginAt: null,
-        updatedAt: new Date(),
-      },
-    }
-  );
+          failedLoginAttempts: 0,
+          lockUntil: null,
+          lastFailedLoginAt: null,
+          firstName: nextFirstName,
+          lastName: nextLastName,
+          otherName: nextOtherName,
+          dob: nextDob,
+          nationality: nextNationality,
+          stateOfOrigin: nextState,
+          localGovernment: nextLga,
+          fullName: nextFullName,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
   emitAuditEvent({
     userId: String(req.user._id),
@@ -1070,6 +1211,10 @@ fastify.post('/password/set', { preHandler: requireAuth }, async (req, reply) =>
     emailVerified: !!req.user.emailVerified,
     hasSetPassword: true,
     createdFrom: 'nin_login',
+    firstName: nextFirstName,
+    lastName: nextLastName,
+    fullName: nextFullName,
+    dob: nextDob,
   });
 
   return reply.send({ message: 'Password set successfully' });
@@ -1669,7 +1814,7 @@ fastify.get('/rbac/user/:userId/scope', { preHandler: requireAuth }, async (req,
     return reply.code(404).send({ message: 'User not found' });
   }
 
-  const scope = await getRolePermissions(user.roles || []);
+  const scope = await getRolePermissions(user.roles || ['citizen']);
 
   return reply.send({
     userId,

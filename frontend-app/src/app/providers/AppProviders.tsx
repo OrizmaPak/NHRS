@@ -18,8 +18,28 @@ export function AppProviders({ children }: PropsWithChildren) {
   }, [hydrateAccessibility]);
 
   useEffect(() => {
+    const extractPermissionFromText = (text?: string): string | undefined => {
+      if (!text) return undefined;
+      const patterns = [
+        /permission(?:\s+key)?\s*[:=]\s*([a-z0-9*._:-]+)/i,
+        /requires?\s+permission\s+([a-z0-9*._:-]+)/i,
+        /missing\s+permission\s+([a-z0-9*._:-]+)/i,
+      ];
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match?.[1]) return match[1].trim();
+      }
+      return undefined;
+    };
+
     const handler = (event: Event) => {
-      const custom = event as CustomEvent<{ status?: number; forceLogout?: boolean }>;
+      const custom = event as CustomEvent<{
+        status?: number;
+        forceLogout?: boolean;
+        deniedPermission?: string;
+        message?: string;
+        code?: string;
+      }>;
 
       if (custom.detail?.status === 401 && custom.detail?.forceLogout) {
         useAuthStore.getState().clearSession();
@@ -32,7 +52,15 @@ export function AppProviders({ children }: PropsWithChildren) {
       }
 
       if (custom.detail?.status === 403) {
-        toast.error('Access denied for this action.');
+        const deniedPermission =
+          custom.detail?.deniedPermission
+          ?? extractPermissionFromText(custom.detail?.message)
+          ?? extractPermissionFromText(custom.detail?.code);
+        toast.error(
+          deniedPermission
+            ? `Access denied (${deniedPermission}).`
+            : 'Access denied for this action.',
+        );
       }
 
       if (custom.detail?.status === 429) {

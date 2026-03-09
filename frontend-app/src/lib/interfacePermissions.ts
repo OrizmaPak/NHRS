@@ -17,15 +17,15 @@ function makeEntry(
 }
 
 export const interfacePermissions: InterfacePermission[] = [
-  makeEntry('interface.dashboard.view', 'Dashboard', '/app', 'core', 'Access main dashboard interface'),
+  makeEntry('auth.me.read', 'Dashboard', '/app', 'core', 'Access main dashboard interface'),
 
-  makeEntry('interface.settings.view', 'Settings', '/app/settings', 'settings', 'Access settings hub interface'),
-  makeEntry('interface.settings.appearance.view', 'Appearance Settings', '/app/settings/appearance', 'settings', 'Access appearance settings interface'),
-  makeEntry('interface.settings.accessibility.view', 'Accessibility Settings', '/app/settings/accessibility', 'settings', 'Access accessibility settings interface'),
+  makeEntry('auth.me.read', 'Settings', '/app/settings', 'settings', 'Access settings hub interface'),
+  makeEntry('auth.me.read', 'Appearance Settings', '/app/settings/appearance', 'settings', 'Access appearance settings interface'),
+  makeEntry('auth.me.read', 'Accessibility Settings', '/app/settings/accessibility', 'settings', 'Access accessibility settings interface'),
   makeEntry('ui.theme.write', 'Brand Settings', '/app/settings/brand', 'settings', 'Access brand settings interface'),
 
-  makeEntry('interface.public.timeline.view', 'Public Timeline', '/app/public/timeline', 'public', 'Access public timeline interface'),
-  makeEntry('interface.public.doctor_registry.view', 'Doctor Registry Search', '/app/public/doctor-registry', 'public', 'Access doctor registry search interface'),
+  makeEntry('records.me.read', 'Public Timeline', '/app/public/timeline', 'public', 'Access public timeline interface'),
+  makeEntry('auth.me.read', 'Doctor Registry Search', '/app/public/doctor-registry', 'public', 'Access doctor registry search interface'),
   makeEntry('doctor.read', 'Doctor Profile', '/app/public/doctor-registry/:doctorId', 'public', 'Access doctor profile interface'),
 
   makeEntry('profile.search', 'Provider Dashboard', '/app/provider/dashboard', 'provider', 'Access provider dashboard interface'),

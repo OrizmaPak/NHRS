@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useLogin } from '@/api/hooks/useLogin';
 import { FormField } from '@/components/forms/FormField';
+import { PasswordInput } from '@/components/forms/PasswordInput';
 import { Button } from '@/components/ui/Button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -160,8 +161,7 @@ export function LoginPage() {
           ) : null}
 
           <FormField label="Password" error={form.formState.errors.password?.message}>
-            <Input
-              type="password"
+            <PasswordInput
               autoComplete="current-password"
               placeholder={method === 'nin' ? 'DOB (DDMMYYYY) for first login or account password' : 'Enter password'}
               {...form.register('password')}
