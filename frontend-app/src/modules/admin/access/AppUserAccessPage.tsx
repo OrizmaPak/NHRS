@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -21,14 +21,18 @@ import { useAuthStore } from '@/stores/authStore';
 import { findInterfacePermissions } from '@/lib/interfacePermissions';
 
 type OverrideEffect = 'allow' | 'deny';
+type ScopedOverrideRule = { permissionKey: string; effect: OverrideEffect; roleName?: string };
+const ALL_ROLES_SCOPE = '__all__';
+
+const isSuperRole = (roleName: string) => String(roleName || '').trim().toLowerCase() === 'super';
 
 function looksLikeOpaqueIdentifier(value?: string | null) {
   if (!value) return false;
   const v = value.trim();
   if (!v) return false;
-  if (/^[a-f0-9]{24}$/i.test(v)) return true; // Mongo ObjectId
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)) return true; // UUID
-  if (/^[A-Za-z0-9_-]{18,}$/.test(v) && !/\s/.test(v)) return true; // opaque auth ids
+  if (/^[a-f0-9]{24}$/i.test(v)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)) return true;
+  if (/^[A-Za-z0-9_-]{18,}$/.test(v) && !/\s/.test(v)) return true;
   return false;
 }
 
@@ -42,8 +46,10 @@ export function AppUserAccessPage() {
   const [selectedCandidate, setSelectedCandidate] = useState<UserSearchResult | null>(null);
   const [targetUserId, setTargetUserId] = useState(initialUserId || '');
   const [roleSearch, setRoleSearch] = useState('');
-  const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
-  const [overrideMap, setOverrideMap] = useState<Record<string, OverrideEffect>>({});
+  const [permissionSearch, setPermissionSearch] = useState('');
+  const [manualRoleSelection, setManualRoleSelection] = useState<Set<string> | null>(null);
+  const [manualOverrideRules, setManualOverrideRules] = useState<ScopedOverrideRule[] | null>(null);
+  const [overrideRoleScope, setOverrideRoleScope] = useState<string | null>(null);
 
   const rolesQuery = useAppRoles();
   const permissionsQuery = useAppPermissions();
@@ -51,73 +57,141 @@ export function AppUserAccessPage() {
   const replaceRoles = useReplaceUserRoles('app');
   const replaceOverrides = useReplaceUserOverrides('app');
 
-  const displayedCandidate =
-    selectedCandidate
-    ?? (targetUserId ? userLookup[targetUserId] ?? null : null);
+  const displayedCandidate = selectedCandidate ?? (targetUserId ? userLookup[targetUserId] ?? null : null);
   const apiReportedName = userAccessQuery.data?.userName?.trim() ?? '';
   const displayedName =
-    displayedCandidate?.displayName
-    ?? (apiReportedName && !looksLikeOpaqueIdentifier(apiReportedName) ? apiReportedName : null)
-    ?? (initialUserId && authUser?.id === initialUserId ? authUser.fullName : null)
-    ?? 'Loading...';
-  const displayedNin =
-    displayedCandidate?.nin
-    ?? (initialUserId && authUser?.id === initialUserId ? authUser.nin : undefined)
-    ?? 'Not available';
+    displayedCandidate?.displayName ??
+    (apiReportedName && !looksLikeOpaqueIdentifier(apiReportedName) ? apiReportedName : null) ??
+    (initialUserId && authUser?.id === initialUserId ? authUser.fullName : null) ??
+    'Loading...';
+  const displayedNin = displayedCandidate?.nin ?? (initialUserId && authUser?.id === initialUserId ? authUser.nin : undefined) ?? 'Not available';
 
-  useEffect(() => {
-    if (!targetUserId) return;
-    setSelectedRoleIds(new Set());
-    setOverrideMap({});
-  }, [targetUserId]);
-
-  useEffect(() => {
-    if (!userAccessQuery.data) return;
+  const assignedRoleIds = useMemo(() => {
+    if (!userAccessQuery.data) return new Set<string>();
     const explicitRoleIds = userAccessQuery.data.roleIds ?? [];
     if (explicitRoleIds.length > 0) {
-      setSelectedRoleIds(new Set(explicitRoleIds));
-    } else {
-      const roleIdByName = new Map((rolesQuery.data ?? []).map((role) => [role.name.toLowerCase(), role.id] as const));
-      const resolved = (userAccessQuery.data.roles ?? [])
-        .map((name) => roleIdByName.get(String(name).toLowerCase()))
-        .filter((entry): entry is string => Boolean(entry));
-      setSelectedRoleIds(new Set(resolved));
+      return new Set(explicitRoleIds);
     }
-    const mapped: Record<string, OverrideEffect> = {};
-    for (const override of userAccessQuery.data.overrides) {
-      mapped[override.key] = override.effect;
-    }
-    setOverrideMap(mapped);
+    const roleIdByName = new Map((rolesQuery.data ?? []).map((role) => [role.name.toLowerCase(), role.id] as const));
+    const resolved = (userAccessQuery.data.roles ?? [])
+      .map((name) => ({ name: String(name).toLowerCase(), id: roleIdByName.get(String(name).toLowerCase()) }))
+      .filter((entry) => Boolean(entry.id) && !isSuperRole(entry.name))
+      .map((entry) => String(entry.id));
+    return new Set(resolved);
   }, [rolesQuery.data, userAccessQuery.data]);
+
+  const selectedRoleIds = manualRoleSelection ?? assignedRoleIds;
+  const roleRowsById = useMemo(() => new Map((rolesQuery.data ?? []).map((role) => [role.id, role] as const)), [rolesQuery.data]);
+
+  const selectedRoleNames = useMemo(
+    () =>
+      Array.from(selectedRoleIds)
+        .map((roleId) => roleRowsById.get(roleId)?.name?.trim().toLowerCase())
+        .filter((name): name is string => Boolean(name) && !isSuperRole(name)),
+    [roleRowsById, selectedRoleIds],
+  );
+
+  const assignedOverrideRules = useMemo(() => {
+    return (userAccessQuery.data?.overrides ?? []).map((override) => ({
+      permissionKey: override.key,
+      effect: override.effect,
+      roleName: override.roleName ? String(override.roleName).trim().toLowerCase() : undefined,
+    }));
+  }, [userAccessQuery.data?.overrides]);
+
+  const overrideRules = manualOverrideRules ?? assignedOverrideRules;
+
+  const resolvedOverrideRoleScope = useMemo(() => {
+    if (overrideRoleScope && (overrideRoleScope === ALL_ROLES_SCOPE || selectedRoleNames.includes(overrideRoleScope))) {
+      return overrideRoleScope;
+    }
+    if (selectedRoleNames.length > 0) return selectedRoleNames[0];
+    return ALL_ROLES_SCOPE;
+  }, [overrideRoleScope, selectedRoleNames]);
+
+  const scopedOverrideMap = useMemo(() => {
+    const mapped: Record<string, OverrideEffect> = {};
+    for (const override of overrideRules) {
+      const overrideRole = override.roleName ? String(override.roleName).trim().toLowerCase() : '';
+      const isGlobalScope = resolvedOverrideRoleScope === ALL_ROLES_SCOPE;
+      const matchesScope = isGlobalScope ? !overrideRole : overrideRole === resolvedOverrideRoleScope;
+      if (!matchesScope) continue;
+      mapped[override.permissionKey] = override.effect;
+    }
+    return mapped;
+  }, [overrideRules, resolvedOverrideRoleScope]);
 
   const permissionRows = useMemo(() => {
     const rows = permissionsQuery.data ?? [];
-    return rows
-      .filter((permission) => findInterfacePermissions(permission.key).length > 0)
-      .sort((a, b) => a.key.localeCompare(b.key));
+    return rows.sort((a, b) => a.key.localeCompare(b.key));
   }, [permissionsQuery.data]);
 
+  const filteredPermissionRows = useMemo(() => {
+    const key = permissionSearch.trim().toLowerCase();
+    if (!key) return permissionRows;
+    return permissionRows.filter((permission) => {
+      const interfaces = findInterfacePermissions(permission.key);
+      const interfaceText = interfaces.map((entry) => `${entry.interfaceLabel} ${entry.route}`).join(' ');
+      return `${permission.key} ${permission.description} ${interfaceText}`.toLowerCase().includes(key);
+    });
+  }, [permissionRows, permissionSearch]);
+
+  const interfacePermissionRows = useMemo(
+    () => filteredPermissionRows.filter((permission) => findInterfacePermissions(permission.key).length > 0),
+    [filteredPermissionRows],
+  );
+  const otherPermissionRows = useMemo(
+    () => filteredPermissionRows.filter((permission) => findInterfacePermissions(permission.key).length === 0),
+    [filteredPermissionRows],
+  );
+
   const rolePermissionsSet = useMemo(() => {
-    const roleMap = new Map((rolesQuery.data ?? []).map((role) => [role.id, role.permissions] as const));
+    const roleMap = new Map((rolesQuery.data ?? []).map((role) => [role.id, role] as const));
     const granted = new Set<string>();
+    if (resolvedOverrideRoleScope === ALL_ROLES_SCOPE) {
+      for (const roleId of selectedRoleIds) {
+        for (const key of roleMap.get(roleId)?.permissions ?? []) granted.add(key);
+      }
+      return granted;
+    }
     for (const roleId of selectedRoleIds) {
-      for (const key of roleMap.get(roleId) ?? []) granted.add(key);
+      const role = roleMap.get(roleId);
+      if (!role) continue;
+      if (String(role.name || '').trim().toLowerCase() !== resolvedOverrideRoleScope) continue;
+      for (const key of role.permissions ?? []) granted.add(key);
     }
     return granted;
-  }, [rolesQuery.data, selectedRoleIds]);
+  }, [resolvedOverrideRoleScope, rolesQuery.data, selectedRoleIds]);
 
   const filteredRoles = useMemo(() => {
-    const roles = rolesQuery.data ?? [];
+    const roles = (rolesQuery.data ?? []).filter((role) => !isSuperRole(role.name));
     const key = roleSearch.trim().toLowerCase();
     if (!key) return roles;
     return roles.filter((role) => `${role.name} ${role.description}`.toLowerCase().includes(key));
   }, [roleSearch, rolesQuery.data]);
 
   const effectivePermissionState = (permissionKey: string): 'allow' | 'deny' | 'inherit' => {
-    if (overrideMap[permissionKey] === 'deny') return 'deny';
-    if (overrideMap[permissionKey] === 'allow') return 'allow';
+    if (scopedOverrideMap[permissionKey] === 'deny') return 'deny';
+    if (scopedOverrideMap[permissionKey] === 'allow') return 'allow';
     if (rolePermissionsSet.has('*') || rolePermissionsSet.has(permissionKey)) return 'allow';
     return 'inherit';
+  };
+
+  const upsertScopedOverride = (permissionKey: string, effect?: OverrideEffect) => {
+    const targetRole = resolvedOverrideRoleScope === ALL_ROLES_SCOPE ? '' : resolvedOverrideRoleScope;
+    setManualOverrideRules((prev) => {
+      const base = prev ?? [...overrideRules];
+      const filtered = base.filter((entry) => {
+        if (entry.permissionKey !== permissionKey) return true;
+        const entryRole = entry.roleName ? String(entry.roleName).trim().toLowerCase() : '';
+        return entryRole !== targetRole;
+      });
+      if (!effect) return filtered;
+      if (targetRole) {
+        return [...filtered, { permissionKey, effect, roleName: targetRole }];
+      }
+      return [...filtered, { permissionKey, effect }];
+    });
   };
 
   const loadUserOptions = useCallback(async (term: string) => {
@@ -169,6 +243,9 @@ export function AppUserAccessPage() {
               }
               setSelectedCandidate(candidate);
               setTargetUserId(candidate.id);
+              setManualRoleSelection(null);
+              setManualOverrideRules(null);
+              setOverrideRoleScope(null);
             }}
             placeholder="Search by NIN, email, phone, or name"
             emptyLabel="No matching user found"
@@ -197,7 +274,7 @@ export function AppUserAccessPage() {
                 <CardHeader>
                   <div>
                     <CardTitle>Rows (Roles)</CardTitle>
-                    <CardDescription>Current rows are preselected. Add/remove rows with multi-select.</CardDescription>
+                    <CardDescription>Only assigned roles are preselected. Super is excluded from assignable options.</CardDescription>
                   </div>
                 </CardHeader>
                 <div className="mb-3 md:max-w-md">
@@ -216,8 +293,9 @@ export function AppUserAccessPage() {
                           type="checkbox"
                           checked={checked}
                           onChange={(event) => {
-                            setSelectedRoleIds((prev) => {
-                              const next = new Set(prev);
+                            setManualRoleSelection((prev) => {
+                              const base = prev ?? new Set(selectedRoleIds);
+                              const next = new Set(base);
                               if (event.target.checked) next.add(role.id);
                               else next.delete(role.id);
                               return next;
@@ -234,6 +312,8 @@ export function AppUserAccessPage() {
                     loadingText="Saving rows..."
                     onClick={async () => {
                       await replaceRoles.mutateAsync({ userId: targetUserId, roleIds: Array.from(selectedRoleIds) });
+                      setManualRoleSelection(null);
+                      setManualOverrideRules(null);
                       toast.success('Rows updated');
                     }}
                   >
@@ -251,80 +331,130 @@ export function AppUserAccessPage() {
                     </CardDescription>
                   </div>
                 </CardHeader>
-                <div className="space-y-2">
-                  {permissionRows.map((permission) => {
-                    const interfaces = findInterfacePermissions(permission.key);
-                    const state = effectivePermissionState(permission.key);
-                    return (
-                      <div key={permission.key} className="rounded border border-border p-3">
-                        <div className="mb-2 flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-medium text-foreground">{permission.key}</p>
-                          <Badge variant={state === 'deny' ? 'danger' : state === 'allow' ? 'success' : 'outline'}>
-                            {state.toUpperCase()}
-                          </Badge>
+                <div className="mb-3 md:max-w-md">
+                  <SearchInput value={permissionSearch} onChange={setPermissionSearch} placeholder="Search permissions, description, or interface" />
+                </div>
+                <div className="mb-3 md:max-w-sm">
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">Specific Permission Scope</label>
+                  <select
+                    className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
+                    value={resolvedOverrideRoleScope}
+                    onChange={(event) => setOverrideRoleScope(event.target.value)}
+                  >
+                    <option value={ALL_ROLES_SCOPE}>All assigned rows (global override)</option>
+                    {selectedRoleNames.map((roleName) => (
+                      <option key={roleName} value={roleName}>
+                        {roleName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-4">
+                  <section className="space-y-2">
+                    <h4 className="text-sm font-semibold text-foreground">Interface Access Permissions</h4>
+                    {interfacePermissionRows.map((permission) => {
+                      const interfaces = findInterfacePermissions(permission.key);
+                      const state = effectivePermissionState(permission.key);
+                      return (
+                        <div key={permission.key} className="rounded border border-border p-3">
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium text-foreground">{permission.key}</p>
+                            <Badge variant={state === 'deny' ? 'danger' : state === 'allow' ? 'success' : 'outline'}>
+                              {state.toUpperCase()}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted">{permission.description}</p>
+                          {interfaces.length > 0 ? (
+                            <p className="mt-1 text-xs text-primary">
+                              {interfaces[0].interfaceLabel} ({interfaces[0].route})
+                            </p>
+                          ) : null}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              variant={scopedOverrideMap[permission.key] === 'allow' ? 'default' : 'outline'}
+                              onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'allow' ? undefined : 'allow')}
+                            >
+                              Can
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={scopedOverrideMap[permission.key] === 'deny' ? 'danger' : 'outline'}
+                              onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'deny' ? undefined : 'deny')}
+                            >
+                              Cannot
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => upsertScopedOverride(permission.key, undefined)}
+                            >
+                              Inherit
+                            </Button>
+                          </div>
                         </div>
-                        <p className="text-xs text-muted">{permission.description}</p>
-                        {interfaces.length > 0 ? (
-                          <p className="mt-1 text-xs text-primary">
-                            {interfaces[0].interfaceLabel} ({interfaces[0].route})
-                          </p>
-                        ) : null}
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            variant={overrideMap[permission.key] === 'allow' ? 'default' : 'outline'}
-                            onClick={() =>
-                              setOverrideMap((prev) => {
-                                const next = { ...prev };
-                                if (prev[permission.key] === 'allow') delete next[permission.key];
-                                else next[permission.key] = 'allow';
-                                return next;
-                              })
-                            }
-                          >
-                            Can
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={overrideMap[permission.key] === 'deny' ? 'destructive' : 'outline'}
-                            onClick={() =>
-                              setOverrideMap((prev) => {
-                                const next = { ...prev };
-                                if (prev[permission.key] === 'deny') delete next[permission.key];
-                                else next[permission.key] = 'deny';
-                                return next;
-                              })
-                            }
-                          >
-                            Cannot
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              setOverrideMap((prev) => {
-                                const next = { ...prev };
-                                delete next[permission.key];
-                                return next;
-                              })
-                            }
-                          >
-                            Inherit
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </section>
+                  {otherPermissionRows.length > 0 ? (
+                    <section className="space-y-2">
+                      <h4 className="text-sm font-semibold text-foreground">Other Action Permissions</h4>
+                      {otherPermissionRows.map((permission) => {
+                        const state = effectivePermissionState(permission.key);
+                        return (
+                          <div key={permission.key} className="rounded border border-border p-3">
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium text-foreground">{permission.key}</p>
+                              <Badge variant={state === 'deny' ? 'danger' : state === 'allow' ? 'success' : 'outline'}>
+                                {state.toUpperCase()}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted">{permission.description}</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                variant={scopedOverrideMap[permission.key] === 'allow' ? 'default' : 'outline'}
+                                onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'allow' ? undefined : 'allow')}
+                              >
+                                Can
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={scopedOverrideMap[permission.key] === 'deny' ? 'danger' : 'outline'}
+                                onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'deny' ? undefined : 'deny')}
+                              >
+                                Cannot
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => upsertScopedOverride(permission.key, undefined)}
+                              >
+                                Inherit
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </section>
+                  ) : null}
+                  {interfacePermissionRows.length === 0 && otherPermissionRows.length === 0 ? (
+                    <div className="rounded border border-border p-3 text-sm text-muted">No permissions matched your search.</div>
+                  ) : null}
                 </div>
                 <div className="mt-3">
                   <Button
                     loading={replaceOverrides.isPending}
                     loadingText="Saving permissions..."
                     onClick={async () => {
-                      const overrides = Object.entries(overrideMap)
-                        .filter(([, effect]) => effect === 'allow' || effect === 'deny')
-                        .map(([permissionKey, effect]) => ({ permissionKey, effect }));
+                      const overrides = overrideRules
+                        .filter((entry) => entry.permissionKey && (entry.effect === 'allow' || entry.effect === 'deny'))
+                        .map((entry) =>
+                          entry.roleName
+                            ? { permissionKey: entry.permissionKey, effect: entry.effect, roleName: entry.roleName }
+                            : { permissionKey: entry.permissionKey, effect: entry.effect });
                       await replaceOverrides.mutateAsync({ userId: targetUserId, overrides });
+                      setManualOverrideRules(null);
                       toast.success('Interface permissions updated');
                     }}
                   >

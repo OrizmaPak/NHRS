@@ -38,6 +38,12 @@ function getContextHeaders(): Record<string, string> {
   if (raw) {
     headers['x-active-context-id'] = raw;
   }
+  if (activeContext?.name) {
+    headers['x-active-context-name'] = String(activeContext.name);
+  }
+  if (activeContext?.type) {
+    headers['x-active-context-type'] = String(activeContext.type);
+  }
 
   if (activeContext?.type === 'organization') {
     const orgId = activeContext.organizationId || activeContext.id;

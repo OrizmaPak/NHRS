@@ -369,7 +369,19 @@ async function getRolePermissions(roleNames) {
 
   const combined = Array.from(
     new Set(
-      roles.flatMap((role) => (Array.isArray(role.permissions) ? role.permissions : []))
+      roles.flatMap((role) => (
+        Array.isArray(role.permissions)
+          ? role.permissions
+            .map((permission) => {
+              if (typeof permission === 'string') return permission;
+              if (permission && typeof permission === 'object') {
+                return String(permission.permissionKey || permission.key || '');
+              }
+              return '';
+            })
+            .filter(Boolean)
+          : []
+      ))
     )
   );
 
@@ -495,9 +507,9 @@ async function fetchEffectiveTheme(scopeType, scopeId) {
   }
 }
 
-async function fetchRbacPermissions(authorization) {
+async function fetchRbacScopeSummary(authorization) {
   if (!authorization) {
-    return [];
+    return { permissions: [], appRoles: [] };
   }
 
   try {
@@ -509,19 +521,41 @@ async function fetchRbacPermissions(authorization) {
       },
     });
     if (!response.ok) {
-      return [];
+      return { permissions: [], appRoles: [] };
     }
 
     const body = await response.json();
-    const appPermissions = Array.isArray(body?.appScopePermissions) ? body.appScopePermissions : [];
+    const normalizePermissionKeys = (items = []) => (
+      (Array.isArray(items) ? items : [])
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object') {
+            return String(item.permissionKey || item.key || item.permission || '');
+          }
+          return '';
+        })
+        .filter(Boolean)
+    );
+
+    const appPermissions = normalizePermissionKeys(body?.appScopePermissions);
     const orgPermissions = Array.isArray(body?.orgScopePermissions)
-      ? body.orgScopePermissions.flatMap((entry) => (
-        Array.isArray(entry?.permissions) ? entry.permissions : []
-      ))
+      ? body.orgScopePermissions.flatMap((entry) => normalizePermissionKeys(entry?.permissions))
       : [];
-    return [...new Set([...appPermissions, ...orgPermissions].map((item) => String(item)))];
+    const appRoles = Array.isArray(body?.rolesUsed?.app)
+      ? body.rolesUsed.app
+        .map((entry) => {
+          if (typeof entry === 'string') return entry;
+          if (!entry || typeof entry !== 'object') return '';
+          return String(entry.name || entry.role || entry.roleName || '').trim();
+        })
+        .filter(Boolean)
+      : [];
+    return {
+      permissions: [...new Set([...appPermissions, ...orgPermissions].map((item) => String(item)))],
+      appRoles: [...new Set(appRoles.map((item) => String(item).trim()).filter(Boolean))],
+    };
   } catch (_err) {
-    return [];
+    return { permissions: [], appRoles: [] };
   }
 }
 
@@ -566,7 +600,8 @@ async function requireAuth(req, reply) {
 }
 
 async function requireAdmin(req, reply) {
-  if (!req.user || !Array.isArray(req.user.roles) || !req.user.roles.includes('admin')) {
+  const roles = Array.isArray(req.user?.roles) ? req.user.roles.map((role) => String(role || '').trim().toLowerCase()) : [];
+  if (!roles.includes('super') && !roles.includes('superadmin') && !roles.includes('super_admin') && !roles.includes('super admin')) {
     return reply.code(403).send({ message: 'Admin role required' });
   }
 }
@@ -641,18 +676,7 @@ async function connect() {
       { upsert: true }
     );
 
-    await collections.roles().updateOne(
-      { name: 'admin' },
-      {
-        $set: {
-          name: 'admin',
-          permissions: ['*'],
-          updatedAt: new Date(),
-        },
-        $setOnInsert: { createdAt: new Date() },
-      },
-      { upsert: true }
-    );
+    await collections.roles().deleteMany({ name: 'admin' });
   }
 
   fastify.log.info({ dbName, redisUrl, dbReady, redisReady }, 'auth-api dependency status');
@@ -1480,14 +1504,24 @@ fastify.post('/logout', async (req, reply) => {
 });
 
 fastify.get('/me', { preHandler: requireAuth }, async (req, reply) => {
-  const roleScope = await getRolePermissions(req.user.roles || ['citizen']);
-  const rbacScope = await fetchRbacPermissions(req.headers.authorization || '');
-  const scope = [...new Set([...roleScope, ...rbacScope])];
+  const rbacScope = await fetchRbacScopeSummary(req.headers.authorization || '');
+  const mergedRoleNames = [
+    ...new Set([
+      ...((Array.isArray(req.user.roles) ? req.user.roles : ['citizen']).map((role) => String(role).trim()).filter(Boolean)),
+      ...(rbacScope.appRoles || []).map((role) => String(role).trim()).filter(Boolean),
+    ]),
+  ];
+  if (mergedRoleNames.length === 0) {
+    mergedRoleNames.push('citizen');
+  }
+
+  const roleScope = await getRolePermissions(mergedRoleNames);
+  const scope = [...new Set([...roleScope, ...(rbacScope.permissions || [])])];
   const { availableContexts, defaultContext } = await buildAvailableContexts(req.user._id, req.headers.authorization || '');
   const defaultContextTheme = await fetchEffectiveTheme(defaultContext.themeScopeType, defaultContext.themeScopeId);
 
   return reply.send({
-    user: toUserResponse(req.user, scope),
+    user: toUserResponse({ ...req.user, roles: mergedRoleNames }, scope),
     availableContexts,
     defaultContext,
     defaultContextTheme,

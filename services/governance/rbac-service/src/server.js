@@ -147,225 +147,12 @@ const systemRoles = [
     ],
   },
   {
-    name: 'app_admin',
-    description: 'Application administrator',
+    name: 'super',
+    description: 'Super administrator',
     scope: 'app',
     organizationId: null,
     isSystem: true,
     permissions: [{ permissionKey: '*', effect: 'allow' }],
-  },
-  {
-    name: 'platform_admin',
-    description: 'Platform administrator',
-    scope: 'app',
-    organizationId: null,
-    isSystem: true,
-    permissions: [{ permissionKey: '*', effect: 'allow' }],
-  },
-  {
-    name: 'auditor',
-    description: 'Read-only auditor',
-    scope: 'app',
-    organizationId: null,
-    isSystem: true,
-    permissions: [
-      { permissionKey: 'audit.read', effect: 'allow' },
-      { permissionKey: 'nin.profile.read', effect: 'allow' },
-    ],
-  },
-  {
-    name: 'regulator',
-    description: 'Doctor license regulator',
-    scope: 'app',
-    organizationId: null,
-    isSystem: true,
-    permissions: [
-      { permissionKey: 'doctor.read', effect: 'allow' },
-      { permissionKey: 'doctor.verify', effect: 'allow' },
-      { permissionKey: 'doctor.suspend', effect: 'allow' },
-      { permissionKey: 'doctor.revoke', effect: 'allow' },
-      { permissionKey: 'doctor.reinstate', effect: 'allow' },
-      { permissionKey: 'governance.case.read', effect: 'allow' },
-      { permissionKey: 'governance.correction.approve', effect: 'allow' },
-      { permissionKey: 'governance.correction.reject', effect: 'allow' },
-    ],
-  },
-  {
-    name: 'org_owner',
-    description: 'Organization owner',
-    scope: 'org',
-    organizationId: '__template__',
-    isSystem: true,
-    permissions: [
-      { permissionKey: 'org.read', effect: 'allow' },
-      { permissionKey: 'org.list', effect: 'allow' },
-      { permissionKey: 'org.update', effect: 'allow' },
-      { permissionKey: 'org.owner.assign', effect: 'allow' },
-      { permissionKey: 'org.branch.create', effect: 'allow' },
-      { permissionKey: 'org.branch.read', effect: 'allow' },
-      { permissionKey: 'org.branch.update', effect: 'allow' },
-      { permissionKey: 'org.branch.delete', effect: 'allow' },
-      { permissionKey: 'org.member.add', effect: 'allow' },
-      { permissionKey: 'org.member.invite', effect: 'allow' },
-      { permissionKey: 'org.member.read', effect: 'allow' },
-      { permissionKey: 'org.member.list', effect: 'allow' },
-      { permissionKey: 'org.member.update', effect: 'allow' },
-      { permissionKey: 'org.member.status.update', effect: 'allow' },
-      { permissionKey: 'org.branch.assign', effect: 'allow' },
-      { permissionKey: 'org.branch.assignment.update', effect: 'allow' },
-      { permissionKey: 'org.member.branch.assign', effect: 'allow' },
-      { permissionKey: 'org.member.branch.update', effect: 'allow' },
-      { permissionKey: 'org.member.branch.remove', effect: 'allow' },
-      { permissionKey: 'org.member.transfer', effect: 'allow' },
-      { permissionKey: 'org.member.history.read', effect: 'allow' },
-      { permissionKey: 'records.nin.read', effect: 'allow' },
-      { permissionKey: 'records.entry.create', effect: 'allow' },
-      { permissionKey: 'emergency.request.read', effect: 'allow' },
-      { permissionKey: 'emergency.request.update_status', effect: 'allow' },
-      { permissionKey: 'emergency.response.create', effect: 'allow' },
-      { permissionKey: 'emergency.room.read', effect: 'allow' },
-      { permissionKey: 'emergency.room.message.create', effect: 'allow' },
-      { permissionKey: 'emergency.inventory.upsert', effect: 'allow' },
-      { permissionKey: 'emergency.inventory.search', effect: 'allow' },
-      { permissionKey: 'governance.case.create', effect: 'allow' },
-      { permissionKey: 'governance.case.read', effect: 'allow' },
-      { permissionKey: 'governance.case.update_status', effect: 'allow' },
-      { permissionKey: 'governance.correction.propose', effect: 'allow' },
-      { permissionKey: 'governance.correction.approve', effect: 'allow' },
-      { permissionKey: 'governance.correction.reject', effect: 'allow' },
-      { permissionKey: 'governance.case.escalate', effect: 'allow' },
-      { permissionKey: 'governance.case.room.read', effect: 'allow' },
-      { permissionKey: 'governance.case.room.message.create', effect: 'allow' },
-    ],
-  },
-  {
-    name: 'org_staff',
-    description: 'Organization staff',
-    scope: 'org',
-    organizationId: '__template__',
-    isSystem: true,
-    permissions: [
-      { permissionKey: 'org.read', effect: 'allow' },
-      { permissionKey: 'org.list', effect: 'allow' },
-      { permissionKey: 'org.branch.read', effect: 'allow' },
-      { permissionKey: 'org.member.read', effect: 'allow' },
-      { permissionKey: 'org.member.list', effect: 'allow' },
-      { permissionKey: 'org.member.history.read', effect: 'allow' },
-      { permissionKey: 'membership.user.read', effect: 'allow' },
-      { permissionKey: 'membership.user.history.read', effect: 'allow' },
-      { permissionKey: 'records.nin.read', effect: 'allow' },
-      { permissionKey: 'emergency.request.read', effect: 'allow' },
-      { permissionKey: 'emergency.response.create', effect: 'allow' },
-      { permissionKey: 'emergency.room.read', effect: 'allow' },
-      { permissionKey: 'emergency.room.message.create', effect: 'allow' },
-      { permissionKey: 'emergency.inventory.search', effect: 'allow' },
-      { permissionKey: 'governance.case.create', effect: 'allow' },
-      { permissionKey: 'governance.case.read', effect: 'allow' },
-      { permissionKey: 'governance.correction.propose', effect: 'allow' },
-      { permissionKey: 'governance.case.room.read', effect: 'allow' },
-      { permissionKey: 'governance.case.room.message.create', effect: 'allow' },
-    ],
-  },
-  {
-    name: 'org_admin',
-    description: 'Organization admin',
-    scope: 'org',
-    organizationId: '__template__',
-    isSystem: true,
-    permissions: [
-      { permissionKey: 'rbac.org.manage', effect: 'allow' },
-      { permissionKey: 'org.manage', effect: 'allow' },
-      { permissionKey: 'org.read', effect: 'allow' },
-      { permissionKey: 'org.list', effect: 'allow' },
-      { permissionKey: 'org.update', effect: 'allow' },
-      { permissionKey: 'org.owner.assign', effect: 'allow' },
-      { permissionKey: 'org.search', effect: 'allow' },
-      { permissionKey: 'org.branch.create', effect: 'allow' },
-      { permissionKey: 'org.branch.read', effect: 'allow' },
-      { permissionKey: 'org.branch.update', effect: 'allow' },
-      { permissionKey: 'org.branch.delete', effect: 'allow' },
-      { permissionKey: 'org.member.add', effect: 'allow' },
-      { permissionKey: 'org.member.invite', effect: 'allow' },
-      { permissionKey: 'org.member.read', effect: 'allow' },
-      { permissionKey: 'org.member.list', effect: 'allow' },
-      { permissionKey: 'org.member.update', effect: 'allow' },
-      { permissionKey: 'org.member.status.update', effect: 'allow' },
-      { permissionKey: 'org.branch.assign', effect: 'allow' },
-      { permissionKey: 'org.branch.assignment.update', effect: 'allow' },
-      { permissionKey: 'org.member.branch.assign', effect: 'allow' },
-      { permissionKey: 'org.member.branch.update', effect: 'allow' },
-      { permissionKey: 'org.member.branch.remove', effect: 'allow' },
-      { permissionKey: 'org.member.transfer', effect: 'allow' },
-      { permissionKey: 'org.member.history.read', effect: 'allow' },
-      { permissionKey: 'nin.profile.read', effect: 'allow' },
-      { permissionKey: 'lab.results.write', effect: 'allow' },
-      { permissionKey: 'profile.search', effect: 'allow' },
-      { permissionKey: 'profile.user.read', effect: 'allow' },
-      { permissionKey: 'profile.placeholder.create', effect: 'allow' },
-      { permissionKey: 'emergency.request.create', effect: 'allow' },
-      { permissionKey: 'emergency.request.read', effect: 'allow' },
-      { permissionKey: 'emergency.request.update_status', effect: 'allow' },
-      { permissionKey: 'emergency.response.create', effect: 'allow' },
-      { permissionKey: 'emergency.room.read', effect: 'allow' },
-      { permissionKey: 'emergency.room.message.create', effect: 'allow' },
-      { permissionKey: 'emergency.inventory.upsert', effect: 'allow' },
-      { permissionKey: 'emergency.inventory.search', effect: 'allow' },
-      { permissionKey: 'taskforce.unit.create', effect: 'allow' },
-      { permissionKey: 'taskforce.unit.read', effect: 'allow' },
-      { permissionKey: 'taskforce.unit.update', effect: 'allow' },
-      { permissionKey: 'taskforce.member.manage', effect: 'allow' },
-      { permissionKey: 'governance.case.create', effect: 'allow' },
-      { permissionKey: 'governance.case.read', effect: 'allow' },
-      { permissionKey: 'governance.case.update_status', effect: 'allow' },
-      { permissionKey: 'governance.correction.propose', effect: 'allow' },
-      { permissionKey: 'governance.correction.approve', effect: 'allow' },
-      { permissionKey: 'governance.correction.reject', effect: 'allow' },
-      { permissionKey: 'governance.case.escalate', effect: 'allow' },
-      { permissionKey: 'governance.case.room.read', effect: 'allow' },
-      { permissionKey: 'governance.case.room.message.create', effect: 'allow' },
-    ],
-  },
-  {
-    name: 'staff',
-    description: 'Organization staff',
-    scope: 'org',
-    organizationId: '__template__',
-    isSystem: true,
-    permissions: [
-      { permissionKey: 'nin.profile.read', effect: 'allow' },
-      { permissionKey: 'lab.results.write', effect: 'deny' },
-      { permissionKey: 'profile.search', effect: 'allow' },
-      { permissionKey: 'profile.user.read', effect: 'allow' },
-      { permissionKey: 'profile.placeholder.create', effect: 'allow' },
-      { permissionKey: 'org.branch.read', effect: 'allow' },
-      { permissionKey: 'org.member.read', effect: 'allow' },
-      { permissionKey: 'org.member.history.read', effect: 'allow' },
-      { permissionKey: 'emergency.request.read', effect: 'allow' },
-      { permissionKey: 'emergency.room.read', effect: 'allow' },
-      { permissionKey: 'emergency.inventory.search', effect: 'allow' },
-      { permissionKey: 'governance.case.read', effect: 'allow' },
-      { permissionKey: 'governance.case.room.read', effect: 'allow' },
-    ],
-  },
-  {
-    name: 'staff_readonly',
-    description: 'Read-only staff',
-    scope: 'org',
-    organizationId: '__template__',
-    isSystem: true,
-    permissions: [
-      { permissionKey: 'nin.profile.read', effect: 'allow' },
-      { permissionKey: 'lab.results.write', effect: 'deny' },
-      { permissionKey: 'profile.search', effect: 'allow' },
-      { permissionKey: 'profile.user.read', effect: 'allow' },
-      { permissionKey: 'org.branch.read', effect: 'allow' },
-      { permissionKey: 'org.member.read', effect: 'allow' },
-      { permissionKey: 'emergency.request.read', effect: 'allow' },
-      { permissionKey: 'emergency.room.read', effect: 'allow' },
-      { permissionKey: 'emergency.inventory.search', effect: 'allow' },
-      { permissionKey: 'governance.case.read', effect: 'allow' },
-      { permissionKey: 'governance.case.room.read', effect: 'allow' },
-    ],
   },
 ];
 
@@ -391,6 +178,111 @@ function emitAuditEvent(event) {
 
 function normalizeOrgId(value) {
   return value === undefined || value === null || value === '' ? null : String(value);
+}
+
+function normalizeRoleName(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeRoleAlias(value) {
+  const normalized = normalizeRoleName(value);
+  if (!normalized) return '';
+  if (['superadmin', 'super_admin', 'super admin'].includes(normalized)) return 'super';
+  return normalized;
+}
+
+function rolesMatch(left, right) {
+  const l = normalizeRoleAlias(left);
+  const r = normalizeRoleAlias(right);
+  return Boolean(l) && Boolean(r) && l === r;
+}
+
+function parseActiveAppRoleFromContext(context = {}) {
+  const contextId = String(context.activeContextId || '').trim().toLowerCase();
+  const contextType = String(context.activeContextType || '').trim().toLowerCase();
+  const contextName = String(context.activeContextName || '').trim().toLowerCase();
+  const explicit = normalizeRoleAlias(context.activeRole || context.activeRoleName);
+  if (explicit) return explicit;
+  if (contextId === 'app:super') return 'super';
+  if (contextId === 'app:citizen') return 'citizen';
+  if (contextId.startsWith('app:role:')) {
+    return normalizeRoleAlias(contextId.replace('app:role:', ''));
+  }
+  if (contextType === 'platform' && contextName) {
+    return normalizeRoleAlias(contextName);
+  }
+  return null;
+}
+
+function filterAppRolesByActiveRole(roles = [], activeRoleName = null) {
+  const roleName = normalizeRoleAlias(activeRoleName);
+  if (!roleName) return roles;
+  return roles.filter((role) => rolesMatch(role?.name, roleName));
+}
+
+function filterOverridesByActiveRole(overrides = [], activeRoleName = null) {
+  const roleName = normalizeRoleAlias(activeRoleName);
+  if (!roleName) return overrides;
+  return (Array.isArray(overrides) ? overrides : []).filter((entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    const scopedRole = normalizeRoleAlias(entry.roleName || entry.role || entry.contextRole);
+    if (!scopedRole) return true;
+    return rolesMatch(scopedRole, roleName);
+  });
+}
+
+function sanitizeOverrideRules(overrides = []) {
+  if (!Array.isArray(overrides)) return [];
+  return overrides
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const permissionKey = String(entry.permissionKey || entry.key || '').trim();
+      if (!permissionKey) return null;
+      const effect = String(entry.effect || entry.value || '').trim().toLowerCase() === 'deny' ? 'deny' : 'allow';
+      const roleName = normalizeRoleAlias(entry.roleName || entry.role || entry.contextRole);
+      const rule = { permissionKey, effect };
+      if (roleName) {
+        rule.roleName = roleName;
+      }
+      return rule;
+    })
+    .filter(Boolean);
+}
+
+function isLockedAppRoleName(name) {
+  return String(name || '').trim().toLowerCase() === 'super';
+}
+
+async function findAppRoleByAnyIdentifier(roleIdentifier) {
+  const value = String(roleIdentifier || '').trim();
+  if (!value) return null;
+  if (ObjectId.isValid(value)) {
+    const byId = await collections.roles().findOne({ _id: new ObjectId(value), scope: 'app', organizationId: null });
+    if (byId) return byId;
+  }
+  return collections.roles().findOne({ name: value, scope: 'app', organizationId: null });
+}
+
+async function resolveRoleNamesFromIds(roleIds = [], scope = 'app', organizationId = null) {
+  const ids = Array.isArray(roleIds) ? roleIds : [];
+  if (ids.length === 0) return [];
+  const byIdObjectIds = ids
+    .filter((id) => ObjectId.isValid(String(id)))
+    .map((id) => new ObjectId(String(id)));
+  const byIdRows = byIdObjectIds.length > 0
+    ? await collections.roles().find({ _id: { $in: byIdObjectIds }, scope, organizationId }).toArray()
+    : [];
+
+  const unresolvedNames = ids
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+    .filter((id) => !ObjectId.isValid(id));
+
+  const byNameRows = unresolvedNames.length > 0
+    ? await collections.roles().find({ name: { $in: unresolvedNames }, scope, organizationId }).toArray()
+    : [];
+
+  return Array.from(new Set([...byIdRows, ...byNameRows].map((role) => String(role.name || '').trim().toLowerCase()).filter(Boolean)));
 }
 
 function parseAuthHeader(req) {
@@ -536,6 +428,15 @@ async function connect() {
     );
   }
 
+  // Remove legacy system-seeded roles so only citizen/super remain as defaults.
+  await collections.roles().deleteMany({
+    isSystem: true,
+    $or: [
+      { scope: 'org' },
+      { scope: 'app', name: { $nin: ['citizen', 'super'] } },
+    ],
+  });
+
   if (redisReady) {
     await redisClient.setNX('rbac:version', '1');
   }
@@ -587,8 +488,29 @@ async function getRoleDocsByIds(roleIds) {
   return collections.roles().find({ _id: { $in: objectIds } }).toArray();
 }
 
-async function getUserScopeArtifacts(userId, organizationId) {
+async function getRoleDocsByNames(roleNames, scope = 'app', organizationId = null) {
+  if (!Array.isArray(roleNames) || roleNames.length === 0) {
+    return [];
+  }
+  const names = roleNames
+    .map((entry) => String(entry || '').trim().toLowerCase())
+    .filter(Boolean);
+  const expanded = new Set(names);
+  for (const name of names) {
+    if (name === 'superadmin' || name === 'super_admin' || name === 'super admin') {
+      expanded.add('super');
+    }
+  }
+  const expandedNames = Array.from(expanded);
+  if (expandedNames.length === 0) {
+    return [];
+  }
+  return collections.roles().find({ name: { $in: expandedNames }, scope, organizationId }).toArray();
+}
+
+async function getUserScopeArtifacts(userId, organizationId, fallbackRoleNames = [], options = {}) {
   const orgId = normalizeOrgId(organizationId);
+  const activeAppRoleName = normalizeRoleAlias(options.activeAppRoleName);
 
   const appAssignment = await collections.roleAssignments().findOne({
     userId,
@@ -599,7 +521,20 @@ async function getUserScopeArtifacts(userId, organizationId) {
     ? await collections.roleAssignments().findOne({ userId, scope: 'org', organizationId: orgId })
     : null;
 
-  const appRoles = await getRoleDocsByIds(appAssignment?.roleIds || []);
+  const appRolesByAssignment = await getRoleDocsByIds(appAssignment?.roleIds || []);
+  const appRolesByToken = await getRoleDocsByNames(fallbackRoleNames, 'app', null);
+  const appRoleMap = new Map();
+  for (const role of [...appRolesByAssignment, ...appRolesByToken]) {
+    appRoleMap.set(String(role._id), role);
+  }
+  let appRoles = Array.from(appRoleMap.values());
+  if (appRoles.length === 0) {
+    const citizenRole = await collections.roles().findOne({ name: 'citizen', scope: 'app', organizationId: null });
+    if (citizenRole) {
+      appRoles.push(citizenRole);
+    }
+  }
+  appRoles = filterAppRolesByActiveRole(appRoles, activeAppRoleName);
   const orgRoles = await getRoleDocsByIds(orgAssignment?.roleIds || []);
 
   const appOverridesDoc = await collections.userAccess().findOne({
@@ -617,8 +552,9 @@ async function getUserScopeArtifacts(userId, organizationId) {
     ...orgRoles.flatMap((r) => r.permissions || []),
   ];
 
+  const filteredAppOverrides = filterOverridesByActiveRole(appOverridesDoc?.overrides || [], activeAppRoleName);
   const overrideRules = [
-    ...(appOverridesDoc?.overrides || []),
+    ...filteredAppOverrides,
     ...(orgOverridesDoc?.overrides || []),
   ];
 
@@ -631,15 +567,25 @@ async function getUserScopeArtifacts(userId, organizationId) {
     orgAssignment,
     appOverridesDoc,
     orgOverridesDoc,
+    activeAppRoleName: activeAppRoleName || null,
+    filteredAppOverrides,
   };
 }
 
-async function computeCheckResult({ userId, permissionKey, organizationId, branchId = null }) {
+async function computeCheckResult({
+  userId,
+  permissionKey,
+  organizationId,
+  branchId = null,
+  fallbackRoleNames = [],
+  activeAppRoleName = null,
+}) {
   const orgId = normalizeOrgId(organizationId);
   const branchScope = branchId ? String(branchId) : 'all';
+  const roleScope = normalizeRoleAlias(activeAppRoleName) || 'all-roles';
 
   const cacheVersion = await getCacheVersion();
-  const cacheKey = `rbac:check:v${cacheVersion}:${userId}:${orgId || 'app'}:${branchScope}:${permissionKey}`;
+  const cacheKey = `rbac:check:v${cacheVersion}:${userId}:${orgId || 'app'}:${branchScope}:${roleScope}:${permissionKey}`;
   if (redisReady) {
     const cached = await redisClient.get(cacheKey);
     if (cached) {
@@ -647,7 +593,7 @@ async function computeCheckResult({ userId, permissionKey, organizationId, branc
     }
   }
 
-  const artifacts = await getUserScopeArtifacts(userId, orgId);
+  const artifacts = await getUserScopeArtifacts(userId, orgId, fallbackRoleNames, { activeAppRoleName });
 
   const result = evaluatePermission({
     permissionKey,
@@ -663,6 +609,7 @@ async function computeCheckResult({ userId, permissionKey, organizationId, branc
       roleRules: result.matchedRules.roleRules,
       overrideRules: result.matchedRules.overrideRules,
       roleNames: [...artifacts.appRoles, ...artifacts.orgRoles].map((r) => r.name),
+      activeAppRoleName: artifacts.activeAppRoleName,
     },
     organizationId: orgId,
     branchId: branchId ? String(branchId) : null,
@@ -675,40 +622,36 @@ async function computeCheckResult({ userId, permissionKey, organizationId, branc
   return response;
 }
 
-async function isPlatformAdmin(userId) {
-  const result = await computeCheckResult({ userId, permissionKey: 'rbac.app.manage', organizationId: null });
+async function isPlatformAdmin(userId, fallbackRoleNames = []) {
+  const lowered = Array.isArray(fallbackRoleNames)
+    ? fallbackRoleNames.map((role) => String(role || '').trim().toLowerCase())
+    : [];
+  if (lowered.includes('super') || lowered.includes('superadmin') || lowered.includes('super_admin') || lowered.includes('super admin')) {
+    return true;
+  }
+  const result = await computeCheckResult({
+    userId,
+    permissionKey: 'rbac.app.manage',
+    organizationId: null,
+    fallbackRoleNames,
+  });
   return result.allowed;
 }
 
-async function isOrgAdmin(userId, organizationId) {
-  const result = await computeCheckResult({ userId, permissionKey: 'rbac.org.manage', organizationId });
+async function isOrgAdmin(userId, organizationId, fallbackRoleNames = []) {
+  const result = await computeCheckResult({
+    userId,
+    permissionKey: 'rbac.org.manage',
+    organizationId,
+    fallbackRoleNames,
+  });
   return result.allowed;
 }
 
 async function ensureDefaultOrgRoles(organizationId) {
-  const templates = systemRoles.filter((r) => r.scope === 'org' && r.organizationId === '__template__');
-  const ensured = [];
-  for (const role of templates) {
-    await collections.roles().updateOne(
-      { name: role.name, scope: 'org', organizationId },
-      {
-        $set: {
-          name: role.name,
-          description: role.description,
-          scope: 'org',
-          organizationId,
-          permissions: role.permissions,
-          isSystem: true,
-          updatedAt: new Date(),
-        },
-        $setOnInsert: { createdAt: new Date() },
-      },
-      { upsert: true }
-    );
-    const created = await collections.roles().findOne({ name: role.name, scope: 'org', organizationId });
-    if (created) ensured.push(created);
-  }
-  return ensured;
+  // No auto-generated org roles. Org-specific roles must be created explicitly by administrators.
+  void organizationId;
+  return [];
 }
 
 fastify.get('/health', async () => ({
@@ -725,14 +668,14 @@ fastify.get('/rbac/me/scope', { preHandler: requireAuth }, async (req, reply) =>
   }
 
   const userId = req.auth.userId;
-  const appArtifacts = await getUserScopeArtifacts(userId, null);
+  const appArtifacts = await getUserScopeArtifacts(userId, null, req.auth.roles);
   const orgAssignments = await collections.roleAssignments().find({ userId, scope: 'org' }).toArray();
 
   const appScopePermissions = mergeRules(appArtifacts.roleRules, appArtifacts.overrideRules);
   const orgScopePermissions = [];
 
   for (const assignment of orgAssignments) {
-    const orgArtifacts = await getUserScopeArtifacts(userId, assignment.organizationId);
+    const orgArtifacts = await getUserScopeArtifacts(userId, assignment.organizationId, req.auth.roles);
     orgScopePermissions.push({
       organizationId: assignment.organizationId,
       permissions: mergeRules(orgArtifacts.roleRules, orgArtifacts.overrideRules),
@@ -766,11 +709,15 @@ fastify.post('/rbac/check', { preHandler: requireAuth }, async (req, reply) => {
     return reply.code(400).send({ message: 'permissionKey is required' });
   }
 
+  const activeAppRoleName = parseActiveAppRoleFromContext(req.body || {});
+
   const result = await computeCheckResult({
     userId: req.auth.userId,
     permissionKey,
     organizationId,
     branchId,
+    fallbackRoleNames: req.auth.roles,
+    activeAppRoleName,
   });
 
   return reply.send({
@@ -790,23 +737,20 @@ fastify.post('/internal/rbac/bootstrap-org/:organizationId', { preHandler: requi
   const roles = await ensureDefaultOrgRoles(organizationId);
 
   if (ownerUserId) {
-    const ownerRole = roles.find((r) => r.name === 'org_owner') || roles.find((r) => r.name === 'org_admin');
-    if (ownerRole?._id) {
-      await collections.roleAssignments().updateOne(
-        { userId: ownerUserId, scope: 'org', organizationId },
-        {
-          $set: {
-            userId: ownerUserId,
-            scope: 'org',
-            organizationId,
-            roleIds: [String(ownerRole._id)],
-            updatedAt: new Date(),
-          },
-          $setOnInsert: { createdAt: new Date() },
+    await collections.roleAssignments().updateOne(
+      { userId: ownerUserId, scope: 'org', organizationId },
+      {
+        $set: {
+          userId: ownerUserId,
+          scope: 'org',
+          organizationId,
+          roleIds: [],
+          updatedAt: new Date(),
         },
-        { upsert: true }
-      );
-    }
+        $setOnInsert: { createdAt: new Date() },
+      },
+      { upsert: true }
+    );
   }
 
   await bumpCacheVersion();
@@ -822,8 +766,8 @@ fastify.post('/rbac/app/permissions', { preHandler: requireAuth }, async (req, r
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
+  if (!(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
+    return reply.code(403).send({ message: 'Forbidden' });
   }
 
   const { key, name, description, module, actions = [] } = req.body || {};
@@ -868,8 +812,8 @@ fastify.get('/rbac/app/permissions', { preHandler: requireAuth }, async (req, re
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
+  if (!(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
+    return reply.code(403).send({ message: 'Forbidden' });
   }
   const permissions = await collections.permissions().find({ scope: 'app', organizationId: null }).toArray();
   return reply.send({ permissions });
@@ -879,12 +823,15 @@ fastify.post('/rbac/app/roles', { preHandler: requireAuth }, async (req, reply) 
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
+  if (!(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
+    return reply.code(403).send({ message: 'Forbidden' });
   }
   const { name, description, permissions = [] } = req.body || {};
   if (!name) {
     return reply.code(400).send({ message: 'name is required' });
+  }
+  if (isLockedAppRoleName(name)) {
+    return reply.code(403).send({ message: 'SUPER_ROLE_LOCKED' });
   }
 
   await collections.roles().updateOne(
@@ -922,8 +869,8 @@ fastify.get('/rbac/app/roles', { preHandler: requireAuth }, async (req, reply) =
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
+  if (!(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
+    return reply.code(403).send({ message: 'Forbidden' });
   }
   const roles = await collections.roles().find({ scope: 'app', organizationId: null }).toArray();
   return reply.send({ roles });
@@ -933,12 +880,19 @@ fastify.patch('/rbac/app/roles/:roleId', { preHandler: requireAuth }, async (req
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
+  if (!(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
+    return reply.code(403).send({ message: 'Forbidden' });
   }
   const { roleId } = req.params;
   if (!ObjectId.isValid(roleId)) {
     return reply.code(400).send({ message: 'Invalid roleId' });
+  }
+  const existingRole = await collections.roles().findOne({ _id: new ObjectId(roleId), scope: 'app', organizationId: null });
+  if (!existingRole) {
+    return reply.code(404).send({ message: 'Role not found' });
+  }
+  if (isLockedAppRoleName(existingRole.name) || isLockedAppRoleName(req.body?.name)) {
+    return reply.code(403).send({ message: 'SUPER_ROLE_LOCKED' });
   }
 
   const update = {};
@@ -947,7 +901,7 @@ fastify.patch('/rbac/app/roles/:roleId', { preHandler: requireAuth }, async (req
   if (Array.isArray(req.body?.permissions)) update.permissions = req.body.permissions;
   update.updatedAt = new Date();
 
-  await collections.roles().updateOne({ _id: new ObjectId(roleId), scope: 'app' }, { $set: update });
+  await collections.roles().updateOne({ _id: new ObjectId(roleId), scope: 'app', organizationId: null }, { $set: update });
   await bumpCacheVersion();
   emitAuditEvent({
     userId: req.auth.userId,
@@ -966,23 +920,20 @@ fastify.delete('/rbac/app/roles/:roleId', { preHandler: requireAuth }, async (re
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
+  if (!(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
+    return reply.code(403).send({ message: 'Forbidden' });
   }
   const roleIdParam = String(req.params.roleId || '').trim();
   if (!roleIdParam) {
     return reply.code(400).send({ message: 'roleId is required' });
   }
 
-  let role = null;
-  if (ObjectId.isValid(roleIdParam)) {
-    role = await collections.roles().findOne({ _id: new ObjectId(roleIdParam), scope: 'app' });
-  }
-  if (!role) {
-    role = await collections.roles().findOne({ name: roleIdParam, scope: 'app' });
-  }
+  const role = await findAppRoleByAnyIdentifier(roleIdParam);
   if (!role) {
     return reply.code(404).send({ message: 'Role not found' });
+  }
+  if (isLockedAppRoleName(role.name)) {
+    return reply.code(403).send({ message: 'SUPER_ROLE_LOCKED' });
   }
 
   const roleObjectId = role._id instanceof ObjectId ? role._id : null;
@@ -1001,6 +952,12 @@ fastify.delete('/rbac/app/roles/:roleId', { preHandler: requireAuth }, async (re
     { scope: 'app' },
     { $pull: { roleIds: { $in: pullCandidates } }, $set: { updatedAt: new Date() } },
   );
+  const userOverridesUpdate = roleName
+    ? await collections.userAccess().updateMany(
+      { scope: 'app', organizationId: null },
+      { $pull: { overrides: { roleName } }, $set: { updatedAt: new Date() } },
+    )
+    : { modifiedCount: 0 };
 
   let authUsersUpdated = 0;
   if (roleName) {
@@ -1037,6 +994,7 @@ fastify.delete('/rbac/app/roles/:roleId', { preHandler: requireAuth }, async (re
       scope: 'app',
       roleName: roleName || null,
       assignmentDocsUpdated: roleAssignmentsUpdate.modifiedCount || 0,
+      overrideDocsUpdated: userOverridesUpdate.modifiedCount || 0,
       authUsersUpdated,
     },
   });
@@ -1044,6 +1002,7 @@ fastify.delete('/rbac/app/roles/:roleId', { preHandler: requireAuth }, async (re
     message: 'Role deleted',
     roleName: roleName || null,
     assignmentDocsUpdated: roleAssignmentsUpdate.modifiedCount || 0,
+    overrideDocsUpdated: userOverridesUpdate.modifiedCount || 0,
     authUsersUpdated,
   });
 });
@@ -1052,12 +1011,16 @@ fastify.post('/rbac/app/users/:userId/roles', { preHandler: requireAuth }, async
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
+  if (!(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
+    return reply.code(403).send({ message: 'Forbidden' });
   }
 
   const { userId } = req.params;
   const { roleIds = [] } = req.body || {};
+  const resolvedRoleNames = await resolveRoleNamesFromIds(roleIds, 'app', null);
+  if (resolvedRoleNames.includes('super')) {
+    return reply.code(403).send({ message: 'SUPER_ROLE_ASSIGNMENT_BLOCKED' });
+  }
   await collections.roleAssignments().updateOne(
     { userId, scope: 'app', organizationId: null },
     {
@@ -1091,12 +1054,13 @@ fastify.post('/rbac/app/users/:userId/overrides', { preHandler: requireAuth }, a
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
+  if (!(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
+    return reply.code(403).send({ message: 'Forbidden' });
   }
 
   const { userId } = req.params;
   const { overrides = [] } = req.body || {};
+  const sanitizedOverrides = sanitizeOverrideRules(overrides);
 
   await collections.userAccess().updateOne(
     { userId, scope: 'app', organizationId: null },
@@ -1105,7 +1069,7 @@ fastify.post('/rbac/app/users/:userId/overrides', { preHandler: requireAuth }, a
         userId,
         scope: 'app',
         organizationId: null,
-        overrides: Array.isArray(overrides) ? overrides : [],
+        overrides: sanitizedOverrides,
         updatedAt: new Date(),
       },
       $setOnInsert: { createdAt: new Date() },
@@ -1122,7 +1086,7 @@ fastify.post('/rbac/app/users/:userId/overrides', { preHandler: requireAuth }, a
     resource: { type: 'user', id: userId },
     permissionKey: 'rbac.app.manage',
     outcome: 'success',
-    metadata: { scope: 'app', overrides: Array.isArray(overrides) ? overrides.length : 0 },
+    metadata: { scope: 'app', overrides: sanitizedOverrides.length },
   });
   return reply.send({ message: 'App overrides updated' });
 });
@@ -1131,19 +1095,25 @@ fastify.get('/rbac/app/users/:userId/access', { preHandler: requireAuth }, async
   if (!assertDependencyReady(reply)) {
     return;
   }
-  if (!(await isPlatformAdmin(req.auth.userId))) {
-    return reply.code(403).send({ message: 'Platform admin required' });
-  }
-
   const { userId } = req.params;
-  const artifacts = await getUserScopeArtifacts(userId, null);
+  const isSelf = String(req.auth.userId) === String(userId);
+  const platformAdmin = await isPlatformAdmin(req.auth.userId, req.auth.roles);
+  if (!platformAdmin && !isSelf) {
+    return reply.code(403).send({ message: 'Forbidden' });
+  }
+  const activeAppRoleName = parseActiveAppRoleFromContext({
+    ...req.query,
+    ...req.body,
+  });
+  const artifacts = await getUserScopeArtifacts(userId, null, [], { activeAppRoleName });
   return reply.send({
     userId,
     scope: 'app',
     roles: artifacts.appRoles,
     assignment: artifacts.appAssignment,
-    overrides: artifacts.appOverridesDoc?.overrides || [],
+    overrides: activeAppRoleName ? artifacts.filteredAppOverrides : (artifacts.appOverridesDoc?.overrides || []),
     effectivePermissions: mergeRules(artifacts.roleRules, artifacts.overrideRules),
+    activeRole: artifacts.activeAppRoleName,
   });
 });
 
@@ -1152,7 +1122,7 @@ fastify.post('/rbac/org/:organizationId/permissions', { preHandler: requireAuth 
     return;
   }
   const { organizationId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
 
@@ -1199,7 +1169,7 @@ fastify.get('/rbac/org/:organizationId/permissions', { preHandler: requireAuth }
     return;
   }
   const { organizationId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
 
@@ -1212,7 +1182,7 @@ fastify.post('/rbac/org/:organizationId/roles', { preHandler: requireAuth }, asy
     return;
   }
   const { organizationId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
 
@@ -1257,7 +1227,7 @@ fastify.get('/rbac/org/:organizationId/roles', { preHandler: requireAuth }, asyn
     return;
   }
   const { organizationId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
   const roles = await collections.roles().find({ scope: 'org', organizationId }).toArray();
@@ -1269,7 +1239,7 @@ fastify.patch('/rbac/org/:organizationId/roles/:roleId', { preHandler: requireAu
     return;
   }
   const { organizationId, roleId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
   if (!ObjectId.isValid(roleId)) {
@@ -1306,7 +1276,7 @@ fastify.delete('/rbac/org/:organizationId/roles/:roleId', { preHandler: requireA
     return;
   }
   const { organizationId, roleId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
   if (!ObjectId.isValid(roleId)) {
@@ -1333,7 +1303,7 @@ fastify.post('/rbac/org/:organizationId/users/:userId/roles', { preHandler: requ
     return;
   }
   const { organizationId, userId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
 
@@ -1372,11 +1342,12 @@ fastify.post('/rbac/org/:organizationId/users/:userId/overrides', { preHandler: 
     return;
   }
   const { organizationId, userId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
 
   const { overrides = [] } = req.body || {};
+  const sanitizedOverrides = sanitizeOverrideRules(overrides);
   await collections.userAccess().updateOne(
     { userId, scope: 'org', organizationId },
     {
@@ -1384,7 +1355,7 @@ fastify.post('/rbac/org/:organizationId/users/:userId/overrides', { preHandler: 
         userId,
         scope: 'org',
         organizationId,
-        overrides: Array.isArray(overrides) ? overrides : [],
+        overrides: sanitizedOverrides,
         updatedAt: new Date(),
       },
       $setOnInsert: { createdAt: new Date() },
@@ -1401,7 +1372,7 @@ fastify.post('/rbac/org/:organizationId/users/:userId/overrides', { preHandler: 
     resource: { type: 'user', id: userId },
     permissionKey: 'rbac.org.manage',
     outcome: 'success',
-    metadata: { scope: 'org', overrides: Array.isArray(overrides) ? overrides.length : 0 },
+    metadata: { scope: 'org', overrides: sanitizedOverrides.length },
   });
   return reply.send({ message: 'Org overrides updated' });
 });
@@ -1411,7 +1382,7 @@ fastify.get('/rbac/org/:organizationId/users/:userId/access', { preHandler: requ
     return;
   }
   const { organizationId, userId } = req.params;
-  if (!(await isOrgAdmin(req.auth.userId, organizationId)) && !(await isPlatformAdmin(req.auth.userId))) {
+  if (!(await isOrgAdmin(req.auth.userId, organizationId, req.auth.roles)) && !(await isPlatformAdmin(req.auth.userId, req.auth.roles))) {
     return reply.code(403).send({ message: 'Org admin required' });
   }
 

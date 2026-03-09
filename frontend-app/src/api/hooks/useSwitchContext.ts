@@ -198,7 +198,16 @@ export async function resolveSyntheticContextPermissions(userId: string, context
     return { permissions: ['*'], overrides: {} };
   }
 
-  const accessResponse = await apiClient.get<UserAccessPayload>(endpoints.rbac.userAccess(userId));
+  const targetRole = contextRoleName(contextId, contextName);
+  const accessResponse = await apiClient.get<UserAccessPayload>(endpoints.rbac.userAccess(userId), {
+    query: {
+      activeRole: targetRole ?? undefined,
+      activeContextId: contextId,
+      activeContextName: contextName,
+      activeContextType: 'platform',
+    },
+    suppressGlobalErrors: true,
+  });
 
   let roles: AppRolePayload[] = cachedAppRoles;
   const fallbackAccessRoles = Array.isArray(accessResponse.roles) ? (accessResponse.roles as AppRolePayload[]) : [];
@@ -239,13 +248,15 @@ export async function resolveSyntheticContextPermissions(userId: string, context
     // Keep cached permission universe if endpoint is unavailable in this context.
   }
 
+  const assignment = accessResponse.assignment && typeof accessResponse.assignment === 'object'
+    ? (accessResponse.assignment as { roleIds?: unknown[] })
+    : null;
   const assignedRoleIds = new Set(
-    (Array.isArray(accessResponse.assignment?.roleIds) ? accessResponse.assignment?.roleIds : [])
+    (Array.isArray(assignment?.roleIds) ? assignment.roleIds : [])
       .map((value) => normalizeRoleId(value))
       .filter(Boolean),
   );
 
-  const targetRole = contextRoleName(contextId, contextName);
   const matchedRoles = roles.filter((role) => {
     const roleName = String(role.name ?? '').trim().toLowerCase();
     if (!targetRole || !roleName || !roleMatchesTarget(roleName, targetRole)) return false;

@@ -111,7 +111,13 @@ async function enforcePermission(req, reply, permissionKey, organizationId = nul
       authorization: req.headers.authorization,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ permissionKey, organizationId }),
+    body: JSON.stringify({
+      permissionKey,
+      organizationId,
+      activeContextId: req.headers['x-active-context-id'] || null,
+      activeContextName: req.headers['x-active-context-name'] || null,
+      activeContextType: req.headers['x-active-context-type'] || null,
+    }),
   });
 
   if (!checked.ok || !checked.body?.allowed) {
@@ -135,6 +141,35 @@ async function enforcePermission(req, reply, permissionKey, organizationId = nul
 
 function validateOrgType(type) {
   return ['hospital', 'laboratory', 'pharmacy', 'government', 'emergency', 'catalog'].includes(type);
+}
+
+const BRANCH_CAPABILITIES = ['hospital', 'clinic', 'laboratory', 'pharmacy'];
+
+function normalizeBranchCapabilities(input) {
+  if (!Array.isArray(input)) return [];
+  return Array.from(
+    new Set(
+      input
+        .map((item) => String(item || '').trim().toLowerCase())
+        .filter((item) => BRANCH_CAPABILITIES.includes(item))
+    )
+  );
+}
+
+function branchTypeToCapability(type) {
+  const value = String(type || '').trim().toLowerCase();
+  if (!value) return null;
+  if (value === 'lab') return 'laboratory';
+  if (BRANCH_CAPABILITIES.includes(value)) return value;
+  return null;
+}
+
+function unwrapFindOneAndUpdateResult(result) {
+  if (!result) return null;
+  if (Object.prototype.hasOwnProperty.call(result, 'value')) {
+    return result.value || null;
+  }
+  return result;
 }
 
 async function bootstrapOrgDefaults(_authorization, organizationId, ownerUserId) {
@@ -196,9 +231,12 @@ async function connect() {
       collections.organizations().createIndex({ organizationId: 1 }, { unique: true }),
       collections.organizations().createIndex({ ownerUserId: 1 }),
       collections.organizations().createIndex({ ownerNin: 1 }),
+      collections.organizations().createIndex({ registrationNumber: 1 }),
+      collections.organizations().createIndex({ 'location.state': 1, 'location.lga': 1 }),
       collections.organizations().createIndex({ name: 'text' }),
       collections.branches().createIndex({ branchId: 1 }, { unique: true }),
       collections.branches().createIndex({ organizationId: 1, code: 1 }, { unique: true }),
+      collections.branches().createIndex({ organizationId: 1, capabilities: 1 }),
       collections.ownerHistory().createIndex({ organizationId: 1, timestamp: -1 }),
       outboxRepo.createIndexes(),
     ]);
@@ -263,6 +301,10 @@ fastify.post('/orgs', {
       properties: {
         name: { type: 'string', minLength: 2 },
         type: { type: 'string', enum: ['hospital', 'laboratory', 'pharmacy', 'government', 'emergency', 'catalog'] },
+        description: { type: 'string' },
+        registrationNumber: { type: 'string' },
+        location: { type: 'object', additionalProperties: true },
+        contact: { type: 'object', additionalProperties: true },
         ownerUserId: { type: 'string' },
         ownerNin: { type: 'string', pattern: '^\\d{11}$' },
       },
@@ -279,7 +321,16 @@ fastify.post('/orgs', {
   const denied = await enforcePermission(req, reply, 'org.create');
   if (denied) return;
 
-  const { name, type, ownerUserId = null, ownerNin = null } = req.body || {};
+  const {
+    name,
+    type,
+    description = null,
+    registrationNumber = null,
+    location = null,
+    contact = null,
+    ownerUserId = null,
+    ownerNin = null,
+  } = req.body || {};
   if (!validateOrgType(type)) {
     return reply.code(400).send({ message: 'Invalid organization type' });
   }
@@ -292,6 +343,10 @@ fastify.post('/orgs', {
     organizationId,
     name: String(name).trim(),
     type,
+    description: description ? String(description).trim() : null,
+    registrationNumber: registrationNumber ? String(registrationNumber).trim() : null,
+    location: location && typeof location === 'object' ? location : null,
+    contact: contact && typeof contact === 'object' ? contact : null,
     createdByUserId: req.auth.userId,
     ownerUserId: ownerUserId ? String(ownerUserId) : (!ownerNin ? req.auth.userId : null),
     ownerNin: ownerNin ? String(ownerNin) : null,
@@ -411,6 +466,10 @@ fastify.patch('/orgs/:orgId', {
       type: 'object',
       properties: {
         name: { type: 'string', minLength: 2 },
+        description: { type: 'string' },
+        registrationNumber: { type: 'string' },
+        location: { type: 'object', additionalProperties: true },
+        contact: { type: 'object', additionalProperties: true },
         status: { type: 'string', enum: ['active', 'suspended'] },
       },
       additionalProperties: false,
@@ -428,6 +487,10 @@ fastify.patch('/orgs/:orgId', {
 
   const update = { updatedAt: now() };
   if (req.body?.name) update.name = String(req.body.name).trim();
+  if (req.body?.description !== undefined) update.description = req.body.description ? String(req.body.description).trim() : null;
+  if (req.body?.registrationNumber !== undefined) update.registrationNumber = req.body.registrationNumber ? String(req.body.registrationNumber).trim() : null;
+  if (req.body?.location !== undefined) update.location = req.body.location;
+  if (req.body?.contact !== undefined) update.contact = req.body.contact;
   if (req.body?.status) update.status = req.body.status;
 
   const result = await collections.organizations().findOneAndUpdate(
@@ -435,7 +498,8 @@ fastify.patch('/orgs/:orgId', {
     { $set: update },
     { returnDocument: 'after' }
   );
-  if (!result.value) {
+  const updatedOrganization = unwrapFindOneAndUpdateResult(result);
+  if (!updatedOrganization) {
     return reply.code(404).send({ message: 'Organization not found' });
   }
 
@@ -452,7 +516,7 @@ fastify.patch('/orgs/:orgId', {
     metadata: { fields: Object.keys(req.body || {}) },
   });
 
-  return reply.send({ organization: result.value });
+  return reply.send({ organization: updatedOrganization });
 });
 
 fastify.patch('/orgs/:orgId/owner', {
@@ -601,6 +665,8 @@ fastify.get('/orgs/search', {
         q: { type: 'string' },
         type: { type: 'string' },
         status: { type: 'string' },
+        state: { type: 'string' },
+        lga: { type: 'string' },
         page: { type: 'integer', minimum: 1 },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
       },
@@ -615,17 +681,20 @@ fastify.get('/orgs/search', {
   const denied = await enforcePermission(req, reply, 'org.search');
   if (denied) return;
 
-  const { q, type, status, page = 1, limit = 20 } = req.query || {};
+  const { q, type, status, state, lga, page = 1, limit = 20 } = req.query || {};
   const safeLimit = Math.min(Number(limit) || 20, 100);
   const safePage = Math.max(Number(page) || 1, 1);
 
   const filter = {};
   if (type) filter.type = type;
   if (status) filter.status = status;
+  if (state) filter['location.state'] = String(state).trim();
+  if (lga) filter['location.lga'] = String(lga).trim();
   if (q) {
     filter.$or = [
       { name: { $regex: String(q), $options: 'i' } },
       { organizationId: { $regex: String(q), $options: 'i' } },
+      { registrationNumber: { $regex: String(q), $options: 'i' } },
     ];
   }
 
@@ -666,8 +735,16 @@ fastify.post('/orgs/:orgId/branches', {
       properties: {
         name: { type: 'string', minLength: 2 },
         code: { type: 'string', minLength: 2 },
+        type: { type: 'string', enum: ['hospital', 'clinic', 'laboratory', 'pharmacy'] },
+        capabilities: {
+          type: 'array',
+          items: { type: 'string', enum: ['hospital', 'clinic', 'laboratory', 'pharmacy'] },
+          minItems: 1,
+          uniqueItems: true,
+        },
         address: { type: 'object', additionalProperties: true },
         location: { type: 'object', additionalProperties: true },
+        contact: { type: 'object', additionalProperties: true },
       },
     },
     response: {
@@ -688,13 +765,22 @@ fastify.post('/orgs/:orgId/branches', {
   }
 
   const branchId = crypto.randomUUID();
+  const explicitCapabilities = normalizeBranchCapabilities(req.body?.capabilities);
+  const mappedCapability = branchTypeToCapability(req.body?.type);
+  const capabilities = explicitCapabilities.length > 0
+    ? explicitCapabilities
+    : (mappedCapability ? [mappedCapability] : []);
+
   const branch = {
     branchId,
     organizationId: req.params.orgId,
     name: String(req.body.name).trim(),
     code: String(req.body.code).trim().toUpperCase(),
+    type: req.body?.type ? String(req.body.type).trim().toLowerCase() : null,
+    capabilities,
     address: req.body.address || null,
     location: req.body.location || null,
+    contact: req.body.contact || null,
     status: 'active',
     createdAt: now(),
     updatedAt: now(),
@@ -795,8 +881,16 @@ fastify.patch('/orgs/:orgId/branches/:branchId', {
       properties: {
         name: { type: 'string' },
         code: { type: 'string' },
+        type: { type: 'string', enum: ['hospital', 'clinic', 'laboratory', 'pharmacy'] },
+        capabilities: {
+          type: 'array',
+          items: { type: 'string', enum: ['hospital', 'clinic', 'laboratory', 'pharmacy'] },
+          minItems: 1,
+          uniqueItems: true,
+        },
         address: { type: 'object', additionalProperties: true },
         location: { type: 'object', additionalProperties: true },
+        contact: { type: 'object', additionalProperties: true },
         status: { type: 'string', enum: ['active', 'closed'] },
       },
     },
@@ -814,8 +908,16 @@ fastify.patch('/orgs/:orgId/branches/:branchId', {
   const update = { updatedAt: now() };
   if (req.body?.name) update.name = req.body.name;
   if (req.body?.code) update.code = String(req.body.code).trim().toUpperCase();
+  if (req.body?.type !== undefined) update.type = req.body.type ? String(req.body.type).trim().toLowerCase() : null;
+  if (req.body?.capabilities !== undefined) {
+    update.capabilities = normalizeBranchCapabilities(req.body.capabilities);
+  } else if (req.body?.type) {
+    const mappedCapability = branchTypeToCapability(req.body.type);
+    if (mappedCapability) update.capabilities = [mappedCapability];
+  }
   if (req.body?.address !== undefined) update.address = req.body.address;
   if (req.body?.location !== undefined) update.location = req.body.location;
+  if (req.body?.contact !== undefined) update.contact = req.body.contact;
   if (req.body?.status) update.status = req.body.status;
 
   const result = await collections.branches().findOneAndUpdate(
@@ -823,7 +925,8 @@ fastify.patch('/orgs/:orgId/branches/:branchId', {
     { $set: update },
     { returnDocument: 'after' }
   );
-  if (!result.value) {
+  const updatedBranch = unwrapFindOneAndUpdateResult(result);
+  if (!updatedBranch) {
     return reply.code(404).send({ message: 'Branch not found' });
   }
 
@@ -840,7 +943,7 @@ fastify.patch('/orgs/:orgId/branches/:branchId', {
     metadata: { fields: Object.keys(req.body || {}) },
   });
 
-  return reply.send({ branch: result.value });
+  return reply.send({ branch: updatedBranch });
 });
 
 fastify.delete('/orgs/:orgId/branches/:branchId', {
@@ -870,7 +973,8 @@ fastify.delete('/orgs/:orgId/branches/:branchId', {
     { $set: { status: 'closed', updatedAt: now() } },
     { returnDocument: 'after' }
   );
-  if (!result.value) {
+  const closedBranch = unwrapFindOneAndUpdateResult(result);
+  if (!closedBranch) {
     return reply.code(404).send({ message: 'Branch not found' });
   }
 

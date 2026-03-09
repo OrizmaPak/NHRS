@@ -14,18 +14,20 @@ export function SmartSelect({
   loadOptions,
   placeholder = 'Select option',
   emptyLabel = 'No result found',
+  debounceMs = 2500,
 }: {
   value: string | null;
   onChange: (value: string) => void;
   loadOptions: (search: string) => Promise<Option[]>;
   placeholder?: string;
   emptyLabel?: string;
+  debounceMs?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<Option[]>([]);
-  const debouncedQuery = useDebounce(query, 300);
+  const debouncedQuery = useDebounce(query, debounceMs);
 
   useEffect(() => {
     let active = true;

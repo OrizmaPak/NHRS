@@ -23,12 +23,23 @@ const roleSchema = z.object({
 
 type RoleValues = z.infer<typeof roleSchema>;
 
+const isLockedRole = (role: Pick<RoleRow, 'name'> | null | undefined) =>
+  String(role?.name ?? '').trim().toLowerCase() === 'super';
+
+const canDeleteRole = (role: RoleRow) => {
+  const roleName = String(role.name || '').trim().toLowerCase();
+  if (roleName === 'citizen' || roleName === 'super') return false;
+  return String(role.id || '').trim().length > 0;
+};
+
 export function AppRolesPage() {
   const [query, setQuery] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<RoleRow | null>(null);
   const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set());
+  const [permissionSetupMode, setPermissionSetupMode] = useState<'manual' | 'inherit'>('manual');
+  const [inheritRoleId, setInheritRoleId] = useState('');
   const [selectedRole, setSelectedRole] = useState<RoleRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RoleRow | null>(null);
 
@@ -50,6 +61,10 @@ export function AppRolesPage() {
   }, [rolesQuery.data, query]);
   const start = pagination.pageIndex * pagination.pageSize;
   const paged = roles.slice(start, start + pagination.pageSize);
+  const inheritableRoles = useMemo(
+    () => (rolesQuery.data ?? []).filter((role) => role.id !== editing?.id && !isLockedRole(role)),
+    [editing?.id, rolesQuery.data],
+  );
 
   const columns = useMemo<ColumnDef<RoleRow>[]>(
     () => [
@@ -68,10 +83,17 @@ export function AppRolesPage() {
             <Button
               size="sm"
               variant="outline"
+              disabled={isLockedRole(row.original)}
               onClick={() => {
+                if (isLockedRole(row.original)) {
+                  toast.error('Super role is locked and cannot be edited.');
+                  return;
+                }
                 setEditing(row.original);
                 form.reset({ name: row.original.name, description: row.original.description });
                 setSelectedPermissions(new Set(row.original.permissions));
+                setPermissionSetupMode('manual');
+                setInheritRoleId('');
                 setModalOpen(true);
               }}
             >
@@ -96,10 +118,16 @@ export function AppRolesPage() {
     setEditing(null);
     form.reset({ name: '', description: '' });
     setSelectedPermissions(new Set());
+    setPermissionSetupMode('manual');
+    setInheritRoleId('');
     setModalOpen(true);
   };
 
   const onSubmit = form.handleSubmit(async (values) => {
+    if (String(values.name || '').trim().toLowerCase() === 'super') {
+      toast.error('Super role is locked and cannot be created or modified.');
+      return;
+    }
     await saveRole.mutateAsync({
       id: editing?.id,
       name: values.name,
@@ -186,13 +214,79 @@ export function AppRolesPage() {
         <form className="space-y-3" onSubmit={onSubmit}>
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Role Name</label>
-            <Input {...form.register('name')} placeholder="app_admin" />
+            <Input {...form.register('name')} placeholder="custom_role_name" />
             {form.formState.errors.name ? <p className="mt-1 text-xs text-danger">{form.formState.errors.name.message}</p> : null}
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Description</label>
             <Input {...form.register('description')} placeholder="Global administrator role" />
             {form.formState.errors.description ? <p className="mt-1 text-xs text-danger">{form.formState.errors.description.message}</p> : null}
+          </div>
+          <div className="space-y-2 rounded-md border border-border p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Permission Setup</p>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="radio"
+                  name="permissionSetupMode"
+                  checked={permissionSetupMode === 'manual'}
+                  onChange={() => {
+                    setPermissionSetupMode('manual');
+                    setInheritRoleId('');
+                  }}
+                />
+                <span>Set permissions manually</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="radio"
+                  name="permissionSetupMode"
+                  checked={permissionSetupMode === 'inherit'}
+                  onChange={() => setPermissionSetupMode('inherit')}
+                />
+                <span>Inherit permissions</span>
+              </label>
+            </div>
+            {permissionSetupMode === 'inherit' ? (
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Inherit From Role</label>
+                  <select
+                    value={inheritRoleId}
+                    onChange={(event) => {
+                      const nextRoleId = event.target.value;
+                      setInheritRoleId(nextRoleId);
+                      const sourceRole = inheritableRoles.find((role) => role.id === nextRoleId);
+                      if (sourceRole) {
+                        setSelectedPermissions(new Set(sourceRole.permissions));
+                      }
+                    }}
+                    className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
+                  >
+                    <option value="">Select role to inherit from</option>
+                    {inheritableRoles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name} ({role.permissions.length} permissions)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (!inheritRoleId) return;
+                    const sourceRole = inheritableRoles.find((role) => role.id === inheritRoleId);
+                    if (!sourceRole) return;
+                    setSelectedPermissions(new Set(sourceRole.permissions));
+                    toast.success(`Inherited permissions from "${sourceRole.name}"`);
+                  }}
+                  disabled={!inheritRoleId}
+                >
+                  Re-apply Inheritance
+                </Button>
+              </div>
+            ) : null}
           </div>
           <PermissionMatrix
             permissions={(permissionsQuery.data ?? []).map((entry) => ({
@@ -255,4 +349,3 @@ export function AppRolesPage() {
     </div>
   );
 }
-  const canDeleteRole = (role: RoleRow) => String(role.id || '').trim().length > 0;

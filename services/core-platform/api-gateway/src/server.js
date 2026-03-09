@@ -164,6 +164,26 @@ function parseTokenPayload(authorization) {
   }
 }
 
+function hasSuperBypassRole(roles = []) {
+  const normalized = new Set((roles || []).map((role) => String(role || '').trim().toLowerCase()));
+  return (
+    normalized.has('super')
+    || normalized.has('superadmin')
+    || normalized.has('super_admin')
+    || normalized.has('super admin')
+  );
+}
+
+function hasSuperBypassContext(req) {
+  const contextName = String(req.headers['x-active-context-name'] || '').trim().toLowerCase();
+  const contextId = String(req.headers['x-active-context-id'] || '').trim().toLowerCase();
+  const contextType = String(req.headers['x-active-context-type'] || '').trim().toLowerCase();
+  if (contextType === 'super') return true;
+  if (contextName === 'super' || contextName === 'super admin' || contextName === 'superadmin') return true;
+  if (contextId === 'super' || contextId === 'super_admin' || contextId === 'superadmin') return true;
+  return false;
+}
+
 function getRequestId(req) {
   return String(req.headers['x-request-id'] || req.id || crypto.randomUUID());
 }
@@ -486,6 +506,15 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
   if (req.headers['x-branch-id']) {
     headers['x-branch-id'] = req.headers['x-branch-id'];
   }
+  if (req.headers['x-active-context-id']) {
+    headers['x-active-context-id'] = req.headers['x-active-context-id'];
+  }
+  if (req.headers['x-active-context-name']) {
+    headers['x-active-context-name'] = req.headers['x-active-context-name'];
+  }
+  if (req.headers['x-active-context-type']) {
+    headers['x-active-context-type'] = req.headers['x-active-context-type'];
+  }
 
   const requestId = req.headers['x-request-id'] || crypto.randomUUID();
   const authContext = req.authzContext || {};
@@ -568,8 +597,21 @@ async function enforcePermission(req, reply) {
   const tokenPayload = parseTokenPayload(authorization);
   const tokenUserId = tokenPayload?.sub ? String(tokenPayload.sub) : getUserIdFromAuthorization(authorization);
   const tokenRoles = Array.isArray(tokenPayload?.roles) ? tokenPayload.roles.map((r) => String(r)) : [];
+  const superBypass = hasSuperBypassRole(tokenRoles) || hasSuperBypassContext(req);
 
   try {
+    if (superBypass) {
+      req.authzContext = {
+        userId: tokenUserId || null,
+        roles: tokenRoles,
+        permissionKey: null,
+        organizationId,
+        branchId,
+        membershipChecked: false,
+      };
+      return;
+    }
+
     if (rule.requireOrgScope && !organizationId) {
       return reply.code(400).send({ message: 'x-org-id header is required' });
     }
@@ -613,6 +655,9 @@ async function enforcePermission(req, reply) {
         permissionKey: rule.permissionKey,
         organizationId,
         branchId,
+        activeContextId: req.headers['x-active-context-id'] || null,
+        activeContextName: req.headers['x-active-context-name'] || null,
+        activeContextType: req.headers['x-active-context-type'] || null,
       }),
     });
 
@@ -1500,6 +1545,8 @@ async function registerCors() {
       'Content-Type',
       'x-request-id',
       'x-active-context-id',
+      'x-active-context-name',
+      'x-active-context-type',
       'x-org-id',
       'x-branch-id',
       'idempotency-key',

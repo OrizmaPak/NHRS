@@ -89,7 +89,14 @@ function createApp(options = {}) {
         authorization: req.headers.authorization,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ permissionKey, organizationId, branchId }),
+      body: JSON.stringify({
+        permissionKey,
+        organizationId,
+        branchId,
+        activeContextId: req.headers['x-active-context-id'] || null,
+        activeContextName: req.headers['x-active-context-name'] || null,
+        activeContextType: req.headers['x-active-context-type'] || null,
+      }),
     });
     if (!checked.ok || !checked.body?.allowed) {
       reply.code(checked.status === 401 ? 401 : 403).send({ message: 'Forbidden' });

@@ -41,7 +41,7 @@ export const endpoints = {
   },
   notifications: {
     list: '/audit/events',
-    read: (_id: string) => '/audit/events',
+    read: () => '/audit/events',
     readAll: '/audit/events',
   },
   alerts: {
@@ -91,6 +91,13 @@ export const endpoints = {
     institutions: '/admin/institutions',
     institutionById: (institutionId: string) => `/admin/institutions/${institutionId}`,
     settings: '/admin/system-settings',
+  },
+  org: {
+    list: '/orgs',
+    search: '/orgs/search',
+    byId: (orgId: string) => `/orgs/${orgId}`,
+    branches: (orgId: string) => `/orgs/${orgId}/branches`,
+    branchById: (orgId: string, branchId: string) => `/orgs/${orgId}/branches/${branchId}`,
   },
   rbac: {
     appPermissions: '/rbac/app/permissions',

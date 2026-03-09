@@ -29,7 +29,7 @@ const permissionRegistry = [
   { method: 'DELETE', path: '/rbac/app/roles/:roleId', permissionKey: 'rbac.app.manage' },
   { method: 'POST', path: '/rbac/app/users/:userId/roles', permissionKey: 'rbac.app.manage' },
   { method: 'POST', path: '/rbac/app/users/:userId/overrides', permissionKey: 'rbac.app.manage' },
-  { method: 'GET', path: '/rbac/app/users/:userId/access', permissionKey: 'rbac.app.manage' },
+  { method: 'GET', path: '/rbac/app/users/:userId/access', permissionKey: 'auth.me.read' },
   { method: 'POST', path: '/rbac/org/:organizationId/permissions', permissionKey: 'rbac.org.manage', orgFrom: 'params.organizationId' },
   { method: 'GET', path: '/rbac/org/:organizationId/permissions', permissionKey: 'rbac.org.manage', orgFrom: 'params.organizationId' },
   { method: 'POST', path: '/rbac/org/:organizationId/roles', permissionKey: 'rbac.org.manage', orgFrom: 'params.organizationId' },

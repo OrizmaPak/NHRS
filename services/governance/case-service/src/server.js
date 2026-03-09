@@ -76,7 +76,14 @@ function createApp(options = {}) {
     const checked = await callJson(`${rbacApiBaseUrl}/rbac/check`, {
       method: 'POST',
       headers: { authorization: req.headers.authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ permissionKey, organizationId, branchId }),
+      body: JSON.stringify({
+        permissionKey,
+        organizationId,
+        branchId,
+        activeContextId: req.headers['x-active-context-id'] || null,
+        activeContextName: req.headers['x-active-context-name'] || null,
+        activeContextType: req.headers['x-active-context-type'] || null,
+      }),
     });
     if (!checked.ok || !checked.body?.allowed) {
       if (reply) reply.code(checked.status === 401 ? 401 : 403).send({ message: 'Forbidden' });

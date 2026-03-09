@@ -30,9 +30,11 @@ export type UserAccessData = {
   userName: string;
   roles: string[];
   roleIds: string[];
-  overrides: Array<{ key: string; effect: 'allow' | 'deny' }>;
+  overrides: Array<{ key: string; effect: 'allow' | 'deny'; roleName?: string }>;
   effectivePermissions: Array<{ key: string; source: 'role' | 'override_allow' | 'override_deny'; granted: boolean }>;
 };
+
+type OverrideRule = { permissionKey: string; effect: 'allow' | 'deny'; roleName?: string };
 
 const fallbackPermissions: PermissionRow[] = [
   { key: 'records.read', module: 'records', description: 'Read patient records', scope: 'app', createdAt: new Date().toISOString() },
@@ -43,8 +45,6 @@ const fallbackPermissions: PermissionRow[] = [
 const fallbackRoles: RoleRow[] = [
   { id: 'role-super', name: 'super', description: 'Super access role', scope: 'app', permissions: ['*'], createdAt: new Date().toISOString(), isSystem: true },
   { id: 'role-citizen', name: 'citizen', description: 'Citizen default role', scope: 'app', permissions: [], createdAt: new Date().toISOString(), isSystem: true },
-  { id: 'role-admin', name: 'app_admin', description: 'Platform administrator', scope: 'app', permissions: ['*'], createdAt: new Date().toISOString(), isSystem: true },
-  { id: 'role-provider', name: 'org_staff', description: 'Clinical provider role', scope: 'app', permissions: ['records.read', 'records.create'], createdAt: new Date().toISOString(), isSystem: true },
 ];
 
 export type UserSearchResult = {
@@ -158,12 +158,13 @@ function toEffectivePermissions(raw: unknown): Array<{ key: string; source: 'rol
     .filter((entry) => entry.key);
 }
 
-function toOverrideRules(raw: unknown): Array<{ permissionKey: string; effect: 'allow' | 'deny' }> {
+function toOverrideRules(raw: unknown): OverrideRule[] {
   return asRecords(raw)
     .map((entry) => {
       const permissionKey = String(entry.permissionKey ?? entry.key ?? '');
       const effect: 'allow' | 'deny' = String(entry.effect ?? entry.value ?? 'allow') === 'deny' ? 'deny' : 'allow';
-      return { permissionKey, effect };
+      const roleName = String(entry.roleName ?? entry.role ?? entry.contextRole ?? '').trim().toLowerCase();
+      return roleName ? { permissionKey, effect, roleName } : { permissionKey, effect };
     })
     .filter((entry) => entry.permissionKey);
 }
@@ -179,7 +180,7 @@ async function fetchUserAccessForMutation(scope: PermissionScope, userId: string
       ? endpoints.rbac.orgUserAccess(organizationId, userId)
       : null;
   if (!path) {
-    return { roleIds: [] as string[], overrides: [] as Array<{ permissionKey: string; effect: 'allow' | 'deny' }> };
+    return { roleIds: [] as string[], overrides: [] as OverrideRule[] };
   }
   const response = await apiClient.get<Record<string, unknown>>(path);
   const assignment = response.assignment && typeof response.assignment === 'object' ? (response.assignment as Record<string, unknown>) : null;
@@ -265,8 +266,11 @@ export function useAppRoles() {
 export function useSaveAppRole() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { id?: string; name: string; description: string; permissions: string[] }) =>
-      payload.id
+    mutationFn: async (payload: { id?: string; name: string; description: string; permissions: string[] }) => {
+      if (String(payload.name || '').trim().toLowerCase() === 'super') {
+        throw new Error('SUPER_ROLE_LOCKED');
+      }
+      return payload.id
         ? apiClient.patch(endpoints.rbac.appRoleById(payload.id), {
             name: payload.name,
             description: payload.description,
@@ -276,7 +280,8 @@ export function useSaveAppRole() {
             name: payload.name,
             description: payload.description,
             permissions: toRoleRulePayload(payload.permissions),
-          }),
+          });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['access', 'app', 'roles'] });
     },
@@ -286,7 +291,12 @@ export function useSaveAppRole() {
 export function useDeleteAppRole() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => apiClient.delete(endpoints.rbac.appRoleById(id), { roleId: id }),
+    mutationFn: async (id: string) => {
+      if (String(id || '').trim().toLowerCase() === 'super') {
+        throw new Error('SUPER_ROLE_LOCKED');
+      }
+      return apiClient.delete(endpoints.rbac.appRoleById(id), { roleId: id });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['access', 'app', 'roles'] });
     },
@@ -321,6 +331,7 @@ export function useUserAccess(userId: string, organizationId?: string) {
         const overrides = toOverrideRules(response.overrides).map((entry) => ({
           key: entry.permissionKey,
           effect: entry.effect,
+          roleName: entry.roleName,
         }));
 
         return {
@@ -335,7 +346,7 @@ export function useUserAccess(userId: string, organizationId?: string) {
         return {
           userId,
           userName: userId,
-          roles: ['app_admin'],
+          roles: ['citizen'],
           roleIds: [],
           overrides: [{ key: 'records.delete', effect: 'deny' }],
           effectivePermissions: [
@@ -392,10 +403,20 @@ export function useRemoveUserRole(scope: PermissionScope) {
 export function useUpsertUserOverride(scope: PermissionScope) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { userId: string; permissionKey: string; effect: 'allow' | 'deny'; organizationId?: string }) => {
+    mutationFn: async (payload: { userId: string; permissionKey: string; effect: 'allow' | 'deny'; roleName?: string; organizationId?: string }) => {
       const current = await fetchUserAccessForMutation(scope, payload.userId, payload.organizationId);
-      const withoutCurrent = current.overrides.filter((entry) => entry.permissionKey !== payload.permissionKey);
-      const overrides = [...withoutCurrent, { permissionKey: payload.permissionKey, effect: payload.effect }];
+      const targetRole = String(payload.roleName ?? '').trim().toLowerCase();
+      const withoutCurrent = current.overrides.filter((entry) => {
+        if (entry.permissionKey !== payload.permissionKey) return true;
+        const entryRole = String(entry.roleName ?? '').trim().toLowerCase();
+        return entryRole !== targetRole;
+      });
+      const overrides = [
+        ...withoutCurrent,
+        targetRole
+          ? { permissionKey: payload.permissionKey, effect: payload.effect, roleName: targetRole }
+          : { permissionKey: payload.permissionKey, effect: payload.effect },
+      ];
       if (scope === 'app') {
         return apiClient.post(endpoints.rbac.appUserOverrides(payload.userId), { overrides });
       }
@@ -412,9 +433,14 @@ export function useUpsertUserOverride(scope: PermissionScope) {
 export function useDeleteUserOverride(scope: PermissionScope) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { userId: string; permissionKey: string; organizationId?: string }) => {
+    mutationFn: async (payload: { userId: string; permissionKey: string; roleName?: string; organizationId?: string }) => {
       const current = await fetchUserAccessForMutation(scope, payload.userId, payload.organizationId);
-      const overrides = current.overrides.filter((entry) => entry.permissionKey !== payload.permissionKey);
+      const targetRole = String(payload.roleName ?? '').trim().toLowerCase();
+      const overrides = current.overrides.filter((entry) => {
+        if (entry.permissionKey !== payload.permissionKey) return true;
+        const entryRole = String(entry.roleName ?? '').trim().toLowerCase();
+        return entryRole !== targetRole;
+      });
       if (scope === 'app') {
         return apiClient.post(endpoints.rbac.appUserOverrides(payload.userId), { overrides });
       }
@@ -434,6 +460,15 @@ export function useReplaceUserRoles(scope: PermissionScope) {
     mutationFn: async (payload: { userId: string; roleIds: string[]; organizationId?: string }) => {
       const uniqueRoleIds = Array.from(new Set(payload.roleIds.map((id) => String(id)).filter(Boolean)));
       if (scope === 'app') {
+        const response = await apiClient.get<Record<string, unknown>>(endpoints.rbac.appRoles, { suppressGlobalErrors: true });
+        const availableRoles = toRoleRows(response.roles ?? response.items ?? response.data ?? [], 'app');
+        const byId = new Map(availableRoles.map((role) => [role.id, role.name.toLowerCase()] as const));
+        const selectedRoleNames = uniqueRoleIds.map((id) => byId.get(id)).filter((name): name is string => Boolean(name));
+        if (selectedRoleNames.includes('super')) {
+          throw new Error('SUPER_ROLE_ASSIGNMENT_BLOCKED');
+        }
+      }
+      if (scope === 'app') {
         return apiClient.post(endpoints.rbac.appUserRoles(payload.userId), { roleIds: uniqueRoleIds });
       }
       if (!payload.organizationId) throw new Error('organizationId is required');
@@ -451,7 +486,7 @@ export function useReplaceUserOverrides(scope: PermissionScope) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (
-      payload: { userId: string; overrides: Array<{ permissionKey: string; effect: 'allow' | 'deny' }>; organizationId?: string },
+      payload: { userId: string; overrides: OverrideRule[]; organizationId?: string },
     ) => {
       if (scope === 'app') {
         return apiClient.post(endpoints.rbac.appUserOverrides(payload.userId), { overrides: payload.overrides });
@@ -468,24 +503,29 @@ export function useReplaceUserOverrides(scope: PermissionScope) {
 
 export async function searchAccessUsers(term: string): Promise<UserSearchResult[]> {
   const trimmed = term.trim();
-  if (trimmed.length < 2) {
+  if (trimmed.length < 1) {
     return [];
   }
+
+  const pickNonEmpty = (...values: Array<unknown>): string | undefined => {
+    for (const value of values) {
+      const text = String(value ?? '').trim();
+      if (text) return text;
+    }
+    return undefined;
+  };
 
   const normalizeItems = (items: unknown[]): UserSearchResult[] =>
     items
       .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
       .map((item, index) => {
-        const id = String(item.id ?? item.userId ?? item._id ?? item.sub ?? item.nin ?? '');
+        const id = pickNonEmpty(item.id, item.userId, item._id, item.sub, item.nin) ?? '';
         const firstName = String(item.firstName ?? item.first_name ?? '');
         const lastName = String(item.lastName ?? item.last_name ?? '');
-        const displayName = String(
-          item.displayName ??
-            item.fullName ??
-            item.name ??
-            [firstName, lastName].filter(Boolean).join(' ') ??
-            (item.nin ? `User ${String(item.nin)}` : `User ${index + 1}`),
-        );
+        const nameJoin = [firstName, lastName].filter(Boolean).join(' ').trim();
+        const displayName =
+          pickNonEmpty(item.displayName, item.fullName, item.name, nameJoin, item.email, item.phone, item.nin)
+          ?? `User ${index + 1}`;
         return {
           id,
           displayName,
@@ -497,9 +537,27 @@ export async function searchAccessUsers(term: string): Promise<UserSearchResult[
       })
       .filter((item) => Boolean(item.id));
 
+  const dedupe = (items: UserSearchResult[]) => {
+    const map = new Map<string, UserSearchResult>();
+    for (const item of items) {
+      const existing = map.get(item.id);
+      if (!existing) {
+        map.set(item.id, item);
+        continue;
+      }
+      // Prefer the richer row (more identity fields populated)
+      const score = [item.nin, item.bvn, item.email, item.phone].filter(Boolean).length;
+      const existingScore = [existing.nin, existing.bvn, existing.email, existing.phone].filter(Boolean).length;
+      if (score > existingScore) map.set(item.id, item);
+    }
+    return Array.from(map.values());
+  };
+
+  const mergedResults: UserSearchResult[] = [];
+
   try {
     const identitySearch = await apiClient.get<Record<string, unknown>>(endpoints.auth.userSearch, {
-      query: { q: trimmed, page: 1, limit: 15 },
+      query: { q: trimmed, page: 1, limit: 50 },
       suppressGlobalErrors: true,
     });
     const identityItems =
@@ -507,31 +565,60 @@ export async function searchAccessUsers(term: string): Promise<UserSearchResult[
       (Array.isArray(identitySearch.data) ? identitySearch.data : null) ??
       [];
     const normalizedIdentity = normalizeItems(identityItems);
-    if (normalizedIdentity.length > 0) return normalizedIdentity;
+    mergedResults.push(...normalizedIdentity);
   } catch {
-    // Continue to profile and NIN fallback.
+    // Continue with profile and NIN fallbacks.
   }
 
+  // Secondary identity query variant for backends that index direct fields better than generic q.
   try {
-    const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.patientSearch, {
-      query: { q: trimmed, page: 1, limit: 10 },
+    const identityVariantQuery: Record<string, string | number> = { page: 1, limit: 50 };
+    if (/^\d{11}$/.test(trimmed)) identityVariantQuery.q = trimmed;
+    else if (/^\d{10,15}$/.test(trimmed)) identityVariantQuery.q = trimmed;
+    else if (trimmed.includes('@')) identityVariantQuery.q = trimmed.toLowerCase();
+    else identityVariantQuery.q = trimmed;
+
+    const identityVariant = await apiClient.get<Record<string, unknown>>(endpoints.auth.userSearch, {
+      query: identityVariantQuery,
       suppressGlobalErrors: true,
     });
-    const items =
-      (Array.isArray(response.items) ? response.items : null) ??
-      (Array.isArray(response.data) ? response.data : null) ??
+    const variantItems =
+      (Array.isArray(identityVariant.items) ? identityVariant.items : null) ??
+      (Array.isArray(identityVariant.data) ? identityVariant.data : null) ??
       [];
-    const normalized = normalizeItems(items);
-    if (normalized.length > 0) return normalized;
+    mergedResults.push(...normalizeItems(variantItems));
   } catch {
-    // Continue to fallbacks below.
+    // Keep falling back.
+  }
+
+  // Only hit profile-search fallback when identity search could not find anything.
+  if (mergedResults.length === 0) {
+    try {
+      const profileQuery: Record<string, string | number> = { page: 1, limit: 10 };
+      if (/^\d{11}$/.test(trimmed)) profileQuery.nin = trimmed;
+      else if (/^\d{10,15}$/.test(trimmed)) profileQuery.phone = trimmed;
+      else if (trimmed.includes('@')) profileQuery.email = trimmed;
+      else profileQuery.name = trimmed;
+
+      const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.patientSearch, {
+        query: profileQuery,
+        suppressGlobalErrors: true,
+      });
+      const items =
+        (Array.isArray(response.items) ? response.items : null) ??
+        (Array.isArray(response.data) ? response.data : null) ??
+        [];
+      const normalized = normalizeItems(items);
+      mergedResults.push(...normalized);
+    } catch {
+      // Continue to NIN fallback below.
+    }
   }
 
   if (/^\d{11}$/.test(trimmed)) {
     try {
       const ninRecord = await apiClient.get<Record<string, unknown>>(`/nin/${trimmed}`, {
         suppressGlobalErrors: true,
-        skipAuth: true,
       });
       const displayName = String(
         ninRecord.displayName ??
@@ -539,26 +626,53 @@ export async function searchAccessUsers(term: string): Promise<UserSearchResult[
         [ninRecord.firstName, ninRecord.lastName].filter(Boolean).join(' ') ??
         `User ${trimmed}`,
       );
-      return [{
+      mergedResults.push({
         id: String(ninRecord.userId ?? ninRecord.id ?? ninRecord._id ?? trimmed),
         displayName,
         nin: trimmed,
         bvn: ninRecord.bvn ? String(ninRecord.bvn) : undefined,
         email: ninRecord.email ? String(ninRecord.email) : undefined,
         phone: ninRecord.phone ? String(ninRecord.phone) : undefined,
-      }];
+      });
     } catch {
-      return [];
+      // fallthrough
     }
   }
 
-  return [];
+  // Last fallback: include current user if query matches own identity fields.
+  try {
+    const me = await apiClient.get<Record<string, unknown>>(endpoints.identity.me, { suppressGlobalErrors: true });
+    const user = me.user && typeof me.user === 'object' ? (me.user as Record<string, unknown>) : null;
+    if (user) {
+      const firstName = String(user.firstName ?? '');
+      const lastName = String(user.lastName ?? '');
+      const fullName = String(user.fullName ?? [firstName, lastName].filter(Boolean).join(' '));
+      const nin = String(user.nin ?? '');
+      const email = String(user.email ?? '');
+      const phone = String(user.phone ?? '');
+      const haystack = `${fullName} ${firstName} ${lastName} ${nin} ${email} ${phone}`.toLowerCase();
+      if (haystack.includes(trimmed.toLowerCase())) {
+        mergedResults.push({
+          id: String(user.id ?? user.userId ?? user._id ?? ''),
+          displayName: fullName || 'Current User',
+          nin: nin || undefined,
+          email: email || undefined,
+          phone: phone || undefined,
+          bvn: String(user.bvn ?? '') || undefined,
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return dedupe(mergedResults);
 }
 
 export function useUserSearch(term: string) {
   return useQuery({
     queryKey: ['access', 'user-search', term],
-    enabled: term.trim().length >= 2,
+    enabled: term.trim().length >= 1,
     retry: false,
     staleTime: 10_000,
     queryFn: async (): Promise<UserSearchResult[]> => searchAccessUsers(term),
