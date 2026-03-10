@@ -2,6 +2,7 @@ import { API_BASE_URL, CONTEXT_STORAGE_KEY } from '@/lib/constants';
 import { clearSessionTokens, getAccessToken, getRefreshToken, setSessionTokens } from '@/lib/sessionStorage';
 import { endpoints } from '@/api/endpoints';
 import { useContextStore } from '@/stores/contextStore';
+import { getOrganizationIdFromContext } from '@/lib/organizationContext';
 
 export class ApiClientError extends Error {
   status: number;
@@ -45,14 +46,12 @@ function getContextHeaders(): Record<string, string> {
     headers['x-active-context-type'] = String(activeContext.type);
   }
 
-  if (activeContext?.type === 'organization') {
-    const orgId = activeContext.organizationId || activeContext.id;
-    if (orgId) {
-      headers['x-org-id'] = orgId;
-    }
-    if (activeContext.branchId) {
-      headers['x-branch-id'] = activeContext.branchId;
-    }
+  const orgId = getOrganizationIdFromContext(activeContext);
+  if (orgId) {
+    headers['x-org-id'] = orgId;
+  }
+  if (activeContext?.branchId) {
+    headers['x-branch-id'] = activeContext.branchId;
   }
 
   return headers;

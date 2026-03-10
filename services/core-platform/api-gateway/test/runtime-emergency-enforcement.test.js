@@ -54,6 +54,14 @@ test('gateway enforces emergency auth and org scope before proxying', async () =
         };
       }
 
+      if (target.includes('/internal/orgs/') && target.includes('/access')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ allowed: true }),
+        };
+      }
+
       if (target.includes('/internal/audit/events')) {
         return downstreamResponse(202, { accepted: true });
       }

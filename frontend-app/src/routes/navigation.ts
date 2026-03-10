@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
+  Archive,
   AlertOctagon,
   BarChart3,
   Building2,
@@ -91,9 +92,10 @@ export const navigationItems: NavigationItem[] = [
   { label: 'Org Permissions', to: '/app/org/access/permissions', permission: 'rbac.org.manage', icon: Shield, group: 'Administration' },
   { label: 'Org Roles', to: '/app/org/access/roles', permission: 'rbac.org.manage', icon: ShieldAlert, group: 'Administration' },
   { label: 'Org Staff Access', to: '/app/org/access/staff/self', permission: 'rbac.org.manage', icon: UserCog, group: 'Administration' },
-  { label: 'Admin Users', to: '/app/admin/users', permission: 'admin.users.manage', icon: UserCog, group: 'Administration' },
-  { label: 'Admin Roles', to: '/app/admin/roles', permission: 'admin.roles.manage', icon: Shield, group: 'Administration' },
-  { label: 'Admin Institutions', to: '/app/admin/institutions', permission: 'admin.institutions.manage', icon: Building2, group: 'Administration' },
+  { label: 'Organizations', to: '/app/organizations', permission: 'org.list', icon: Building2, group: 'Administration' },
+  { label: 'Deleted Organizations', to: '/app/organizations/deleted', permission: 'org.list', icon: Archive, group: 'Administration' },
+  { label: 'Institutions', to: '/app/institutions', permission: 'org.list', icon: BuildingIcon, group: 'Administration' },
+  { label: 'Branches', to: '/app/branches', permission: 'org.list', icon: Workflow, group: 'Administration' },
   { label: 'Admin Settings', to: '/app/admin/system-settings', permission: 'admin.settings.manage', icon: Settings, group: 'Administration' },
 
   { label: 'System Activity', to: '/app/system/activity', permission: 'system.activity.view', icon: Activity, group: 'System' },

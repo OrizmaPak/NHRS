@@ -16,6 +16,7 @@ import { PermissionMatrix } from '@/components/access/PermissionMatrix';
 import { ErrorState } from '@/components/feedback/ErrorState';
 import { useContextStore } from '@/stores/contextStore';
 import { useDeleteOrgRole, useOrgPermissions, useOrgRoles, useSaveOrgRole, type RoleRow } from '@/api/hooks/useAccessControl';
+import { getOrganizationIdFromContext } from '@/lib/organizationContext';
 
 const roleSchema = z.object({
   name: z.string().min(2, 'Role name is required'),
@@ -25,7 +26,7 @@ type RoleValues = z.infer<typeof roleSchema>;
 
 export function OrgRolesPage() {
   const activeContext = useContextStore((state) => state.activeContext);
-  const organizationId = activeContext?.type === 'organization' ? (activeContext.organizationId || activeContext.id) : undefined;
+  const organizationId = getOrganizationIdFromContext(activeContext);
 
   const [query, setQuery] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });

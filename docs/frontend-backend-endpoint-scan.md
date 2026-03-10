@@ -61,10 +61,6 @@ Generated: 2026-03-08T06:34:56.550Z
 ## B) Used by Frontend but NOT present in OpenAPI (contract mismatch/risk)
 
 - [GET] `/admin/institutions`  <- `admin.institutions`
-- [PATCH] `/admin/roles/{param}`  <- `admin.roleById`
-- [GET,POST] `/admin/roles`  <- `admin.roles`
-- [PATCH] `/admin/users/{param}`  <- `admin.userById`
-- [GET] `/admin/users`  <- `admin.users`
 - [GET] `/alerts`  <- `alerts.list`
 - [GET] `/analytics/dashboard`  <- `analytics.dashboard`
 - [GET] `/analytics/metrics`  <- `analytics.metrics`

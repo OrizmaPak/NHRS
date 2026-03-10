@@ -20,6 +20,7 @@ function makeAccessToken(payload, secret = 'change-me') {
 
 function makeFakeDb() {
   const organizations = [];
+  const institutions = [];
   const history = [];
   const branches = [];
 
@@ -48,6 +49,30 @@ function makeFakeDb() {
       if (name === 'organization_owner_history') {
         return {
           insertOne: async (doc) => { history.push(structuredClone(doc)); return { acknowledged: true }; },
+          createIndex: async () => ({}),
+        };
+      }
+      if (name === 'institutions') {
+        return {
+          insertOne: async (doc) => { institutions.push(structuredClone(doc)); return { acknowledged: true }; },
+          findOne: async (query) => institutions.find((item) => {
+            if (query.institutionId) return item.organizationId === query.organizationId && item.institutionId === query.institutionId;
+            if (query.organizationId && query.code) return item.organizationId === query.organizationId && item.code === query.code;
+            return false;
+          }) || null,
+          findOneAndUpdate: async (query, update) => {
+            const idx = institutions.findIndex((item) => item.organizationId === query.organizationId && item.institutionId === query.institutionId);
+            if (idx < 0) return { value: null };
+            institutions[idx] = { ...institutions[idx], ...(update.$set || {}) };
+            return { value: structuredClone(institutions[idx]) };
+          },
+          find: (query) => ({
+            toArray: async () => structuredClone(institutions.filter((item) => {
+              if (query.organizationId && item.organizationId !== query.organizationId) return false;
+              if (query.institutionId?.$in && !query.institutionId.$in.includes(item.institutionId)) return false;
+              return true;
+            })),
+          }),
           createIndex: async () => ({}),
         };
       }
@@ -120,6 +145,13 @@ test('branch create and list works', async () => {
   });
 
   const orgId = orgRes.json().organization.organizationId;
+  const approveRes = await app.inject({
+    method: 'POST',
+    url: `/orgs/${orgId}/approval`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { decision: 'approve' },
+  });
+  assert.equal(approveRes.statusCode, 200);
 
   const branchRes = await app.inject({
     method: 'POST',
@@ -138,4 +170,70 @@ test('branch create and list works', async () => {
   assert.equal(listRes.statusCode, 200);
   assert.equal(Array.isArray(listRes.json().items), true);
   assert.equal(listRes.json().items.length, 1);
+});
+
+test('institution hierarchy endpoints work', async () => {
+  const fakeDb = makeFakeDb();
+  const app = buildApp({
+    dbReady: true,
+    db: fakeDb,
+    fetchImpl: async (url) => {
+      if (String(url).includes('/rbac/check')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({}) };
+    },
+  });
+  const token = makeAccessToken({ sub: 'creator-2' }, 'change-me');
+
+  const orgRes = await app.inject({
+    method: 'POST',
+    url: '/orgs',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { name: 'River Health Group', type: 'hospital' },
+  });
+  assert.equal(orgRes.statusCode, 201);
+  const orgId = orgRes.json().organization.organizationId;
+  const approveRes = await app.inject({
+    method: 'POST',
+    url: `/orgs/${orgId}/approval`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { decision: 'approve' },
+  });
+  assert.equal(approveRes.statusCode, 200);
+
+  const listInitial = await app.inject({
+    method: 'GET',
+    url: `/orgs/${orgId}/institutions`,
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(listInitial.statusCode, 200);
+  assert.equal(Array.isArray(listInitial.json().items), true);
+  assert.equal(listInitial.json().items.length >= 1, true); // includes HQ
+
+  const createInstitution = await app.inject({
+    method: 'POST',
+    url: `/orgs/${orgId}/institutions`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { name: 'River Specialist Center', type: 'clinic', code: 'RSC' },
+  });
+  assert.equal(createInstitution.statusCode, 201);
+  const institutionId = createInstitution.json().institution.institutionId;
+
+  const createBranch = await app.inject({
+    method: 'POST',
+    url: `/orgs/${orgId}/institutions/${institutionId}/branches`,
+    headers: { authorization: `Bearer ${token}` },
+    payload: { name: 'RSC East', code: 'RSC-E', capabilities: ['clinic'] },
+  });
+  assert.equal(createBranch.statusCode, 201);
+
+  const hierarchy = await app.inject({
+    method: 'GET',
+    url: `/orgs/${orgId}/hierarchy`,
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(hierarchy.statusCode, 200);
+  assert.equal(Array.isArray(hierarchy.json().institutions), true);
+  assert.equal(Array.isArray(hierarchy.json().branches), true);
 });

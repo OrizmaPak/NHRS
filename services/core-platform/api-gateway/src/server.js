@@ -445,6 +445,12 @@ function membershipScopeCacheKey(userId, organizationId, branchId) {
   return `gateway:scope:${String(userId)}:${String(organizationId)}:${branchId ? String(branchId) : 'all'}`;
 }
 
+function orgOperationalCacheKey(organizationId, branchId, institutionId) {
+  const branchSegment = branchId ? String(branchId) : 'all-branches';
+  const institutionSegment = institutionId ? String(institutionId) : 'all-institutions';
+  return `gateway:org-operational:${String(organizationId)}:${branchSegment}:${institutionSegment}`;
+}
+
 async function validateMembershipScope({ userId, organizationId, branchId }) {
   if (!userId || !organizationId) {
     return { allowed: false, reason: 'MISSING_SCOPE_IDENTIFIERS' };
@@ -480,6 +486,7 @@ async function validateMembershipScope({ userId, organizationId, branchId }) {
       allowed: body?.allowed === true,
       reason: body?.allowed === true ? null : (body?.message || 'NOT_ORG_MEMBER'),
       membership: body?.membership || null,
+      assignments: Array.isArray(body?.assignments) ? body.assignments : [],
     }
     : { allowed: false, reason: body?.message || 'NOT_ORG_MEMBER' };
 
@@ -488,6 +495,51 @@ async function validateMembershipScope({ userId, organizationId, branchId }) {
       await redisClient.set(cacheKey, JSON.stringify(result), { EX: membershipScopeCacheTtlSec });
     } catch (err) {
       fastify.log.warn({ err }, 'Failed writing membership scope cache');
+    }
+  }
+  return result;
+}
+
+async function validateOrgOperationalScope({ organizationId, branchId, institutionId }) {
+  if (!organizationId) return { allowed: false, reason: 'MISSING_ORG_ID' };
+
+  const cacheKey = orgOperationalCacheKey(organizationId, branchId, institutionId);
+  if (redisReady) {
+    try {
+      const cached = await redisClient.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      fastify.log.warn({ err }, 'Failed reading org operational cache');
+    }
+  }
+
+  const qs = new URLSearchParams();
+  if (branchId) qs.set('branchId', String(branchId));
+  if (institutionId) qs.set('institutionId', String(institutionId));
+  const response = await fetchClient(`${organizationApiBaseUrl}/internal/orgs/${encodeURIComponent(String(organizationId))}/access?${qs.toString()}`, {
+    method: 'GET',
+    headers: {
+      'content-type': 'application/json',
+      'x-internal-token': internalServiceToken,
+    },
+  });
+  let body = null;
+  try {
+    body = await response.json();
+  } catch (_err) {
+    body = null;
+  }
+  const result = response.ok
+    ? { allowed: body?.allowed === true, reason: body?.reason || (body?.allowed === true ? null : 'ORG_SCOPE_BLOCKED') }
+    : { allowed: false, reason: body?.reason || body?.message || 'ORG_SCOPE_UNAVAILABLE' };
+
+  if (redisReady) {
+    try {
+      await redisClient.set(cacheKey, JSON.stringify(result), { EX: membershipScopeCacheTtlSec });
+    } catch (err) {
+      fastify.log.warn({ err }, 'Failed writing org operational cache');
     }
   }
   return result;
@@ -600,6 +652,11 @@ async function enforcePermission(req, reply) {
   const superBypass = hasSuperBypassRole(tokenRoles) || hasSuperBypassContext(req);
 
   try {
+    const isSelfAccessResolutionRoute = routePath === '/rbac/app/users/:userId/access';
+    const activeContextIdForCheck = isSelfAccessResolutionRoute ? null : (req.headers['x-active-context-id'] || null);
+    const activeContextNameForCheck = isSelfAccessResolutionRoute ? null : (req.headers['x-active-context-name'] || null);
+    const activeContextTypeForCheck = isSelfAccessResolutionRoute ? null : (req.headers['x-active-context-type'] || null);
+
     if (superBypass) {
       req.authzContext = {
         userId: tokenUserId || null,
@@ -643,6 +700,50 @@ async function enforcePermission(req, reply) {
         });
         return reply.code(403).send({ message: 'Not a member of this organization' });
       }
+
+      if (rule.requireOrgScope) {
+        const explicitInstitutionHeader = req.headers['x-institution-id'];
+        const institutionFromHeader = typeof explicitInstitutionHeader === 'string'
+          ? explicitInstitutionHeader.trim()
+          : '';
+        const assignmentInstitutionIds = Array.from(new Set(
+          (Array.isArray(membershipDecision.assignments) ? membershipDecision.assignments : [])
+            .map((item) => (item && typeof item === 'object' ? String(item.institutionId || '').trim() : ''))
+            .filter(Boolean),
+        ));
+        const inferredInstitutionId = institutionFromHeader
+          || (!branchId && assignmentInstitutionIds.length === 1 ? assignmentInstitutionIds[0] : null);
+
+        const orgOperationalDecision = await validateOrgOperationalScope({
+          organizationId,
+          branchId,
+          institutionId: inferredInstitutionId,
+        });
+        if (!orgOperationalDecision.allowed) {
+          emitAuditEvent({
+            userId: tokenUserId,
+            organizationId,
+            eventType: 'RBAC_ACCESS_DENIED',
+            action: 'gateway.org_operational_check',
+            permissionKey: rule.permissionKey,
+            ipAddress,
+            userAgent,
+            outcome: 'failure',
+            failureReason: orgOperationalDecision.reason || 'ORG_SCOPE_BLOCKED',
+            metadata: {
+              method: req.method,
+              path: routePath,
+              branchId,
+              institutionId: inferredInstitutionId,
+            },
+          });
+          return reply.code(403).send({
+            message: 'Organization/institution/branch is not operational for timeline access',
+            code: 'ORG_SCOPE_BLOCKED',
+            details: { reason: orgOperationalDecision.reason || null },
+          });
+        }
+      }
     }
 
     const checkResponse = await fetchClient(`${rbacApiBaseUrl}/rbac/check`, {
@@ -655,9 +756,9 @@ async function enforcePermission(req, reply) {
         permissionKey: rule.permissionKey,
         organizationId,
         branchId,
-        activeContextId: req.headers['x-active-context-id'] || null,
-        activeContextName: req.headers['x-active-context-name'] || null,
-        activeContextType: req.headers['x-active-context-type'] || null,
+        activeContextId: activeContextIdForCheck,
+        activeContextName: activeContextNameForCheck,
+        activeContextType: activeContextTypeForCheck,
       }),
     });
 
@@ -1121,11 +1222,32 @@ function registerOrganizationMembershipRoutes() {
   const orgRoutes = [
     ['POST', '/orgs', '/orgs'],
     ['GET', '/orgs', '/orgs'],
+    ['GET', '/orgs/deleted', '/orgs/deleted'],
     ['GET', '/orgs/search', '/orgs/search'],
+    ['GET', '/institutions', '/institutions'],
+    ['GET', '/institutions/:institutionId', '/institutions/:institutionId'],
+    ['GET', '/branches', '/branches'],
+    ['GET', '/branches/:branchId', '/branches/:branchId'],
     ['GET', '/orgs/:orgId', '/orgs/:orgId'],
+    ['GET', '/orgs/:orgId/hierarchy', '/orgs/:orgId/hierarchy'],
     ['PATCH', '/orgs/:orgId', '/orgs/:orgId'],
+    ['POST', '/orgs/:orgId/approval', '/orgs/:orgId/approval'],
+    ['POST', '/orgs/:orgId/deletion/request', '/orgs/:orgId/deletion/request'],
+    ['POST', '/orgs/:orgId/deletion/review', '/orgs/:orgId/deletion/review'],
+    ['POST', '/orgs/:orgId/restore', '/orgs/:orgId/restore'],
+    ['POST', '/orgs/:orgId/files/upload', '/orgs/:orgId/files/upload'],
     ['PATCH', '/orgs/:orgId/owner', '/orgs/:orgId/owner'],
     ['POST', '/orgs/:orgId/assign-owner', '/orgs/:orgId/assign-owner'],
+    ['POST', '/orgs/:orgId/institutions', '/orgs/:orgId/institutions'],
+    ['GET', '/orgs/:orgId/institutions', '/orgs/:orgId/institutions'],
+    ['GET', '/orgs/:orgId/institutions/:institutionId', '/orgs/:orgId/institutions/:institutionId'],
+    ['PATCH', '/orgs/:orgId/institutions/:institutionId', '/orgs/:orgId/institutions/:institutionId'],
+    ['DELETE', '/orgs/:orgId/institutions/:institutionId', '/orgs/:orgId/institutions/:institutionId'],
+    ['POST', '/orgs/:orgId/institutions/:institutionId/branches', '/orgs/:orgId/institutions/:institutionId/branches'],
+    ['GET', '/orgs/:orgId/institutions/:institutionId/branches', '/orgs/:orgId/institutions/:institutionId/branches'],
+    ['GET', '/orgs/:orgId/institutions/:institutionId/branches/:branchId', '/orgs/:orgId/institutions/:institutionId/branches/:branchId'],
+    ['PATCH', '/orgs/:orgId/institutions/:institutionId/branches/:branchId', '/orgs/:orgId/institutions/:institutionId/branches/:branchId'],
+    ['DELETE', '/orgs/:orgId/institutions/:institutionId/branches/:branchId', '/orgs/:orgId/institutions/:institutionId/branches/:branchId'],
     ['POST', '/orgs/:orgId/branches', '/orgs/:orgId/branches'],
     ['GET', '/orgs/:orgId/branches', '/orgs/:orgId/branches'],
     ['GET', '/orgs/:orgId/branches/:branchId', '/orgs/:orgId/branches/:branchId'],

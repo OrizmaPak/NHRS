@@ -70,10 +70,17 @@ const SystemObservabilityPage = lazy(async () => ({ default: (await import('@/mo
 const SystemHealthPage = lazy(async () => ({ default: (await import('@/modules/system/health/SystemHealthPage')).SystemHealthPage }));
 const DevToolsPage = lazy(async () => ({ default: (await import('@/modules/dev-tools/DevToolsPage')).DevToolsPage }));
 const InstitutionDashboardPage = lazy(async () => ({ default: (await import('@/modules/institution/dashboard/InstitutionDashboardPage')).InstitutionDashboardPage }));
-const AdminUsersPage = lazy(async () => ({ default: (await import('@/modules/admin/users/AdminUsersPage')).AdminUsersPage }));
-const AdminRolesPage = lazy(async () => ({ default: (await import('@/modules/admin/roles/AdminRolesPage')).AdminRolesPage }));
-const AdminInstitutionsPage = lazy(async () => ({ default: (await import('@/modules/admin/institutions/AdminInstitutionsPage')).AdminInstitutionsPage }));
 const AdminSystemSettingsPage = lazy(async () => ({ default: (await import('@/modules/admin/system-settings/AdminSystemSettingsPage')).AdminSystemSettingsPage }));
+const OrganizationsPage = lazy(async () => ({ default: (await import('@/modules/organization/organizations/OrganizationsPage')).OrganizationsPage }));
+const OrganizationDetailsPage = lazy(async () => ({ default: (await import('@/modules/organization/organizations/OrganizationDetailsPage')).OrganizationDetailsPage }));
+const DeletedOrganizationsPage = lazy(async () => ({ default: (await import('@/modules/organization/organizations/DeletedOrganizationsPage')).DeletedOrganizationsPage }));
+const OrganizationStaffPage = lazy(async () => ({ default: (await import('@/modules/organization/organizations/OrganizationStaffPage')).OrganizationStaffPage }));
+const InstitutionsPage = lazy(async () => ({ default: (await import('@/modules/organization/institutions/InstitutionsPage')).InstitutionsPage }));
+const InstitutionDetailsPage = lazy(async () => ({ default: (await import('@/modules/organization/institutions/InstitutionDetailsPage')).InstitutionDetailsPage }));
+const InstitutionStaffPage = lazy(async () => ({ default: (await import('@/modules/organization/institutions/InstitutionStaffPage')).InstitutionStaffPage }));
+const BranchesPage = lazy(async () => ({ default: (await import('@/modules/organization/branches/BranchesPage')).BranchesPage }));
+const BranchDetailsPage = lazy(async () => ({ default: (await import('@/modules/organization/branches/BranchDetailsPage')).BranchDetailsPage }));
+const BranchStaffPage = lazy(async () => ({ default: (await import('@/modules/organization/branches/BranchStaffPage')).BranchStaffPage }));
 
 function withSuspense(element: ReactElement) {
   return (
@@ -204,6 +211,16 @@ export const appRouter = createBrowserRouter([
           { path: 'integrations/api-keys', element: restricted(<ApiKeysPage />, 'api.keys.manage') },
           { path: 'integrations/sync', element: restricted(<SyncMonitorPage />, 'sync.monitor.view') },
           { path: 'institution/dashboard', element: restricted(<InstitutionDashboardPage />, 'institution.dashboard.view') },
+          { path: 'organizations', element: restricted(<OrganizationsPage />, 'org.list') },
+          { path: 'organizations/deleted', element: restricted(<DeletedOrganizationsPage />, 'org.list') },
+          { path: 'organizations/:orgId', element: restricted(<OrganizationDetailsPage />, 'org.read') },
+          { path: 'organizations/:orgId/staff', element: restricted(<OrganizationStaffPage />, 'org.member.read') },
+          { path: 'institutions', element: restricted(<InstitutionsPage />, 'org.list') },
+          { path: 'institutions/:institutionId', element: restricted(<InstitutionDetailsPage />, 'org.read') },
+          { path: 'institutions/:institutionId/staff', element: restricted(<InstitutionStaffPage />, 'org.member.read') },
+          { path: 'branches', element: restricted(<BranchesPage />, 'org.list') },
+          { path: 'branches/:branchId', element: restricted(<BranchDetailsPage />, 'org.read') },
+          { path: 'branches/:branchId/staff', element: restricted(<BranchStaffPage />, 'org.member.read') },
           { path: 'system/activity', element: restricted(<SystemActivityPage />, 'system.activity.view') },
           { path: 'system/monitoring', element: restricted(<SystemMonitoringPage />, 'system.monitoring.view') },
           { path: 'system/configuration', element: restricted(<SystemConfigurationPage />, 'system.configuration.manage') },
@@ -213,9 +230,6 @@ export const appRouter = createBrowserRouter([
           { path: 'admin/access/app-permissions', element: restricted(<AppPermissionsPage />, 'superadmin.only') },
           { path: 'admin/access/app-roles', element: restricted(<AppRolesPage />, 'rbac.app.manage') },
           { path: 'admin/access/users/:userId', element: restricted(<AppUserAccessPage />, 'rbac.app.manage') },
-          { path: 'admin/users', element: restricted(<AdminUsersPage />, 'admin.users.manage') },
-          { path: 'admin/roles', element: restricted(<AdminRolesPage />, 'admin.roles.manage') },
-          { path: 'admin/institutions', element: restricted(<AdminInstitutionsPage />, 'admin.institutions.manage') },
           { path: 'admin/system-settings', element: restricted(<AdminSystemSettingsPage />, 'admin.settings.manage') },
           { path: 'org/access/permissions', element: restricted(<OrgPermissionsPage />, 'rbac.org.manage') },
           { path: 'org/access/roles', element: restricted(<OrgRolesPage />, 'rbac.org.manage') },

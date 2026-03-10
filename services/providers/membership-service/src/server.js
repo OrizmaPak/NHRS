@@ -32,7 +32,9 @@ const collections = {
   memberships: () => db.collection('org_memberships'),
   assignments: () => db.collection('branch_assignments'),
   events: () => db.collection('membership_audit_log'),
+  archives: () => db.collection('org_membership_archives'),
 };
+const SUPER_ROLE_ALIASES = new Set(['super', 'superadmin', 'super_admin', 'super admin', 'platform_admin', 'app_admin']);
 
 function now() {
   return new Date();
@@ -91,7 +93,11 @@ async function requireAuth(req, reply) {
   if (!token) return reply.code(401).send({ message: 'Unauthorized' });
   try {
     const payload = jwt.verify(token, jwtSecret);
-    req.auth = { userId: String(payload.sub), token };
+    req.auth = {
+      userId: String(payload.sub),
+      token,
+      roles: Array.isArray(payload.roles) ? payload.roles.map((entry) => String(entry || '').trim().toLowerCase()) : [],
+    };
   } catch (_err) {
     return reply.code(401).send({ message: 'Unauthorized' });
   }
@@ -143,7 +149,50 @@ function validateCoverageType(type) {
 
 function hasCrossBranchRole(roles) {
   const elevated = new Set(['org_owner', 'org_admin', 'regional_manager', 'supervisor']);
-  return Array.isArray(roles) && roles.some((role) => elevated.has(String(role)));
+  return Array.isArray(roles) && roles.some((role) => elevated.has(String(role).trim().toLowerCase()));
+}
+
+function hasSuperContext(req) {
+  const contextName = String(req.headers['x-active-context-name'] || '').trim().toLowerCase();
+  const contextId = String(req.headers['x-active-context-id'] || '').trim().toLowerCase();
+  const contextType = String(req.headers['x-active-context-type'] || '').trim().toLowerCase();
+  if (contextType === 'super') return true;
+  if (['super', 'superadmin', 'super admin', 'platform admin', 'app admin'].includes(contextName)) return true;
+  if (['app:super', 'super', 'superadmin', 'super_admin'].includes(contextId)) return true;
+  return false;
+}
+
+function hasSuperRole(req) {
+  return Array.isArray(req.auth?.roles) && req.auth.roles.some((role) => SUPER_ROLE_ALIASES.has(String(role || '').trim().toLowerCase()));
+}
+
+async function resolveRequesterScope(req, organizationId) {
+  if (hasSuperRole(req) || hasSuperContext(req)) {
+    return { all: true, branchIds: new Set(), institutionIds: new Set(), membershipId: null };
+  }
+  const membership = await collections.memberships().findOne({
+    organizationId,
+    userId: req.auth?.userId,
+    status: 'active',
+  });
+  if (!membership) {
+    return { all: false, branchIds: new Set(), institutionIds: new Set(), membershipId: null };
+  }
+  if (hasCrossBranchRole(membership.roles)) {
+    return { all: true, branchIds: new Set(), institutionIds: new Set(), membershipId: membership.membershipId };
+  }
+  const assignments = await collections.assignments().find({
+    organizationId,
+    membershipId: membership.membershipId,
+    status: 'active',
+  }).toArray();
+  const branchIds = new Set(
+    assignments.map((entry) => String(entry?.branchId || '').trim()).filter(Boolean),
+  );
+  const institutionIds = new Set(
+    assignments.map((entry) => String(entry?.institutionId || '').trim()).filter(Boolean),
+  );
+  return { all: false, branchIds, institutionIds, membershipId: membership.membershipId };
 }
 
 function toMembershipSummary(membership, assignments) {
@@ -155,6 +204,7 @@ function toMembershipSummary(membership, assignments) {
     roles: Array.isArray(membership.roles) ? membership.roles : [],
     branches: assignments.map((assignment) => ({
       branchId: assignment.branchId,
+      institutionId: assignment.institutionId || null,
       branchName: assignment.branchName || null,
       roles: assignment.roles || [],
       departments: assignment.departments || [],
@@ -212,8 +262,11 @@ async function connect() {
       collections.memberships().createIndex({ userId: 1, organizationId: 1 }),
       collections.assignments().createIndex({ assignmentId: 1 }, { unique: true }),
       collections.assignments().createIndex({ organizationId: 1, membershipId: 1 }),
+      collections.assignments().createIndex({ organizationId: 1, institutionId: 1, branchId: 1, status: 1 }),
       collections.events().createIndex({ membershipId: 1, timestamp: -1 }),
       collections.events().createIndex({ organizationId: 1, timestamp: -1 }),
+      collections.archives().createIndex({ organizationId: 1, archivedAt: -1 }),
+      collections.archives().createIndex({ organizationId: 1, restoredAt: 1 }),
       outboxRepo.createIndexes(),
     ]);
   } catch (err) {
@@ -282,9 +335,9 @@ fastify.post('/orgs/:orgId/members', {
           type: 'array',
           items: {
             type: 'object',
-            required: ['branchId', 'roles'],
             properties: {
               branchId: { type: 'string' },
+              institutionId: { type: 'string' },
               roles: { type: 'array', items: { type: 'string' } },
               departments: { type: 'array', items: { type: 'string' } },
               isPrimary: { type: 'boolean' },
@@ -336,12 +389,20 @@ fastify.post('/orgs/:orgId/members', {
 
   const initialAssignments = Array.isArray(req.body.initialBranchAssignments) ? req.body.initialBranchAssignments : [];
   for (const assignment of initialAssignments) {
+    const branchId = assignment?.branchId ? String(assignment.branchId).trim() : null;
+    const institutionId = assignment?.institutionId ? String(assignment.institutionId).trim() : null;
+    if (!branchId && !institutionId) {
+      // Skip invalid assignment payload without institution/branch scope.
+      // Membership can still be created as org-level membership.
+      continue;
+    }
     const assignmentId = crypto.randomUUID();
     await collections.assignments().insertOne({
       assignmentId,
       membershipId,
       organizationId: orgId,
-      branchId: assignment.branchId,
+      institutionId,
+      branchId,
       roles: Array.isArray(assignment.roles) ? assignment.roles : [],
       departments: Array.isArray(assignment.departments) ? assignment.departments : [],
       isPrimary: assignment.isPrimary === true,
@@ -398,6 +459,9 @@ fastify.get('/orgs/:orgId/members', {
         limit: { type: 'integer', minimum: 1, maximum: 100 },
         status: { type: 'string' },
         q: { type: 'string' },
+        includeAssignments: { type: 'boolean' },
+        branchId: { type: 'string' },
+        institutionId: { type: 'string' },
       },
     },
     response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true } },
@@ -407,7 +471,20 @@ fastify.get('/orgs/:orgId/members', {
   const denied = await enforcePermission(req, reply, 'org.member.read', orgId);
   if (denied) return;
 
-  const { page = 1, limit = 20, status, q } = req.query || {};
+  const scope = await resolveRequesterScope(req, orgId);
+  if (!scope.all && !scope.membershipId) {
+    return reply.send({ page: 1, limit: 20, total: 0, items: [] });
+  }
+
+  const {
+    page = 1,
+    limit = 20,
+    status,
+    q,
+    includeAssignments = false,
+    branchId = null,
+    institutionId = null,
+  } = req.query || {};
   const safePage = Math.max(Number(page) || 1, 1);
   const safeLimit = Math.min(Number(limit) || 20, 100);
   const filter = { organizationId: orgId };
@@ -418,12 +495,74 @@ fastify.get('/orgs/:orgId/members', {
       { userId: { $regex: String(q), $options: 'i' } },
     ];
   }
+  if (!scope.all && scope.membershipId) {
+    filter.membershipId = scope.membershipId;
+  }
 
-  const [items, total] = await Promise.all([
-    collections.memberships().find(filter).skip((safePage - 1) * safeLimit).limit(safeLimit).toArray(),
-    collections.memberships().countDocuments(filter),
-  ]);
-  return reply.send({ page: safePage, limit: safeLimit, total, items });
+  const requiresAssignmentFilter =
+    includeAssignments === true ||
+    includeAssignments === 'true' ||
+    Boolean(branchId) ||
+    Boolean(institutionId) ||
+    (!scope.all && (scope.branchIds.size > 0 || scope.institutionIds.size > 0));
+
+  if (!requiresAssignmentFilter) {
+    const [items, total] = await Promise.all([
+      collections.memberships().find(filter).skip((safePage - 1) * safeLimit).limit(safeLimit).toArray(),
+      collections.memberships().countDocuments(filter),
+    ]);
+    return reply.send({ page: safePage, limit: safeLimit, total, items });
+  }
+
+  const allMemberships = await collections.memberships().find(filter).toArray();
+  if (allMemberships.length === 0) {
+    return reply.send({ page: safePage, limit: safeLimit, total: 0, items: [] });
+  }
+  const membershipIds = allMemberships.map((entry) => entry.membershipId);
+  const assignmentFilter = {
+    organizationId: orgId,
+    membershipId: { $in: membershipIds },
+    status: 'active',
+  };
+  if (branchId) assignmentFilter.branchId = String(branchId).trim();
+  if (institutionId) assignmentFilter.institutionId = String(institutionId).trim();
+  const allAssignments = await collections.assignments().find(assignmentFilter).toArray();
+  const assignmentsByMembership = new Map();
+  for (const assignment of allAssignments) {
+    const key = String(assignment?.membershipId || '');
+    if (!key) continue;
+    if (!assignmentsByMembership.has(key)) assignmentsByMembership.set(key, []);
+    assignmentsByMembership.get(key).push(assignment);
+  }
+
+  const visibleMemberships = allMemberships.filter((membership) => {
+    if (scope.all) return true;
+    if (membership.membershipId === scope.membershipId) return true;
+    const assignments = assignmentsByMembership.get(membership.membershipId) || [];
+    if (assignments.length === 0) return false;
+    if (scope.branchIds.size > 0) {
+      if (assignments.some((entry) => scope.branchIds.has(String(entry?.branchId || '').trim()))) {
+        return true;
+      }
+    }
+    if (scope.institutionIds.size > 0) {
+      if (assignments.some((entry) => scope.institutionIds.has(String(entry?.institutionId || '').trim()))) {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  const total = visibleMemberships.length;
+  const pagedMemberships = visibleMemberships.slice((safePage - 1) * safeLimit, safePage * safeLimit);
+  const withAssignments = (includeAssignments === true || includeAssignments === 'true')
+    ? pagedMemberships.map((membership) => ({
+      ...membership,
+      assignments: assignmentsByMembership.get(membership.membershipId) || [],
+    }))
+    : pagedMemberships;
+
+  return reply.send({ page: safePage, limit: safeLimit, total, items: withAssignments });
 });
 
 fastify.get('/orgs/:orgId/members/:memberId', {
@@ -444,9 +583,21 @@ fastify.get('/orgs/:orgId/members/:memberId', {
   const denied = await enforcePermission(req, reply, 'org.member.read', orgId);
   if (denied) return;
 
+  const scope = await resolveRequesterScope(req, orgId);
+  if (!scope.all && !scope.membershipId) {
+    return reply.code(403).send({ message: 'Forbidden' });
+  }
+
   const membership = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.memberId });
   if (!membership) return reply.code(404).send({ message: 'Membership not found' });
   const assignments = await collections.assignments().find({ organizationId: orgId, membershipId: membership.membershipId }).toArray();
+  if (!scope.all && membership.membershipId !== scope.membershipId) {
+    const intersectsBranch = assignments.some((entry) => scope.branchIds.has(String(entry?.branchId || '').trim()));
+    const intersectsInstitution = assignments.some((entry) => scope.institutionIds.has(String(entry?.institutionId || '').trim()));
+    if (!intersectsBranch && !intersectsInstitution) {
+      return reply.code(403).send({ message: 'Forbidden' });
+    }
+  }
   return reply.send({ membership, assignments });
 });
 
@@ -595,9 +746,9 @@ fastify.post('/orgs/:orgId/members/:memberId/branches', {
     },
     body: {
       type: 'object',
-      required: ['branchId', 'roles'],
       properties: {
         branchId: { type: 'string' },
+        institutionId: { type: 'string' },
         roles: { type: 'array', items: { type: 'string' } },
         departments: { type: 'array', items: { type: 'string' } },
         isPrimary: { type: 'boolean' },
@@ -614,13 +765,19 @@ fastify.post('/orgs/:orgId/members/:memberId/branches', {
 
   const membership = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.memberId });
   if (!membership) return reply.code(404).send({ message: 'Membership not found' });
+  const scopedBranchId = req.body.branchId ? String(req.body.branchId).trim() : null;
+  const scopedInstitutionId = req.body.institutionId ? String(req.body.institutionId).trim() : null;
+  if (!scopedBranchId && !scopedInstitutionId) {
+    return reply.code(400).send({ message: 'Provide branchId or institutionId' });
+  }
 
   const assignmentId = crypto.randomUUID();
   const assignment = {
     assignmentId,
     membershipId: req.params.memberId,
     organizationId: orgId,
-    branchId: req.body.branchId,
+    institutionId: scopedInstitutionId,
+    branchId: scopedBranchId,
     roles: Array.isArray(req.body.roles) ? req.body.roles : [],
     departments: Array.isArray(req.body.departments) ? req.body.departments : [],
     isPrimary: req.body.isPrimary === true,
@@ -642,7 +799,13 @@ fastify.post('/orgs/:orgId/members/:memberId/branches', {
     nin: membership.nin,
     eventType: 'BRANCH_ASSIGNED',
     from: null,
-    to: { assignmentId, branchId: req.body.branchId, roles: assignment.roles, departments: assignment.departments },
+    to: {
+      assignmentId,
+      branchId: assignment.branchId || null,
+      institutionId: assignment.institutionId || null,
+      roles: assignment.roles,
+      departments: assignment.departments,
+    },
     performedByUserId: req.auth.userId,
     reason: null,
   });
@@ -1363,6 +1526,7 @@ fastify.get('/users/:userId/memberships', {
     acc[assignment.membershipId].push({
       assignmentId: assignment.assignmentId,
       branchId: assignment.branchId,
+      institutionId: assignment.institutionId || null,
       roles: assignment.roles || [],
       departments: assignment.departments || [],
       status: assignment.status,
@@ -1573,6 +1737,257 @@ fastify.post('/internal/memberships/bootstrap', {
     }
   }
   return reply.send({ createdCount: created.length, membershipIds: created });
+});
+
+fastify.post('/internal/memberships/org/:orgId/suspend', {
+  preHandler: requireInternal,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Internal suspend all organization memberships and assignments',
+    params: {
+      type: 'object',
+      required: ['orgId'],
+      properties: { orgId: { type: 'string' } },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const orgId = String(req.params.orgId);
+  const ts = now();
+
+  const membershipsRes = await collections.memberships().updateMany(
+    { organizationId: orgId, status: { $in: ['active', 'invited'] } },
+    [{
+      $set: {
+        orgSuspendPreviousStatus: { $ifNull: ['$orgSuspendPreviousStatus', '$status'] },
+        status: 'suspended',
+        suspendedByOrg: true,
+        updatedAt: ts,
+      },
+    }],
+  );
+  const assignmentsRes = await collections.assignments().updateMany(
+    { organizationId: orgId, status: 'active' },
+    [{
+      $set: {
+        orgSuspendPreviousStatus: { $ifNull: ['$orgSuspendPreviousStatus', '$status'] },
+        status: 'inactive',
+        orgSuspended: true,
+        activeTo: ts,
+        updatedAt: ts,
+      },
+    }],
+  );
+
+  return reply.send({
+    organizationId: orgId,
+    suspendedMemberships: membershipsRes.modifiedCount || 0,
+    suspendedAssignments: assignmentsRes.modifiedCount || 0,
+  });
+});
+
+fastify.post('/internal/memberships/org/:orgId/resume', {
+  preHandler: requireInternal,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Internal resume organization memberships and assignments',
+    params: {
+      type: 'object',
+      required: ['orgId'],
+      properties: { orgId: { type: 'string' } },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const orgId = String(req.params.orgId);
+  const ts = now();
+  const membershipsRes = await collections.memberships().updateMany(
+    { organizationId: orgId, suspendedByOrg: true, status: 'suspended' },
+    [{
+      $set: {
+        status: {
+          $cond: [
+            { $in: ['$orgSuspendPreviousStatus', ['active', 'invited']] },
+            '$orgSuspendPreviousStatus',
+            'active',
+          ],
+        },
+        updatedAt: ts,
+      },
+    }, {
+      $unset: ['orgSuspendPreviousStatus', 'suspendedByOrg'],
+    }],
+  );
+
+  const assignmentsRes = await collections.assignments().updateMany(
+    { organizationId: orgId, orgSuspended: true, status: 'inactive' },
+    [{
+      $set: {
+        status: {
+          $cond: [
+            { $in: ['$orgSuspendPreviousStatus', ['active', 'inactive']] },
+            '$orgSuspendPreviousStatus',
+            'active',
+          ],
+        },
+        activeTo: null,
+        updatedAt: ts,
+      },
+    }, {
+      $unset: ['orgSuspendPreviousStatus', 'orgSuspended'],
+    }],
+  );
+
+  return reply.send({
+    organizationId: orgId,
+    resumedMemberships: membershipsRes.modifiedCount || 0,
+    resumedAssignments: assignmentsRes.modifiedCount || 0,
+  });
+});
+
+fastify.post('/internal/memberships/org/:orgId/archive-delete', {
+  preHandler: requireInternal,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Internal archive and remove organization memberships on org delete',
+    params: {
+      type: 'object',
+      required: ['orgId'],
+      properties: { orgId: { type: 'string' } },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const orgId = String(req.params.orgId);
+  const ts = now();
+  const memberships = await collections.memberships().find({ organizationId: orgId }).toArray();
+  const assignments = await collections.assignments().find({ organizationId: orgId }).toArray();
+
+  const archive = {
+    archiveId: crypto.randomUUID(),
+    organizationId: orgId,
+    memberships: memberships.map((entry) => {
+      const clone = { ...entry };
+      delete clone._id;
+      return clone;
+    }),
+    assignments: assignments.map((entry) => {
+      const clone = { ...entry };
+      delete clone._id;
+      return clone;
+    }),
+    archivedAt: ts,
+    restoredAt: null,
+  };
+  await collections.archives().insertOne(archive);
+
+  const membershipIds = memberships.map((entry) => String(entry.membershipId)).filter(Boolean);
+  if (membershipIds.length > 0) {
+    await collections.memberships().updateMany(
+      { organizationId: orgId, membershipId: { $in: membershipIds } },
+      {
+        $set: {
+          status: 'left',
+          roles: [],
+          removedByOrgDeletion: true,
+          updatedAt: ts,
+        },
+      },
+    );
+  }
+  const assignmentIds = assignments.map((entry) => String(entry.assignmentId)).filter(Boolean);
+  if (assignmentIds.length > 0) {
+    await collections.assignments().updateMany(
+      { organizationId: orgId, assignmentId: { $in: assignmentIds } },
+      {
+        $set: {
+          status: 'inactive',
+          removedByOrgDeletion: true,
+          activeTo: ts,
+          removedAt: ts,
+          updatedAt: ts,
+        },
+      },
+    );
+  }
+
+  return reply.send({
+    organizationId: orgId,
+    archivedMemberships: memberships.length,
+    archivedAssignments: assignments.length,
+  });
+});
+
+fastify.post('/internal/memberships/org/:orgId/restore', {
+  preHandler: requireInternal,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Internal restore archived memberships after org restore',
+    params: {
+      type: 'object',
+      required: ['orgId'],
+      properties: { orgId: { type: 'string' } },
+    },
+    response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true } },
+  },
+}, async (req, reply) => {
+  const orgId = String(req.params.orgId);
+  const archive = await collections.archives().findOne(
+    { organizationId: orgId, restoredAt: null },
+    { sort: { archivedAt: -1 } },
+  );
+  if (!archive) {
+    return reply.send({ organizationId: orgId, restoredMemberships: 0, restoredAssignments: 0 });
+  }
+
+  const ts = now();
+  const membershipEntries = Array.isArray(archive.memberships) ? archive.memberships : [];
+  const assignmentEntries = Array.isArray(archive.assignments) ? archive.assignments : [];
+
+  if (membershipEntries.length > 0) {
+    await collections.memberships().bulkWrite(
+      membershipEntries.map((entry) => {
+        const doc = { ...entry, updatedAt: ts };
+        delete doc._id;
+        return {
+          replaceOne: {
+            filter: { membershipId: doc.membershipId, organizationId: orgId },
+            replacement: doc,
+            upsert: true,
+          },
+        };
+      }),
+      { ordered: false },
+    );
+  }
+
+  if (assignmentEntries.length > 0) {
+    await collections.assignments().bulkWrite(
+      assignmentEntries.map((entry) => {
+        const doc = { ...entry, updatedAt: ts };
+        delete doc._id;
+        return {
+          replaceOne: {
+            filter: { assignmentId: doc.assignmentId, organizationId: orgId },
+            replacement: doc,
+            upsert: true,
+          },
+        };
+      }),
+      { ordered: false },
+    );
+  }
+
+  await collections.archives().updateOne(
+    { archiveId: archive.archiveId },
+    { $set: { restoredAt: ts } },
+  );
+
+  return reply.send({
+    organizationId: orgId,
+    restoredMemberships: membershipEntries.length,
+    restoredAssignments: assignmentEntries.length,
+  });
 });
 
 const start = async () => {

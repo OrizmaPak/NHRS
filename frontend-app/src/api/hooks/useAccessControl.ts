@@ -87,7 +87,7 @@ function toRulePermissionKey(raw: unknown): string {
 
 function toPermissionRows(raw: unknown, scope: PermissionScope): PermissionRow[] {
   const rows = asRecords(raw)
-    .map((item) => ({
+    .map((item): PermissionRow => ({
       key: String(item.key ?? item.permissionKey ?? item.name ?? ''),
       module: String(item.module ?? 'general'),
       description: String(item.description ?? item.name ?? ''),

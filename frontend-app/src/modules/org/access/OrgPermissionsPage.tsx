@@ -14,6 +14,7 @@ import { ErrorState } from '@/components/feedback/ErrorState';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
 import { useContextStore } from '@/stores/contextStore';
 import { useOrgPermissions, useSaveOrgPermission, useUpdateOrgPermission, type PermissionRow } from '@/api/hooks/useAccessControl';
+import { getOrganizationIdFromContext } from '@/lib/organizationContext';
 
 const formSchema = z.object({
   key: z.string().min(3, 'Permission key is required'),
@@ -25,7 +26,7 @@ type FormValues = z.infer<typeof formSchema>;
 
 export function OrgPermissionsPage() {
   const activeContext = useContextStore((state) => state.activeContext);
-  const organizationId = activeContext?.type === 'organization' ? (activeContext.organizationId || activeContext.id) : undefined;
+  const organizationId = getOrganizationIdFromContext(activeContext);
 
   const [query, setQuery] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 12 });

@@ -249,6 +249,7 @@ export function AppUserAccessPage() {
             }}
             placeholder="Search by NIN, email, phone, or name"
             emptyLabel="No matching user found"
+            debounceMs={1250}
             loadOptions={loadUserOptions}
           />
         </div>

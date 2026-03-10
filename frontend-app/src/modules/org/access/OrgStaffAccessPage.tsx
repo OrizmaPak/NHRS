@@ -11,13 +11,14 @@ import { EffectivePermissionViewer } from '@/components/access/EffectivePermissi
 import { useContextStore } from '@/stores/contextStore';
 import { useAssignUserRole, useDeleteUserOverride, useOrgRoles, useRemoveUserRole, useUpsertUserOverride, useUserAccess } from '@/api/hooks/useAccessControl';
 import { useAuthStore } from '@/stores/authStore';
+import { getOrganizationIdFromContext } from '@/lib/organizationContext';
 
 export function OrgStaffAccessPage() {
   const { userId = '' } = useParams();
   const authUser = useAuthStore((state) => state.user);
   const resolvedUserId = userId === 'self' ? String(authUser?.id ?? '') : userId;
   const activeContext = useContextStore((state) => state.activeContext);
-  const organizationId = activeContext?.type === 'organization' ? (activeContext.organizationId || activeContext.id) : undefined;
+  const organizationId = getOrganizationIdFromContext(activeContext);
 
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [overridePermission, setOverridePermission] = useState('');
