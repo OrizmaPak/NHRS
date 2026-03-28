@@ -6,9 +6,9 @@ function base64Url(input) {
   return Buffer.from(input).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
-function makeJwt(sub) {
+function makeJwt(sub, roles = []) {
   const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const payload = base64Url(JSON.stringify({ sub }));
+  const payload = base64Url(JSON.stringify({ sub, roles }));
   return `${header}.${payload}.sig`;
 }
 
@@ -165,4 +165,86 @@ test('runtime gateway enforcement for org/membership routes', async () => {
   const branchScoped = rbacBodies.find((body) => body.permissionKey === 'org.branch.read' && body.branchId === 'branch-9');
   assert.equal(branchScoped.organizationId, 'org-1');
   assert.equal(branchScoped.branchId, 'branch-9');
+});
+
+test('spoofed super context header does not bypass gateway authorization', async () => {
+  const deniedToken = makeJwt('user-denied');
+  const app = await buildApp({
+    dbReady: true,
+    fetchImpl: async (url, options = {}) => {
+      const target = String(url);
+      if (target.includes('/memberships/me?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ allowed: true, membership: { membershipId: 'm1' }, assignments: [] }),
+        };
+      }
+      if (target.includes('/rbac/check')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ allowed: false, userId: 'user-denied', reason: 'Permission denied' }),
+        };
+      }
+      if (target.includes('/internal/audit/events')) {
+        return downstreamResponse(202, { accepted: true });
+      }
+      return downstreamResponse(200, { ok: true });
+    },
+  });
+
+  const res = await app.inject({
+    method: 'GET',
+    url: '/orgs/org-1',
+    headers: {
+      authorization: `Bearer ${deniedToken}`,
+      'x-active-context-id': 'app:super',
+      'x-active-context-name': 'Super Admin',
+      'x-active-context-type': 'super',
+    },
+  });
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.json().message, 'Access denied');
+});
+
+test('real super role in token still bypasses gateway authorization checks', async () => {
+  const superToken = makeJwt('user-super', ['super']);
+  let membershipChecks = 0;
+  let rbacChecks = 0;
+  const app = await buildApp({
+    dbReady: true,
+    fetchImpl: async (url) => {
+      const target = String(url);
+      if (target.includes('/memberships/me?')) {
+        membershipChecks += 1;
+      }
+      if (target.includes('/rbac/check')) {
+        rbacChecks += 1;
+      }
+      if (target.includes('/orgs/org-1')) {
+        return downstreamResponse(200, { message: 'org read' });
+      }
+      if (target.includes('/internal/audit/events')) {
+        return downstreamResponse(202, { accepted: true });
+      }
+      return downstreamResponse(200, {});
+    },
+  });
+
+  const res = await app.inject({
+    method: 'GET',
+    url: '/orgs/org-1',
+    headers: {
+      authorization: `Bearer ${superToken}`,
+      'x-active-context-id': 'app:super',
+      'x-active-context-name': 'Super Admin',
+      'x-active-context-type': 'super',
+    },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(membershipChecks, 0);
+  assert.equal(rbacChecks, 0);
 });

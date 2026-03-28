@@ -44,6 +44,42 @@ function pickEditableProfileFields(payload) {
   return out;
 }
 
+function sanitizeStringArray(input) {
+  if (!Array.isArray(input)) return [];
+  return Array.from(new Set(input.map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function pickManagedProfileFields(payload) {
+  const out = pickEditableProfileFields(payload);
+
+  if (typeof payload?.firstName === 'string') {
+    out.firstName = payload.firstName.trim() || null;
+  }
+  if (typeof payload?.lastName === 'string') {
+    out.lastName = payload.lastName.trim() || null;
+  }
+  if (typeof payload?.otherName === 'string') {
+    out.otherName = payload.otherName.trim() || null;
+  }
+  if (typeof payload?.dob === 'string') {
+    out.dob = payload.dob.trim() || null;
+  }
+  if (typeof payload?.gender === 'string') {
+    out.gender = payload.gender.trim() || null;
+  }
+  if (typeof payload?.phone === 'string') {
+    out.phone = payload.phone.trim() || null;
+  }
+  if (typeof payload?.email === 'string') {
+    out.email = payload.email.trim().toLowerCase() || null;
+  }
+  if (Array.isArray(payload?.professionTypes)) {
+    out.professionTypes = sanitizeStringArray(payload.professionTypes);
+  }
+
+  return out;
+}
+
 function buildProfileUpsertFromEnsure(input, existing) {
   const now = new Date();
   const onboarding = {
@@ -110,6 +146,7 @@ function mergeProfileView({ profile, ninSummary, rolesSummary, membershipSummary
 module.exports = {
   computeOnboarding,
   pickEditableProfileFields,
+  pickManagedProfileFields,
   buildProfileUpsertFromEnsure,
   mergeProfileView,
 };

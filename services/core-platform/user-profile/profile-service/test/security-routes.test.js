@@ -13,6 +13,13 @@ test('GET /profile/me enforces profile.me.read permission', () => {
   assert.equal(routeBlockPattern.test(source), true);
 });
 
+test('PATCH /profile/:userId enforces profile.user.update permission', () => {
+  const serverPath = path.resolve(__dirname, '../src/server.js');
+  const source = fs.readFileSync(serverPath, 'utf8');
+  const routeBlockPattern = /fastify\.patch\('\/profile\/:userId'[\s\S]*?async \(req, reply\) => \{[\s\S]*?enforcePermission\(req, reply, 'profile\.user\.update'/;
+  assert.equal(routeBlockPattern.test(source), true);
+});
+
 function makeFakeDb() {
   const profiles = new Map();
   return {

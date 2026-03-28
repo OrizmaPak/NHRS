@@ -8,7 +8,6 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { FilterBar } from '@/components/data/FilterBar';
 import { SearchInput } from '@/components/data/SearchInput';
 import { DataTable } from '@/components/data/DataTable';
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
@@ -66,6 +65,7 @@ export function OrgRolesPage() {
             <Button
               size="sm"
               variant="outline"
+              disabled={Boolean(row.original.isSystem)}
               onClick={() => {
                 setEditing(row.original);
                 form.reset({ name: row.original.name, description: row.original.description });
@@ -78,9 +78,14 @@ export function OrgRolesPage() {
             <Button
               size="sm"
               variant="outline"
+              disabled={Boolean(row.original.isSystem)}
               onClick={async () => {
-                await deleteRole.mutateAsync({ id: row.original.id, organizationId });
-                toast.success('Role deleted');
+                try {
+                  await deleteRole.mutateAsync({ id: row.original.id, organizationId });
+                  toast.success('Role deleted');
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : 'Unable to delete role');
+                }
               }}
             >
               Delete
@@ -100,15 +105,19 @@ export function OrgRolesPage() {
   };
 
   const onSubmit = form.handleSubmit(async (values) => {
-    await saveRole.mutateAsync({
-      id: editing?.id,
-      name: values.name,
-      description: values.description,
-      permissions: Array.from(selectedPermissions),
-      organizationId,
-    });
-    toast.success(editing ? 'Role updated' : 'Role created');
-    setModalOpen(false);
+    try {
+      await saveRole.mutateAsync({
+        id: editing?.id,
+        name: values.name,
+        description: values.description,
+        permissions: Array.from(selectedPermissions),
+        organizationId,
+      });
+      toast.success(editing ? 'Role updated' : 'Role created');
+      setModalOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save role');
+    }
   });
 
   if (!organizationId) {

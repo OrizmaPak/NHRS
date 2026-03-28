@@ -23,6 +23,7 @@ export function ProfileMenu() {
           <div className="px-3 py-2">
             <p className="text-sm font-semibold text-foreground">{displayName}</p>
             <p className="truncate text-xs text-muted">{user?.email}</p>
+            <p className="truncate text-[10px] text-muted">{user?.nin ? `NIN: ${user.nin}` : 'NIN: Not available'}</p>
           </div>
           <DropdownMenu.Separator className="my-1 h-px bg-border" />
           <DropdownMenu.Item

@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/apiClient';
 import { endpoints } from '@/api/endpoints';
+import { ORG_WORKSPACE_PERMISSION_KEYS } from '@/lib/contextPermissionFallback';
 import { interfacePermissions } from '@/lib/interfacePermissions';
+import { navigationItems } from '@/routes/navigation';
 
 export type PermissionScope = 'app' | 'organization';
 
@@ -11,6 +13,7 @@ export type PermissionRow = {
   description: string;
   scope: PermissionScope;
   createdAt: string;
+  isSystem?: boolean;
   interfaceLabel?: string;
   interfaceRoute?: string;
 };
@@ -32,6 +35,9 @@ export type UserAccessData = {
   roleIds: string[];
   overrides: Array<{ key: string; effect: 'allow' | 'deny'; roleName?: string }>;
   effectivePermissions: Array<{ key: string; source: 'role' | 'override_allow' | 'override_deny'; granted: boolean }>;
+  scopeType?: 'organization' | 'institution' | 'branch';
+  institutionId?: string | null;
+  branchId?: string | null;
 };
 
 type OverrideRule = { permissionKey: string; effect: 'allow' | 'deny'; roleName?: string };
@@ -85,7 +91,12 @@ function toRulePermissionKey(raw: unknown): string {
   return String(obj.permissionKey ?? obj.key ?? '');
 }
 
-function toPermissionRows(raw: unknown, scope: PermissionScope): PermissionRow[] {
+function toPermissionRows(
+  raw: unknown,
+  scope: PermissionScope,
+  options: { seedInterfaces?: boolean } = {},
+): PermissionRow[] {
+  const { seedInterfaces = true } = options;
   const rows = asRecords(raw)
     .map((item): PermissionRow => ({
       key: String(item.key ?? item.permissionKey ?? item.name ?? ''),
@@ -93,8 +104,13 @@ function toPermissionRows(raw: unknown, scope: PermissionScope): PermissionRow[]
       description: String(item.description ?? item.name ?? ''),
       scope,
       createdAt: String(item.createdAt ?? new Date().toISOString()),
+      isSystem: Boolean(item.isSystem),
     }))
     .filter((item) => item.key);
+
+  if (!seedInterfaces) {
+    return rows;
+  }
 
   const byKey = new Map(rows.map((row) => [row.key, row] as const));
   for (const entry of interfacePermissions) {
@@ -118,6 +134,92 @@ function toPermissionRows(raw: unknown, scope: PermissionScope): PermissionRow[]
   }
 
   return rows;
+}
+
+function getOrganizationPermissionCatalog(rows: PermissionRow[]): PermissionRow[] {
+  const defaultOrgPermissionKeys = new Set<string>(ORG_WORKSPACE_PERMISSION_KEYS.map((key) => String(key)));
+  const orgNavigationPermissionKeys = new Set(
+    navigationItems
+      .filter((item) => Array.isArray(item.contextTypes) && item.contextTypes.includes('organization'))
+      .flatMap((item) => (Array.isArray(item.permission) ? item.permission : item.permission ? [item.permission] : []))
+      .map((key) => String(key || '').trim())
+      .filter(Boolean),
+  );
+
+  const orgRoutePrefixes = [
+    '/app/org/',
+    '/app/organizations',
+    '/app/institutions',
+    '/app/branches',
+    '/app/integrations',
+    '/app/settings/global-services',
+    '/app/settings/brand',
+    '/app/settings/accessibility',
+  ];
+
+  const orgInterfacePermissionKeys = new Set(
+    interfacePermissions
+      .filter((entry) => {
+        if (defaultOrgPermissionKeys.has(entry.key)) return true;
+        if (orgNavigationPermissionKeys.has(entry.key)) return true;
+        return orgRoutePrefixes.some((prefix) => entry.route.startsWith(prefix));
+      })
+      .map((entry) => entry.key),
+  );
+
+  const now = new Date().toISOString();
+  const byKey = new Map(
+    rows
+      .map((row) => [row.key, row] as const)
+      .filter(([key]) => Boolean(key)),
+  );
+
+  for (const key of orgInterfacePermissionKeys) {
+    if (byKey.has(key)) continue;
+    const matchingInterfaces = interfacePermissions.filter((entry) => entry.key === key);
+    const orgInterface = matchingInterfaces.find((entry) =>
+      orgRoutePrefixes.some((prefix) => entry.route.startsWith(prefix)) || orgNavigationPermissionKeys.has(entry.key),
+    );
+    byKey.set(key, {
+      key,
+      module: orgInterface?.module ?? 'organization',
+      description: orgInterface?.description ?? key,
+      scope: 'organization',
+      createdAt: now,
+      isSystem: defaultOrgPermissionKeys.has(key),
+      interfaceLabel: orgInterface?.interfaceLabel,
+      interfaceRoute: orgInterface?.route,
+    });
+  }
+
+  return Array.from(byKey.values())
+    .filter((row) => {
+      if (defaultOrgPermissionKeys.has(row.key)) return true;
+      if (orgInterfacePermissionKeys.has(row.key)) return true;
+      return Boolean(row.scope === 'organization');
+    })
+    .map((row) => {
+      const matchingInterfaces = interfacePermissions.filter((entry) => entry.key === row.key);
+      const orgInterface = matchingInterfaces.find((entry) =>
+        orgRoutePrefixes.some((prefix) => entry.route.startsWith(prefix)) || orgNavigationPermissionKeys.has(entry.key),
+      );
+      return {
+        ...row,
+        isSystem: row.isSystem || defaultOrgPermissionKeys.has(row.key),
+        interfaceLabel: row.interfaceLabel || orgInterface?.interfaceLabel,
+        interfaceRoute: row.interfaceRoute || orgInterface?.route,
+        module: orgInterface?.module || row.module,
+        description: orgInterface?.description || row.description,
+      };
+    })
+    .sort((left, right) => {
+      if (Boolean(left.isSystem) !== Boolean(right.isSystem)) {
+        return left.isSystem ? -1 : 1;
+      }
+      const moduleCompare = String(left.module || '').localeCompare(String(right.module || ''));
+      if (moduleCompare !== 0) return moduleCompare;
+      return String(left.key || '').localeCompare(String(right.key || ''));
+    });
 }
 
 function toRoleRows(raw: unknown, scope: PermissionScope): RoleRow[] {
@@ -182,7 +284,7 @@ async function fetchUserAccessForMutation(scope: PermissionScope, userId: string
   if (!path) {
     return { roleIds: [] as string[], overrides: [] as OverrideRule[] };
   }
-  const response = await apiClient.get<Record<string, unknown>>(path);
+  const response = await apiClient.get<Record<string, unknown>>(path, { skipContextHeaders: true });
   const assignment = response.assignment && typeof response.assignment === 'object' ? (response.assignment as Record<string, unknown>) : null;
   const roleIds = Array.isArray(assignment?.roleIds)
     ? assignment.roleIds
@@ -303,14 +405,44 @@ export function useDeleteAppRole() {
   });
 }
 
-export function useUserAccess(userId: string, organizationId?: string) {
+type UserAccessScopeOptions = {
+  activeRoleName?: string;
+  scopeType?: 'organization' | 'institution' | 'branch';
+  institutionId?: string;
+  branchId?: string;
+};
+
+export function useUserAccess(userId: string, organizationId?: string, options: string | UserAccessScopeOptions = {}) {
+  const normalizedOptions: UserAccessScopeOptions = typeof options === 'string'
+    ? { activeRoleName: options }
+    : options;
   return useQuery({
-    queryKey: ['access', 'user', userId, organizationId ?? 'app'],
+    queryKey: [
+      'access',
+      'user',
+      userId,
+      organizationId ?? 'app',
+      normalizedOptions.activeRoleName ?? '__all__',
+      normalizedOptions.scopeType ?? 'organization',
+      normalizedOptions.institutionId ?? 'none',
+      normalizedOptions.branchId ?? 'none',
+    ],
     enabled: Boolean(userId),
     queryFn: async (): Promise<UserAccessData> => {
       try {
         const response = await apiClient.get<Record<string, unknown>>(
           organizationId ? endpoints.rbac.orgUserAccess(organizationId, userId) : endpoints.rbac.userAccess(userId),
+          {
+            query: organizationId
+              ? {
+                ...(normalizedOptions.activeRoleName ? { activeOrgRole: normalizedOptions.activeRoleName } : {}),
+                ...(normalizedOptions.scopeType ? { scopeType: normalizedOptions.scopeType } : {}),
+                ...(normalizedOptions.institutionId ? { institutionId: normalizedOptions.institutionId } : {}),
+                ...(normalizedOptions.branchId ? { branchId: normalizedOptions.branchId } : {}),
+              }
+              : (normalizedOptions.activeRoleName ? { activeRole: normalizedOptions.activeRoleName } : undefined),
+            skipContextHeaders: true,
+          },
         );
         const roles = Array.isArray(response.roles)
           ? response.roles
@@ -341,8 +473,24 @@ export function useUserAccess(userId: string, organizationId?: string) {
           roleIds,
           overrides,
           effectivePermissions: toEffectivePermissions(response.effectivePermissions),
+          scopeType: String(response.scopeType ?? normalizedOptions.scopeType ?? 'organization') as UserAccessData['scopeType'],
+          institutionId: response.institutionId ? String(response.institutionId) : (normalizedOptions.institutionId ?? null),
+          branchId: response.branchId ? String(response.branchId) : (normalizedOptions.branchId ?? null),
         };
       } catch {
+        if (organizationId) {
+          return {
+            userId,
+            userName: userId,
+            roles: [],
+            roleIds: [],
+            overrides: [],
+            effectivePermissions: [],
+            scopeType: normalizedOptions.scopeType ?? 'organization',
+            institutionId: normalizedOptions.institutionId ?? null,
+            branchId: normalizedOptions.branchId ?? null,
+          };
+        }
         return {
           userId,
           userName: userId,
@@ -354,6 +502,9 @@ export function useUserAccess(userId: string, organizationId?: string) {
             { key: 'records.create', source: 'role', granted: true },
             { key: 'records.delete', source: 'override_deny', granted: false },
           ],
+          scopeType: 'organization',
+          institutionId: null,
+          branchId: null,
         };
       }
     },
@@ -687,10 +838,15 @@ export function useOrgPermissions(organizationId?: string) {
       if (!organizationId) return [];
       try {
         const response = await apiClient.get<Record<string, unknown>>(endpoints.rbac.orgPermissions(organizationId));
-        const rows = toPermissionRows(response.permissions ?? response.items ?? response.data ?? [], 'organization');
-        return rows.length > 0 ? rows : fallbackPermissions.map((entry) => ({ ...entry, scope: 'organization' as const }));
+        const rows = toPermissionRows(
+          response.permissions ?? response.items ?? response.data ?? [],
+          'organization',
+          { seedInterfaces: false },
+        );
+        const filtered = getOrganizationPermissionCatalog(rows);
+        return filtered.length > 0 ? filtered : getOrganizationPermissionCatalog([]);
       } catch {
-        return fallbackPermissions.map((entry) => ({ ...entry, scope: 'organization' as const }));
+        return getOrganizationPermissionCatalog([]);
       }
     },
   });
@@ -735,8 +891,16 @@ export function useUpdateOrgPermission() {
 }
 
 export function useDeleteOrgPermission() {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => Promise.reject(new Error('Organization permission delete is not supported by backend contract')),
+    mutationFn: async (payload: { key: string; organizationId?: string; isSystem?: boolean }) => {
+      if (!payload.organizationId) throw new Error('Active organization context is required');
+      if (payload.isSystem) throw new Error('SYSTEM_PERMISSION_LOCKED');
+      return apiClient.delete(endpoints.rbac.orgPermissionByKey(payload.organizationId, payload.key));
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['access', 'org'] });
+    },
   });
 }
 
@@ -748,10 +912,9 @@ export function useOrgRoles(organizationId?: string) {
       if (!organizationId) return [];
       try {
         const response = await apiClient.get<Record<string, unknown>>(endpoints.rbac.orgRoles(organizationId));
-        const rows = toRoleRows(response.roles ?? response.items ?? response.data ?? [], 'organization');
-        return rows.length > 0 ? rows : fallbackRoles.map((entry) => ({ ...entry, scope: 'organization' as const }));
+        return toRoleRows(response.roles ?? response.items ?? response.data ?? [], 'organization');
       } catch {
-        return fallbackRoles.map((entry) => ({ ...entry, scope: 'organization' as const }));
+        return [];
       }
     },
   });

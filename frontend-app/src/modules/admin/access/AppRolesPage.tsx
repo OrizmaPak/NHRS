@@ -15,6 +15,7 @@ import { ErrorState } from '@/components/feedback/ErrorState';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
 import { PermissionMatrix } from '@/components/access/PermissionMatrix';
 import { useAppPermissions, useAppRoles, useDeleteAppRole, useSaveAppRole, type RoleRow } from '@/api/hooks/useAccessControl';
+import { getPermissionDisplayMeta } from '@/lib/interfacePermissions';
 
 const roleSchema = z.object({
   name: z.string().min(2, 'Role name is required'),
@@ -197,7 +198,8 @@ export function AppRolesPage() {
           <div className="flex flex-wrap gap-2">
             {selectedRole.permissions.map((entry) => (
               <span key={entry} className="rounded border border-border px-2 py-1 text-xs text-foreground">
-                {entry}
+                <span className="block font-medium">{getPermissionDisplayMeta({ key: entry, module: 'general', description: '' }).title}</span>
+                <span className="block text-[11px] text-muted">{entry}</span>
               </span>
             ))}
           </div>

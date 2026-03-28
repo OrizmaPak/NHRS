@@ -104,6 +104,7 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;
   skipAuth?: boolean;
   skipRefresh?: boolean;
+  skipContextHeaders?: boolean;
   suppressGlobalErrors?: boolean;
 };
 
@@ -188,11 +189,11 @@ function extractPermissionFromText(text?: string): string | undefined {
 }
 
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
-  const { query, body, headers, skipAuth, skipRefresh, suppressGlobalErrors, ...rest } = options;
+  const { query, body, headers, skipAuth, skipRefresh, skipContextHeaders, suppressGlobalErrors, ...rest } = options;
   const accessToken = getAccessToken();
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   const requestHeaders: Record<string, string> = {
-    ...getContextHeaders(),
+    ...(skipContextHeaders ? {} : getContextHeaders()),
     ...(skipAuth || !accessToken ? {} : { Authorization: `Bearer ${accessToken}` }),
     ...(headers as Record<string, string> | undefined),
   };

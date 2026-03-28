@@ -18,7 +18,7 @@ import {
   type UserSearchResult,
 } from '@/api/hooks/useAccessControl';
 import { useAuthStore } from '@/stores/authStore';
-import { findInterfacePermissions } from '@/lib/interfacePermissions';
+import { findInterfacePermissions, getPermissionDisplayMeta, groupPermissionsByDisplay } from '@/lib/interfacePermissions';
 
 type OverrideEffect = 'allow' | 'deny';
 type ScopedOverrideRule = { permissionKey: string; effect: OverrideEffect; roleName?: string };
@@ -109,6 +109,12 @@ export function AppUserAccessPage() {
     return ALL_ROLES_SCOPE;
   }, [overrideRoleScope, selectedRoleNames]);
 
+  const scopedUserAccessQuery = useUserAccess(
+    targetUserId,
+    undefined,
+    resolvedOverrideRoleScope === ALL_ROLES_SCOPE ? undefined : resolvedOverrideRoleScope,
+  );
+
   const scopedOverrideMap = useMemo(() => {
     const mapped: Record<string, OverrideEffect> = {};
     for (const override of overrideRules) {
@@ -130,9 +136,8 @@ export function AppUserAccessPage() {
     const key = permissionSearch.trim().toLowerCase();
     if (!key) return permissionRows;
     return permissionRows.filter((permission) => {
-      const interfaces = findInterfacePermissions(permission.key);
-      const interfaceText = interfaces.map((entry) => `${entry.interfaceLabel} ${entry.route}`).join(' ');
-      return `${permission.key} ${permission.description} ${interfaceText}`.toLowerCase().includes(key);
+      const meta = getPermissionDisplayMeta(permission);
+      return `${permission.key} ${permission.description} ${meta.title} ${meta.groupLabel} ${meta.actionLabel} ${meta.interfaceSummary ?? ''} ${meta.routeSummary ?? ''}`.toLowerCase().includes(key);
     });
   }, [permissionRows, permissionSearch]);
 
@@ -144,6 +149,8 @@ export function AppUserAccessPage() {
     () => filteredPermissionRows.filter((permission) => findInterfacePermissions(permission.key).length === 0),
     [filteredPermissionRows],
   );
+  const groupedInterfacePermissionRows = useMemo(() => groupPermissionsByDisplay(interfacePermissionRows), [interfacePermissionRows]);
+  const groupedOtherPermissionRows = useMemo(() => groupPermissionsByDisplay(otherPermissionRows), [otherPermissionRows]);
 
   const rolePermissionsSet = useMemo(() => {
     const roleMap = new Map((rolesQuery.data ?? []).map((role) => [role.id, role] as const));
@@ -163,6 +170,14 @@ export function AppUserAccessPage() {
     return granted;
   }, [resolvedOverrideRoleScope, rolesQuery.data, selectedRoleIds]);
 
+  const serverEffectivePermissionMap = useMemo(() => {
+    const mapped: Record<string, 'allow' | 'deny' | 'inherit'> = {};
+    for (const entry of scopedUserAccessQuery.data?.effectivePermissions ?? []) {
+      mapped[entry.key] = entry.granted ? 'allow' : 'deny';
+    }
+    return mapped;
+  }, [scopedUserAccessQuery.data?.effectivePermissions]);
+
   const filteredRoles = useMemo(() => {
     const roles = (rolesQuery.data ?? []).filter((role) => !isSuperRole(role.name));
     const key = roleSearch.trim().toLowerCase();
@@ -171,6 +186,10 @@ export function AppUserAccessPage() {
   }, [roleSearch, rolesQuery.data]);
 
   const effectivePermissionState = (permissionKey: string): 'allow' | 'deny' | 'inherit' => {
+    if (!manualRoleSelection && !manualOverrideRules) {
+      const resolved = serverEffectivePermissionMap[permissionKey];
+      if (resolved) return resolved;
+    }
     if (scopedOverrideMap[permissionKey] === 'deny') return 'deny';
     if (scopedOverrideMap[permissionKey] === 'allow') return 'allow';
     if (rolePermissionsSet.has('*') || rolePermissionsSet.has(permissionKey)) return 'allow';
@@ -274,7 +293,7 @@ export function AppUserAccessPage() {
               <Card>
                 <CardHeader>
                   <div>
-                    <CardTitle>Rows (Roles)</CardTitle>
+                    <CardTitle>Roles</CardTitle>
                     <CardDescription>Only assigned roles are preselected. Super is excluded from assignable options.</CardDescription>
                   </div>
                 </CardHeader>
@@ -310,15 +329,15 @@ export function AppUserAccessPage() {
                 <div className="mt-3">
                   <Button
                     loading={replaceRoles.isPending}
-                    loadingText="Saving rows..."
+                    loadingText="Saving roles..."
                     onClick={async () => {
                       await replaceRoles.mutateAsync({ userId: targetUserId, roleIds: Array.from(selectedRoleIds) });
                       setManualRoleSelection(null);
                       setManualOverrideRules(null);
-                      toast.success('Rows updated');
+                      toast.success('Roles updated');
                     }}
                   >
-                    Save Rows
+                    Save Roles
                   </Button>
                 </div>
               </Card>
@@ -342,7 +361,7 @@ export function AppUserAccessPage() {
                     value={resolvedOverrideRoleScope}
                     onChange={(event) => setOverrideRoleScope(event.target.value)}
                   >
-                    <option value={ALL_ROLES_SCOPE}>All assigned rows (global override)</option>
+                    <option value={ALL_ROLES_SCOPE}>All assigned roles (global override)</option>
                     {selectedRoleNames.map((roleName) => (
                       <option key={roleName} value={roleName}>
                         {roleName}
@@ -353,90 +372,119 @@ export function AppUserAccessPage() {
                 <div className="space-y-4">
                   <section className="space-y-2">
                     <h4 className="text-sm font-semibold text-foreground">Interface Access Permissions</h4>
-                    {interfacePermissionRows.map((permission) => {
-                      const interfaces = findInterfacePermissions(permission.key);
-                      const state = effectivePermissionState(permission.key);
-                      return (
-                        <div key={permission.key} className="rounded border border-border p-3">
-                          <div className="mb-2 flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-medium text-foreground">{permission.key}</p>
-                            <Badge variant={state === 'deny' ? 'danger' : state === 'allow' ? 'success' : 'outline'}>
-                              {state.toUpperCase()}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted">{permission.description}</p>
-                          {interfaces.length > 0 ? (
-                            <p className="mt-1 text-xs text-primary">
-                              {interfaces[0].interfaceLabel} ({interfaces[0].route})
-                            </p>
-                          ) : null}
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              variant={scopedOverrideMap[permission.key] === 'allow' ? 'default' : 'outline'}
-                              onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'allow' ? undefined : 'allow')}
-                            >
-                              Can
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={scopedOverrideMap[permission.key] === 'deny' ? 'danger' : 'outline'}
-                              onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'deny' ? undefined : 'deny')}
-                            >
-                              Cannot
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => upsertScopedOverride(permission.key, undefined)}
-                            >
-                              Inherit
-                            </Button>
-                          </div>
+                    {groupedInterfacePermissionRows.map((group) => (
+                      <section key={group.label} className="rounded-lg border border-border p-3">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h5 className="text-sm font-semibold text-foreground">{group.label}</h5>
+                          <Badge variant="info">{group.items.length} permissions</Badge>
                         </div>
-                      );
-                    })}
+                        <div className="space-y-2">
+                          {group.items.map((permission) => {
+                            const meta = getPermissionDisplayMeta(permission);
+                            const state = effectivePermissionState(permission.key);
+                            return (
+                              <div key={permission.key} className="rounded border border-border p-3">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                  <div>
+                                    <p className="text-sm font-medium text-foreground">{meta.title}</p>
+                                    <p className="text-[11px] text-muted">{permission.key}</p>
+                                  </div>
+                                  <Badge variant={state === 'deny' ? 'danger' : state === 'allow' ? 'success' : 'outline'}>
+                                    {state.toUpperCase()}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted">{meta.helperText}</p>
+                                {meta.interfaceSummary ? (
+                                  <p className="mt-1 text-xs text-primary">
+                                    Used in: {meta.interfaceSummary}
+                                    {meta.interfaceCount > 2 ? ` +${meta.interfaceCount - 2} more` : ''}
+                                    {meta.routeSummary ? ` (${meta.routeSummary})` : ''}
+                                  </p>
+                                ) : null}
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant={scopedOverrideMap[permission.key] === 'allow' ? 'default' : 'outline'}
+                                    onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'allow' ? undefined : 'allow')}
+                                  >
+                                    Can
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant={scopedOverrideMap[permission.key] === 'deny' ? 'danger' : 'outline'}
+                                    onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'deny' ? undefined : 'deny')}
+                                  >
+                                    Cannot
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => upsertScopedOverride(permission.key, undefined)}
+                                  >
+                                    Inherit
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    ))}
                   </section>
-                  {otherPermissionRows.length > 0 ? (
+                  {groupedOtherPermissionRows.length > 0 ? (
                     <section className="space-y-2">
                       <h4 className="text-sm font-semibold text-foreground">Other Action Permissions</h4>
-                      {otherPermissionRows.map((permission) => {
-                        const state = effectivePermissionState(permission.key);
-                        return (
-                          <div key={permission.key} className="rounded border border-border p-3">
-                            <div className="mb-2 flex flex-wrap items-center gap-2">
-                              <p className="text-sm font-medium text-foreground">{permission.key}</p>
-                              <Badge variant={state === 'deny' ? 'danger' : state === 'allow' ? 'success' : 'outline'}>
-                                {state.toUpperCase()}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted">{permission.description}</p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <Button
-                                size="sm"
-                                variant={scopedOverrideMap[permission.key] === 'allow' ? 'default' : 'outline'}
-                                onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'allow' ? undefined : 'allow')}
-                              >
-                                Can
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant={scopedOverrideMap[permission.key] === 'deny' ? 'danger' : 'outline'}
-                                onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'deny' ? undefined : 'deny')}
-                              >
-                                Cannot
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => upsertScopedOverride(permission.key, undefined)}
-                              >
-                                Inherit
-                              </Button>
-                            </div>
+                      {groupedOtherPermissionRows.map((group) => (
+                        <section key={group.label} className="rounded-lg border border-border p-3">
+                          <div className="mb-3 flex items-center justify-between">
+                            <h5 className="text-sm font-semibold text-foreground">{group.label}</h5>
+                            <Badge variant="info">{group.items.length} permissions</Badge>
                           </div>
-                        );
-                      })}
+                          <div className="space-y-2">
+                            {group.items.map((permission) => {
+                              const meta = getPermissionDisplayMeta(permission);
+                              const state = effectivePermissionState(permission.key);
+                              return (
+                                <div key={permission.key} className="rounded border border-border p-3">
+                                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                                    <div>
+                                      <p className="text-sm font-medium text-foreground">{meta.title}</p>
+                                      <p className="text-[11px] text-muted">{permission.key}</p>
+                                    </div>
+                                    <Badge variant={state === 'deny' ? 'danger' : state === 'allow' ? 'success' : 'outline'}>
+                                      {state.toUpperCase()}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-muted">{meta.helperText}</p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant={scopedOverrideMap[permission.key] === 'allow' ? 'default' : 'outline'}
+                                      onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'allow' ? undefined : 'allow')}
+                                    >
+                                      Can
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant={scopedOverrideMap[permission.key] === 'deny' ? 'danger' : 'outline'}
+                                      onClick={() => upsertScopedOverride(permission.key, scopedOverrideMap[permission.key] === 'deny' ? undefined : 'deny')}
+                                    >
+                                      Cannot
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => upsertScopedOverride(permission.key, undefined)}
+                                    >
+                                      Inherit
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ))}
                     </section>
                   ) : null}
                   {interfacePermissionRows.length === 0 && otherPermissionRows.length === 0 ? (

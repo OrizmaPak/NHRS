@@ -17,9 +17,37 @@ test('org admin route resolves org-scoped permission', () => {
   assert.equal(rule.permissionKey, 'rbac.org.manage');
 });
 
+test('org permission delete route resolves org-scoped permission', () => {
+  const rule = findPermissionRule('DELETE', '/rbac/org/org-1/permissions/org.member.read');
+  assert.equal(rule.permissionKey, 'rbac.org.manage');
+});
+
+test('org self-access route is not force-mapped at gateway', () => {
+  const rule = findPermissionRule('GET', '/rbac/org/org-1/users/user-1/access');
+  assert.equal(rule.permissionKey, undefined);
+});
+
+test('geo lookup routes are not permission-mapped', () => {
+  assert.equal(findPermissionRule('GET', '/geo/regions')?.permissionKey, undefined);
+  assert.equal(findPermissionRule('GET', '/geo/states')?.permissionKey, undefined);
+  assert.equal(findPermissionRule('GET', '/geo/state-regions')?.permissionKey, undefined);
+  assert.equal(findPermissionRule('GET', '/geo/lgas')?.permissionKey, undefined);
+});
+
+test('global services routes resolve expected permissions', () => {
+  assert.equal(findPermissionRule('GET', '/global-services')?.permissionKey, 'auth.me.read');
+  assert.equal(findPermissionRule('POST', '/global-services')?.permissionKey, 'global.services.manage');
+  assert.equal(findPermissionRule('DELETE', '/global-services/service-1')?.permissionKey, 'global.services.manage');
+});
+
 test('profile search route resolves permission', () => {
   const rule = findPermissionRule('GET', '/profile/search');
   assert.equal(rule.permissionKey, 'profile.search');
+});
+
+test('profile update-by-user route resolves permission', () => {
+  const rule = findPermissionRule('PATCH', '/profile/user-1');
+  assert.equal(rule.permissionKey, 'profile.user.update');
 });
 
 test('auth context switch route resolves permission', () => {
@@ -32,14 +60,19 @@ test('organization branch route resolves org-scoped permission', () => {
   assert.equal(rule.permissionKey, 'org.branch.create');
 });
 
-test('organization search route resolves org.search permission', () => {
+test('organization search route resolves org.list permission', () => {
   const rule = findPermissionRule('GET', '/orgs/search');
-  assert.equal(rule.permissionKey, 'org.search');
+  assert.equal(rule.permissionKey, 'org.list');
 });
 
 test('organization list route resolves org.list permission', () => {
   const rule = findPermissionRule('GET', '/orgs');
   assert.equal(rule.permissionKey, 'org.list');
+});
+
+test('deleted organization list route resolves dedicated permission', () => {
+  const rule = findPermissionRule('GET', '/orgs/deleted');
+  assert.equal(rule.permissionKey, 'org.deleted.read');
 });
 
 test('membership transfer route resolves permission', () => {
@@ -49,6 +82,11 @@ test('membership transfer route resolves permission', () => {
 
 test('membership status route resolves updated status permission key', () => {
   const rule = findPermissionRule('PATCH', '/orgs/org-1/members/member-1/status');
+  assert.equal(rule.permissionKey, 'org.member.status.update');
+});
+
+test('membership delete route resolves status-update permission key', () => {
+  const rule = findPermissionRule('DELETE', '/orgs/org-1/members/member-1');
   assert.equal(rule.permissionKey, 'org.member.status.update');
 });
 
@@ -89,7 +127,7 @@ test('provider module route mappings resolve expected permissions', () => {
 });
 
 test('doctor registry route mappings resolve expected permissions', () => {
-  assert.equal(findPermissionRule('GET', '/doctors/search').public, true);
+  assert.equal(findPermissionRule('GET', '/doctors/search').permissionKey, 'doctor.search');
   assert.equal(findPermissionRule('POST', '/doctors/register').permissionKey, 'doctor.register');
   assert.equal(findPermissionRule('GET', '/doctors/doc-1').permissionKey, 'doctor.read');
   assert.equal(findPermissionRule('POST', '/licenses/doc-1/verify').permissionKey, 'doctor.verify');

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
-import { findInterfacePermissions } from '@/lib/interfacePermissions';
+import { getPermissionDisplayMeta, groupPermissionsByDisplay } from '@/lib/interfacePermissions';
 import { useState } from 'react';
 
 export type PermissionOption = {
@@ -25,23 +25,22 @@ export function PermissionMatrix({
   const filteredPermissions = useMemo(() => {
     if (!normalizedSearch) return permissions;
     return permissions.filter((permission) => {
-      const interfaces = findInterfacePermissions(permission.key);
-      const interfaceText = interfaces.map((entry) => `${entry.interfaceLabel} ${entry.route}`).join(' ');
-      const haystack = `${permission.key} ${permission.description} ${permission.module} ${interfaceText}`.toLowerCase();
+      const meta = getPermissionDisplayMeta(permission);
+      const haystack = [
+        permission.key,
+        permission.description,
+        permission.module,
+        meta.title,
+        meta.groupLabel,
+        meta.actionLabel,
+        meta.interfaceSummary,
+        meta.routeSummary,
+      ].join(' ').toLowerCase();
       return haystack.includes(normalizedSearch);
     });
   }, [permissions, normalizedSearch]);
 
-  const grouped = useMemo(
-    () =>
-      filteredPermissions.reduce<Record<string, PermissionOption[]>>((acc, permission) => {
-        const key = permission.module || 'general';
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(permission);
-        return acc;
-      }, {}),
-    [filteredPermissions],
-  );
+  const grouped = useMemo(() => groupPermissionsByDisplay(filteredPermissions), [filteredPermissions]);
 
   return (
     <div className="space-y-3">
@@ -49,19 +48,19 @@ export function PermissionMatrix({
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search permission key, description, or interface route"
+          placeholder="Search by page, action, description, or permission key"
         />
       </div>
-      {Object.entries(grouped).map(([module, entries]) => (
-        <section key={module} className="rounded-lg border border-border p-3">
+      {grouped.map(({ label, items }) => (
+        <section key={label} className="rounded-lg border border-border p-3">
           <div className="mb-2 flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-foreground">{module}</h4>
-            <Badge variant="info">{entries.length} permissions</Badge>
+            <h4 className="text-sm font-semibold text-foreground">{label}</h4>
+            <Badge variant="info">{items.length} permissions</Badge>
           </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {entries.map((permission) => {
+            {items.map((permission) => {
               const checked = selected.has(permission.key);
-              const interfaces = findInterfacePermissions(permission.key);
+              const meta = getPermissionDisplayMeta(permission);
               return (
                 <label key={permission.key} className="flex items-start gap-2 rounded-md border border-border/70 p-2 text-sm">
                   <input
@@ -71,12 +70,14 @@ export function PermissionMatrix({
                     onChange={(event) => onToggle(permission.key, event.target.checked)}
                   />
                   <span>
-                    <span className="block font-medium text-foreground">{permission.key}</span>
-                    <span className="block text-xs text-muted">{permission.description || 'No description'}</span>
-                    {interfaces.length > 0 ? (
+                    <span className="block font-medium text-foreground">{meta.title}</span>
+                    <span className="block text-xs text-muted">{meta.helperText || 'No description'}</span>
+                    <span className="mt-1 block text-[11px] text-muted">Permission key: {permission.key}</span>
+                    {meta.interfaceSummary ? (
                       <span className="mt-1 block text-[11px] text-primary">
-                        Interface: {interfaces[0].interfaceLabel} ({interfaces[0].route})
-                        {interfaces.length > 1 ? ` +${interfaces.length - 1} more` : ''}
+                        Used in: {meta.interfaceSummary}
+                        {meta.interfaceCount > 2 ? ` +${meta.interfaceCount - 2} more` : ''}
+                        {meta.routeSummary ? ` (${meta.routeSummary})` : ''}
                       </span>
                     ) : null}
                   </span>
@@ -86,7 +87,7 @@ export function PermissionMatrix({
           </div>
         </section>
       ))}
-      {Object.keys(grouped).length === 0 ? (
+      {grouped.length === 0 ? (
         <div className="rounded-lg border border-border p-4 text-sm text-muted">
           No permissions matched your search.
         </div>

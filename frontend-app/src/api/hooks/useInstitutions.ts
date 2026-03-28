@@ -1,16 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/api/apiClient';
+import { ApiClientError, apiClient } from '@/api/apiClient';
 import { endpoints } from '@/api/endpoints';
+import { mergeGlobalServiceNames, normalizeGlobalServiceName } from '@/api/hooks/useGlobalServices';
 
-export type OrganizationType = 'hospital' | 'laboratory' | 'pharmacy' | 'government' | 'emergency' | 'catalog';
-export type InstitutionType = OrganizationType | 'clinic';
+export type InstitutionType = 'hospital' | 'laboratory' | 'pharmacy' | 'government' | 'emergency' | 'catalog' | 'clinic';
 export type BranchCapability = 'hospital' | 'clinic' | 'laboratory' | 'pharmacy';
+export type BranchType = BranchCapability;
 
 export type OrganizationRow = {
   id: string;
   organizationId: string;
   name: string;
-  type: string;
   description: string;
   registrationNumber: string;
   ownerType?: string;
@@ -50,10 +50,24 @@ export type InstitutionRow = {
   id: string;
   institutionId: string;
   organizationId: string;
+  organizationName?: string;
   name: string;
   code: string;
   type: string;
   description: string;
+  address?: Record<string, unknown> | null;
+  contact?: Record<string, unknown> | null;
+  documents?: Array<{
+    documentId: string;
+    title: string | null;
+    type: string;
+    url: string;
+    uploadedAt: string;
+    notes: string | null;
+  }>;
+  metadata?: Record<string, unknown>;
+  additionalServices: string[];
+  openingHours?: string;
   state: string;
   lga: string;
   status: 'active' | 'inactive' | 'suspended' | 'deleted' | string;
@@ -67,10 +81,17 @@ export type BranchRow = {
   branchId: string;
   institutionId: string;
   organizationId: string;
+  organizationName?: string;
+  institutionName?: string;
   name: string;
   code: string;
-  type: string | null;
+  type: BranchType | null;
   capabilities: BranchCapability[];
+  address?: Record<string, unknown> | null;
+  contact?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown>;
+  additionalServices: string[];
+  openingHours?: string;
   state: string;
   lga: string;
   status: 'active' | 'closed' | 'suspended' | 'deleted' | string;
@@ -85,12 +106,30 @@ export type ViewerScope = {
   branchIds?: string[];
 };
 
+export type PublicOrganizationRow = OrganizationRow & {
+  publicInfo?: string | null;
+  openingHours?: string | null;
+  institutionsCount?: number;
+  institutions?: Array<{
+    institutionId: string;
+    name: string;
+    type: string;
+    status: string;
+    state: string | null;
+    lga: string | null;
+  }>;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
+}
+
+function normalizeAdditionalServices(value: unknown): string[] {
+  return mergeGlobalServiceNames(Array.isArray(value) ? value : []);
 }
 
 function mapOrganizationRow(raw: unknown): OrganizationRow | null {
@@ -100,11 +139,11 @@ function mapOrganizationRow(raw: unknown): OrganizationRow | null {
   const viewerScope = asRecord(row.viewerScope);
   const organizationId = asString(row.organizationId || row.id);
   if (!organizationId) return null;
+
   return {
     id: organizationId,
     organizationId,
     name: asString(row.name, 'Organization'),
-    type: asString(row.type, 'general'),
     description: asString(row.description),
     registrationNumber: asString(row.registrationNumber),
     ownerType: asString(row.ownerType) || undefined,
@@ -153,18 +192,41 @@ function mapInstitutionRow(raw: unknown): InstitutionRow | null {
   const row = asRecord(raw);
   if (!row) return null;
   const location = asRecord(row.location);
+  const address = asRecord(row.address);
+  const organization = asRecord(row.organization);
+  const metadata = asRecord(row.metadata);
   const institutionId = asString(row.institutionId || row.id);
   if (!institutionId) return null;
   return {
     id: institutionId,
     institutionId,
     organizationId: asString(row.organizationId),
+    organizationName: asString(row.organizationName || organization?.name) || undefined,
     name: asString(row.name, 'Institution'),
     code: asString(row.code, 'N/A'),
     type: asString(row.type, 'hospital'),
     description: asString(row.description),
-    state: asString(location?.state, 'N/A'),
-    lga: asString(location?.lga, 'N/A'),
+    address: address ?? null,
+    contact: asRecord(row.contact) ?? null,
+    documents: Array.isArray(row.documents)
+      ? row.documents
+          .map((entry) => asRecord(entry))
+          .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+          .map((entry) => ({
+            documentId: asString(entry.documentId || entry.id) || crypto.randomUUID(),
+            title: asString(entry.title) || null,
+            type: asString(entry.type, 'other'),
+            url: asString(entry.url),
+            uploadedAt: asString(entry.uploadedAt) || new Date().toISOString(),
+            notes: asString(entry.notes) || null,
+          }))
+          .filter((entry) => Boolean(entry.url))
+      : [],
+    metadata: metadata ?? undefined,
+    additionalServices: normalizeAdditionalServices(metadata?.additionalServices),
+    openingHours: asString(metadata?.openingHours) || undefined,
+    state: asString(location?.state || address?.state, 'N/A'),
+    lga: asString(location?.lga || address?.lga, 'N/A'),
     status: asString(row.status, 'active'),
     isHeadquarters: Boolean(row.isHeadquarters),
     createdAt: asString(row.createdAt) || undefined,
@@ -176,6 +238,11 @@ function mapBranchRow(raw: unknown): BranchRow | null {
   const row = asRecord(raw);
   if (!row) return null;
   const location = asRecord(row.location);
+  const organization = asRecord(row.organization);
+  const institution = asRecord(row.institution);
+  const address = asRecord(row.address);
+  const contact = asRecord(row.contact);
+  const metadata = asRecord(row.metadata);
   const branchId = asString(row.branchId || row.id);
   if (!branchId) return null;
   const capabilitiesRaw = Array.isArray(row.capabilities) ? row.capabilities : [];
@@ -184,16 +251,32 @@ function mapBranchRow(raw: unknown): BranchRow | null {
     .filter((item): item is BranchCapability =>
       ['hospital', 'clinic', 'laboratory', 'pharmacy'].includes(item)
     );
+  const derivedType = asString(row.type).trim().toLowerCase()
+    || capabilities[0]
+    || '';
+  const additionalServices = mergeGlobalServiceNames([
+    ...normalizeAdditionalServices(metadata?.additionalServices),
+    ...capabilities.map((entry) => normalizeGlobalServiceName(entry)),
+  ]);
 
   return {
     id: branchId,
     branchId,
-    institutionId: asString(row.institutionId),
-    organizationId: asString(row.organizationId),
+    institutionId: asString(row.institutionId || institution?.institutionId || institution?.id),
+    organizationId: asString(row.organizationId || organization?.organizationId || organization?.id),
+    organizationName: asString(row.organizationName || organization?.name) || undefined,
+    institutionName: asString(row.institutionName || institution?.name) || undefined,
     name: asString(row.name, 'Branch'),
     code: asString(row.code, 'N/A'),
-    type: asString(row.type) || null,
+    type: derivedType && ['hospital', 'clinic', 'laboratory', 'pharmacy'].includes(derivedType)
+      ? derivedType as BranchType
+      : null,
     capabilities,
+    address: address ?? null,
+    contact: contact ?? null,
+    metadata: metadata ?? undefined,
+    additionalServices,
+    openingHours: asString(metadata?.openingHours) || undefined,
     state: asString(location?.state, 'N/A'),
     lga: asString(location?.lga, 'N/A'),
     status: asString(row.status, 'active'),
@@ -205,19 +288,23 @@ type OrganizationsParams = {
   page: number;
   limit: number;
   q?: string;
+  scope?: 'affiliated' | 'all';
+  approvalStatus?: 'pending' | 'approved' | 'declined' | 'revoked';
+  lifecycleStatus?: 'active' | 'suspended' | 'delete_pending' | 'deleted';
 };
 
 export function useOrganizations(params: OrganizationsParams) {
   return useQuery({
     queryKey: ['org', 'organizations', params],
-    queryFn: async (): Promise<{ rows: OrganizationRow[]; total: number }> => {
-      const hasQuery = Boolean(params.q && params.q.trim().length > 0);
-      const path = hasQuery ? endpoints.org.search : endpoints.org.list;
-      const response = await apiClient.get<Record<string, unknown>>(path, {
+    queryFn: async (): Promise<{ rows: OrganizationRow[]; total: number; scope: 'affiliated' | 'all'; canListAll: boolean }> => {
+      const response = await apiClient.get<Record<string, unknown>>(endpoints.org.list, {
         query: {
           page: params.page,
           limit: params.limit,
-          q: hasQuery ? params.q : undefined,
+          q: params.q && params.q.trim().length > 0 ? params.q : undefined,
+          scope: params.scope || 'affiliated',
+          approvalStatus: params.approvalStatus,
+          lifecycleStatus: params.lifecycleStatus,
         },
       });
 
@@ -225,7 +312,101 @@ export function useOrganizations(params: OrganizationsParams) {
         .map(mapOrganizationRow)
         .filter((row): row is OrganizationRow => Boolean(row));
 
-      return { rows: items, total: Number(response.total ?? items.length) };
+      const scope = asString(response.scope, 'affiliated').toLowerCase() === 'all' ? 'all' : 'affiliated';
+      return {
+        rows: items,
+        total: Number(response.total ?? items.length),
+        scope,
+        canListAll: Boolean(response.canListAll),
+      };
+    },
+  });
+}
+
+export function usePublicOrganizations(params: {
+  page: number;
+  limit: number;
+  q?: string;
+  state?: string;
+  lga?: string;
+  institutionType?: InstitutionType;
+}) {
+  return useQuery({
+    queryKey: ['org', 'public-organizations', params],
+    queryFn: async (): Promise<{ rows: PublicOrganizationRow[]; total: number }> => {
+      const response = await apiClient.get<Record<string, unknown>>(endpoints.org.publicList, {
+        query: {
+          page: params.page,
+          limit: params.limit,
+          q: params.q && params.q.trim().length > 0 ? params.q : undefined,
+          state: params.state || undefined,
+          lga: params.lga || undefined,
+          institutionType: params.institutionType || undefined,
+        },
+      });
+      const items = Array.isArray(response.items) ? response.items : [];
+      const rows = items
+        .map((entry) => {
+          const mapped = mapOrganizationRow(entry);
+          if (!mapped) return null;
+          const record = asRecord(entry);
+          const institutions = Array.isArray(record?.institutions)
+            ? record.institutions
+                .map((rawInstitution) => asRecord(rawInstitution))
+                .filter((rawInstitution): rawInstitution is Record<string, unknown> => Boolean(rawInstitution))
+                .map((rawInstitution) => ({
+                  institutionId: asString(rawInstitution.institutionId),
+                  name: asString(rawInstitution.name, 'Institution'),
+                  type: asString(rawInstitution.type, 'hospital'),
+                  status: asString(rawInstitution.status, 'active'),
+                  state: asString(rawInstitution.state) || null,
+                  lga: asString(rawInstitution.lga) || null,
+                }))
+            : [];
+          return {
+            ...mapped,
+            publicInfo: asString(record?.publicInfo) || null,
+            openingHours: asString(record?.openingHours) || null,
+            institutionsCount: Number(record?.institutionsCount ?? institutions.length),
+            institutions,
+          } as PublicOrganizationRow;
+        })
+        .filter((row): row is PublicOrganizationRow => Boolean(row));
+      return {
+        rows,
+        total: Number(response.total ?? rows.length),
+      };
+    },
+  });
+}
+
+export function usePublicOrganizationDetails(orgId?: string) {
+  return useQuery({
+    queryKey: ['org', 'public-organization', orgId ?? 'none'],
+    enabled: Boolean(orgId),
+    queryFn: async (): Promise<{
+      organization: PublicOrganizationRow | null;
+      institutions: InstitutionRow[];
+      branches: BranchRow[];
+    }> => {
+      if (!orgId) return { organization: null, institutions: [], branches: [] };
+      const response = await apiClient.get<Record<string, unknown>>(endpoints.org.publicById(orgId));
+      const mappedOrganization = mapOrganizationRow(response.organization);
+      const organizationRecord = asRecord(response.organization);
+      const organization = mappedOrganization
+        ? ({
+            ...mappedOrganization,
+            publicInfo: asString(organizationRecord?.publicInfo) || null,
+            openingHours: asString(organizationRecord?.openingHours) || null,
+          } as PublicOrganizationRow)
+        : null;
+      const institutions = Array.isArray(response.institutions)
+        ? response.institutions.map(mapInstitutionRow).filter((row): row is InstitutionRow => Boolean(row))
+        : [];
+      const branches = Array.isArray(response.branches)
+        ? response.branches.map(mapBranchRow).filter((row): row is BranchRow => Boolean(row))
+        : [];
+      return { organization, institutions, branches };
     },
   });
 }
@@ -279,7 +460,6 @@ export function useCreateOrganization() {
   return useMutation({
     mutationFn: async (payload: {
       name: string;
-      type: OrganizationType;
       description?: string;
       registrationNumber?: string;
       ownerType?: string;
@@ -293,7 +473,24 @@ export function useCreateOrganization() {
       location?: { state?: string; lga?: string; addressText?: string };
       ownerNin?: string;
       ownerUserId?: string;
-    }) => apiClient.post<{ organization?: unknown }>(endpoints.org.list, payload),
+    }) => {
+      try {
+        return await apiClient.post<{ organization?: unknown }>(endpoints.org.list, payload);
+      } catch (error) {
+        // Backward compatibility for older organization-service builds that still require `type`.
+        if (
+          error instanceof ApiClientError
+          && error.status === 400
+          && /required property 'type'|missing property 'type'|invalid organization type/i.test(error.message)
+        ) {
+          return apiClient.post<{ organization?: unknown }>(endpoints.org.list, {
+            ...payload,
+            type: 'government',
+          });
+        }
+        throw error;
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['org', 'organizations'] });
     },
@@ -319,7 +516,29 @@ export function useUpdateOrganization() {
       status?: 'active' | 'suspended' | 'delete_pending' | 'deleted' | 'pending_approval' | 'declined';
       lifecycleStatus?: 'active' | 'suspended' | 'delete_pending' | 'deleted';
       location?: { state?: string; lga?: string; addressText?: string };
-    }) => apiClient.patch<{ organization?: unknown }>(endpoints.org.byId(payload.orgId), payload),
+    }) => {
+      try {
+        return await apiClient.patch<{ organization?: unknown }>(endpoints.org.byId(payload.orgId), payload);
+      } catch (error) {
+        // Backward compatibility for older organization-service builds with strict PATCH schema.
+        if (
+          error instanceof ApiClientError
+          && error.status === 400
+          && /additional properties|must not have additional properties/i.test(error.message)
+        ) {
+          const legacyPayload = {
+            orgId: payload.orgId,
+            name: payload.name,
+            description: payload.description,
+            registrationNumber: payload.registrationNumber,
+            location: payload.location,
+            status: payload.status === 'suspended' ? 'suspended' : payload.status === 'active' ? 'active' : undefined,
+          };
+          return apiClient.patch<{ organization?: unknown }>(endpoints.org.byId(payload.orgId), legacyPayload);
+        }
+        throw error;
+      }
+    },
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org', 'organizations'] });
       queryClient.invalidateQueries({ queryKey: ['org', 'organization', variables.orgId] });
@@ -327,7 +546,7 @@ export function useUpdateOrganization() {
   });
 }
 
-export function useDeletedOrganizations(params: { page: number; limit: number }) {
+export function useDeletedOrganizations(params: { page: number; limit: number; scope?: 'affiliated' | 'all' }) {
   return useQuery({
     queryKey: ['org', 'deleted-organizations', params],
     queryFn: async (): Promise<{ rows: Array<OrganizationRow & { institutions: InstitutionRow[]; branches: BranchRow[] }>; total: number }> => {
@@ -335,6 +554,7 @@ export function useDeletedOrganizations(params: { page: number; limit: number })
         query: {
           page: params.page,
           limit: params.limit,
+          scope: params.scope || 'affiliated',
         },
       });
       const items = Array.isArray(response.items) ? response.items : [];
@@ -372,6 +592,8 @@ export function useReviewOrganizationApproval() {
       await queryClient.invalidateQueries({ queryKey: ['org', 'organization', variables.orgId] });
       await queryClient.invalidateQueries({ queryKey: ['org', 'scoped-institutions'] });
       await queryClient.invalidateQueries({ queryKey: ['org', 'scoped-branches'] });
+      await queryClient.invalidateQueries({ queryKey: ['identity', 'me'] });
+      await queryClient.invalidateQueries({ queryKey: ['identity', 'contexts'] });
     },
   });
 }
@@ -470,14 +692,18 @@ export function useCreateOrgInstitution() {
       type?: InstitutionType;
       description?: string;
       status?: 'active' | 'inactive' | 'suspended';
+      address?: Record<string, unknown>;
       location?: { state?: string; lga?: string; addressText?: string };
       contact?: Record<string, unknown>;
+      documents?: Array<Record<string, unknown>>;
+      metadata?: Record<string, unknown>;
     }) => {
       const { orgId, ...body } = payload;
       return apiClient.post<{ institution?: unknown }>(endpoints.org.institutions(orgId), body);
     },
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org', 'institutions', variables.orgId] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'scoped-institutions'] });
     },
   });
 }
@@ -493,14 +719,45 @@ export function useUpdateOrgInstitution() {
       type?: InstitutionType;
       description?: string;
       status?: 'active' | 'inactive' | 'suspended';
+      address?: Record<string, unknown>;
       location?: { state?: string; lga?: string; addressText?: string };
       contact?: Record<string, unknown>;
+      documents?: Array<Record<string, unknown>>;
+      metadata?: Record<string, unknown>;
     }) => {
       const { orgId, institutionId, ...body } = payload;
       return apiClient.patch<{ institution?: unknown }>(endpoints.org.institutionById(orgId, institutionId), body);
     },
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org', 'institutions', variables.orgId] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'scoped-institutions'] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'institution', variables.institutionId] });
+    },
+  });
+}
+
+export function useUploadInstitutionFiles() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { orgId: string; institutionId: string; files: File[] }) => {
+      const uploads = await Promise.all(
+        payload.files.map(async (file) => ({
+          filename: file.name,
+          contentType: file.type,
+          contentBase64: await fileToBase64(file),
+          title: file.name,
+          type: 'government_document',
+        })),
+      );
+
+      return apiClient.post<Record<string, unknown>>(endpoints.org.institutionFilesUpload(payload.orgId, payload.institutionId), {
+        uploads,
+      });
+    },
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['org', 'institutions', variables.orgId] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'scoped-institutions'] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'institution', variables.institutionId] });
     },
   });
 }
@@ -513,17 +770,20 @@ export function useCreateBranch() {
       institutionId: string;
       name: string;
       code: string;
-      capabilities: BranchCapability[];
-      type?: BranchCapability;
+      capabilities?: BranchCapability[];
+      type?: BranchType;
       location?: { state?: string; lga?: string; addressText?: string };
       address?: Record<string, unknown>;
       contact?: Record<string, unknown>;
+      metadata?: Record<string, unknown>;
     }) => {
       const { orgId, institutionId, ...body } = payload;
       return apiClient.post<{ branch?: unknown }>(endpoints.org.institutionBranches(orgId, institutionId), body);
     },
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org', 'branches', variables.orgId, variables.institutionId] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'scoped-branches'] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'institution', variables.institutionId] });
     },
   });
 }
@@ -539,14 +799,19 @@ export function useUpdateBranch() {
       code?: string;
       status?: 'active' | 'closed' | 'suspended';
       capabilities?: BranchCapability[];
-      type?: BranchCapability;
+      type?: BranchType;
       location?: { state?: string; lga?: string; addressText?: string };
+      address?: Record<string, unknown>;
+      contact?: Record<string, unknown>;
+      metadata?: Record<string, unknown>;
     }) => {
       const { orgId, institutionId, branchId, ...body } = payload;
       return apiClient.patch<{ branch?: unknown }>(endpoints.org.institutionBranchById(orgId, institutionId, branchId), body);
     },
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org', 'branches', variables.orgId, variables.institutionId] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'branch', variables.branchId] });
+      queryClient.invalidateQueries({ queryKey: ['org', 'scoped-branches'] });
     },
   });
 }
@@ -589,6 +854,7 @@ export function useInstitutionById(institutionId?: string) {
   return useQuery({
     queryKey: ['org', 'institution', institutionId ?? 'none'],
     enabled: Boolean(institutionId),
+    staleTime: 60_000,
     queryFn: async (): Promise<{ institution: InstitutionRow | null; viewerScope?: ViewerScope }> => {
       if (!institutionId) return { institution: null };
       const response = await apiClient.get<Record<string, unknown>>(endpoints.org.globalInstitutionById(institutionId));

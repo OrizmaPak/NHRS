@@ -13,7 +13,8 @@ import { Input } from '@/components/ui/Input';
 import { ErrorState } from '@/components/feedback/ErrorState';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
 import { useContextStore } from '@/stores/contextStore';
-import { useOrgPermissions, useSaveOrgPermission, useUpdateOrgPermission, type PermissionRow } from '@/api/hooks/useAccessControl';
+import { useDeleteOrgPermission, useOrgPermissions, useSaveOrgPermission, useUpdateOrgPermission, type PermissionRow } from '@/api/hooks/useAccessControl';
+import { getPermissionDisplayMeta } from '@/lib/interfacePermissions';
 import { getOrganizationIdFromContext } from '@/lib/organizationContext';
 
 const formSchema = z.object({
@@ -36,6 +37,7 @@ export function OrgPermissionsPage() {
   const permissionsQuery = useOrgPermissions(organizationId);
   const savePermission = useSaveOrgPermission();
   const updatePermission = useUpdateOrgPermission();
+  const deletePermission = useDeleteOrgPermission();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -46,16 +48,51 @@ export function OrgPermissionsPage() {
     const rows = permissionsQuery.data ?? [];
     if (!query.trim()) return rows;
     const key = query.toLowerCase();
-    return rows.filter((entry) => `${entry.key} ${entry.module} ${entry.description}`.toLowerCase().includes(key));
+    return rows.filter((entry) => {
+      const meta = getPermissionDisplayMeta(entry);
+      return `${entry.key} ${entry.module} ${entry.description} ${meta.title} ${meta.groupLabel} ${meta.actionLabel} ${meta.interfaceSummary ?? ''}`.toLowerCase().includes(key);
+    });
   }, [permissionsQuery.data, query]);
   const start = pagination.pageIndex * pagination.pageSize;
   const paged = filtered.slice(start, start + pagination.pageSize);
 
   const columns = useMemo<ColumnDef<PermissionRow>[]>(
     () => [
-      { accessorKey: 'key', header: 'Permission Key' },
-      { accessorKey: 'module', header: 'Module' },
+      {
+        id: 'permission',
+        header: 'Permission',
+        cell: ({ row }) => {
+          const meta = getPermissionDisplayMeta(row.original);
+          return (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">{meta.title}</p>
+              <p className="text-[11px] text-muted">{row.original.key}</p>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'area',
+        header: 'Area',
+        cell: ({ row }) => getPermissionDisplayMeta(row.original).groupLabel,
+      },
+      {
+        id: 'usedIn',
+        header: 'Used In',
+        cell: ({ row }) => {
+          const meta = getPermissionDisplayMeta(row.original);
+          if (!meta.interfaceSummary) return 'Custom action only';
+          return meta.interfaceCount > 2
+            ? `${meta.interfaceSummary} +${meta.interfaceCount - 2} more`
+            : meta.interfaceSummary;
+        },
+      },
       { accessorKey: 'description', header: 'Description' },
+      {
+        accessorKey: 'isSystem',
+        header: 'Type',
+        cell: ({ row }) => (row.original.isSystem ? 'Default' : 'Custom'),
+      },
       { accessorKey: 'createdAt', header: 'Created At' },
       {
         id: 'actions',
@@ -65,6 +102,7 @@ export function OrgPermissionsPage() {
             <Button
               size="sm"
               variant="outline"
+              disabled={Boolean(row.original.isSystem)}
               onClick={() => {
                 setEditing(row.original);
                 form.reset({ key: row.original.key, module: row.original.module, description: row.original.description });
@@ -73,11 +111,30 @@ export function OrgPermissionsPage() {
             >
               Edit
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={Boolean(row.original.isSystem)}
+              onClick={async () => {
+                try {
+                  await deletePermission.mutateAsync({
+                    key: row.original.key,
+                    organizationId,
+                    isSystem: row.original.isSystem,
+                  });
+                  toast.success('Permission deleted');
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : 'Unable to delete permission');
+                }
+              }}
+            >
+              Delete
+            </Button>
           </div>
         ),
       },
     ],
-    [form],
+    [deletePermission, form, organizationId],
   );
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -116,7 +173,7 @@ export function OrgPermissionsPage() {
 
       <FilterBar>
         <div className="w-full md:max-w-md">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search organization permissions" />
+          <SearchInput value={query} onChange={setQuery} placeholder="Search by page, action, area, or permission key" />
         </div>
       </FilterBar>
 
@@ -150,7 +207,9 @@ export function OrgPermissionsPage() {
           </div>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit">{editing ? 'Save Changes' : 'Create Permission'}</Button>
+            <Button type="submit" loading={savePermission.isPending || updatePermission.isPending}>
+              {editing ? 'Save Changes' : 'Create Permission'}
+            </Button>
           </ModalFooter>
         </form>
       </Modal>

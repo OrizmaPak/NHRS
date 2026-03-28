@@ -17,6 +17,7 @@ const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
 const profileApiBaseUrl = process.env.PROFILE_API_BASE_URL || 'http://user-profile-service:8092';
 const membershipApiBaseUrl = process.env.MEMBERSHIP_API_BASE_URL || 'http://membership-service:8103';
+const organizationApiBaseUrl = process.env.ORGANIZATION_API_BASE_URL || 'http://organization-service:8093';
 const uiThemeApiBaseUrl = process.env.UI_THEME_API_BASE_URL || 'http://ui-theme-service:8111';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
@@ -24,6 +25,9 @@ const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-con
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
 const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 50;
 const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
+const authMeCacheTtlSec = Math.max(0, Number(process.env.AUTH_ME_CACHE_TTL_SEC) || 20);
+const authMeDependencyCacheTtlSec = Math.max(0, Number(process.env.AUTH_ME_DEP_CACHE_TTL_SEC) || 20);
+const authThemeCacheTtlSec = Math.max(0, Number(process.env.AUTH_THEME_CACHE_TTL_SEC) || 60);
 
 const accessTtlSec = 15 * 60;
 const refreshTtlSec = 7 * 24 * 60 * 60;
@@ -41,6 +45,11 @@ let redisClient;
 let db;
 let outboxRepo = null;
 let outboxTimer = null;
+let mongoConnectPromise = null;
+let mongoReconnectTimer = null;
+let authIndexesReady = false;
+
+const mongoReconnectDelayMs = Math.max(1000, Number(process.env.MONGO_RECONNECT_DELAY_MS) || 10000);
 
 const collections = {
   ninCache: () => db.collection('nin_cache'),
@@ -466,6 +475,91 @@ function deriveNinProfileDefaults(ninCache = {}, user = {}) {
   };
 }
 
+function toTimestamp(input) {
+  if (!input) return 0;
+  const asDate = new Date(input);
+  const ts = asDate.getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function stableHash(input) {
+  return crypto.createHash('sha1').update(String(input || '')).digest('hex').slice(0, 16);
+}
+
+async function getCachedJson(key) {
+  if (!redisReady || !key) return null;
+  try {
+    const raw = await redisClient.get(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (err) {
+    fastify.log.warn({ err, key }, 'Redis cache get failed');
+    return null;
+  }
+}
+
+async function setCachedJson(key, value, ttlSec) {
+  if (!redisReady || !key || !Number.isFinite(ttlSec) || ttlSec <= 0) return;
+  try {
+    await redisClient.set(key, JSON.stringify(value), { EX: ttlSec });
+  } catch (err) {
+    fastify.log.warn({ err, key }, 'Redis cache set failed');
+  }
+}
+
+async function getRbacCacheVersion() {
+  if (!redisReady) return '0';
+  try {
+    const value = await redisClient.get('rbac:version');
+    return value || '0';
+  } catch (err) {
+    fastify.log.warn({ err }, 'Unable to read RBAC cache version');
+    return '0';
+  }
+}
+
+function buildAuthMeCacheKey(user, authorization = '', rbacCacheVersion = '0') {
+  if (!user?._id) return null;
+  const userId = String(user._id);
+  const versionPayload = {
+    version: 4,
+    updatedAt: toTimestamp(user.updatedAt),
+    passwordSetAt: toTimestamp(user.passwordSetAt),
+    lockUntil: toTimestamp(user.lockUntil),
+    roles: Array.isArray(user.roles)
+      ? user.roles.map((role) => String(role || '').trim().toLowerCase()).filter(Boolean).sort()
+      : [],
+    status: String(user.status || ''),
+    requiresPasswordChange: Boolean(user.requiresPasswordChange),
+    tokenType: authorization ? String(authorization).slice(0, 20) : '',
+    rbacCacheVersion: String(rbacCacheVersion || '0'),
+  };
+  return `auth:me:v4:${userId}:${stableHash(JSON.stringify(versionPayload))}`;
+}
+
+function buildRbacScopeCacheKey(userId, rbacCacheVersion = '0') {
+  if (!userId) return null;
+  return `auth:rbac-scope:v3:${String(userId)}:${String(rbacCacheVersion || '0')}`;
+}
+
+function buildContextsCacheKey(userId, rbacScopeSummary = null, rbacCacheVersion = '0') {
+  if (!userId) return null;
+  const scopeFingerprint = stableHash(JSON.stringify({
+    version: String(rbacCacheVersion || '0'),
+    appRoles: Array.isArray(rbacScopeSummary?.appRoles) ? rbacScopeSummary.appRoles : [],
+    appPermissions: Array.isArray(rbacScopeSummary?.appPermissions) ? rbacScopeSummary.appPermissions : [],
+    orgRolesByOrganization: rbacScopeSummary?.orgRolesByOrganization || {},
+    orgScopePermissions: Array.isArray(rbacScopeSummary?.orgScopePermissions)
+      ? rbacScopeSummary.orgScopePermissions.map((entry) => ({
+          organizationId: String(entry?.organizationId || '').trim(),
+          permissions: Array.isArray(entry?.permissions) ? entry.permissions.map((item) => String(item || '')).sort() : [],
+          roles: Array.isArray(entry?.roles) ? entry.roles.map((item) => String(item || '')).sort() : [],
+        }))
+      : [],
+  }));
+  return `auth:contexts:v3:${String(userId)}:${scopeFingerprint}`;
+}
+
 async function fetchMembershipContexts(userId, authorization) {
   try {
     const response = await fetch(`${membershipApiBaseUrl}/users/${encodeURIComponent(String(userId))}/memberships?includeBranches=true`, {
@@ -479,14 +573,136 @@ async function fetchMembershipContexts(userId, authorization) {
     if (!response.ok) return [];
     const body = await response.json();
     const memberships = Array.isArray(body?.memberships) ? body.memberships : [];
-    return memberships.map((membership) => ({
-      type: 'organization',
-      id: membership.organizationId,
-      name: membership.organizationName || membership.organizationId,
-      themeScopeType: 'organization',
-      themeScopeId: membership.organizationId,
-      membershipStatus: membership.membershipStatus || membership.status || 'active',
+    const uniqueMemberships = Array.from(
+      memberships.reduce((acc, membership) => {
+        const organizationId = String(membership?.organizationId || '').trim();
+        if (!organizationId) {
+          return acc;
+        }
+
+        const normalizedRoles = Array.isArray(membership?.roles)
+          ? membership.roles.map((role) => normalizeOrgRole(role)).filter(Boolean)
+          : [];
+        const normalizedBranches = Array.isArray(membership?.branches)
+          ? membership.branches.filter(Boolean)
+          : [];
+        const existing = acc.get(organizationId);
+        if (!existing) {
+          acc.set(organizationId, {
+            ...membership,
+            organizationId,
+            organizationName: membership?.organizationName ? String(membership.organizationName).trim() : null,
+            name: membership?.name ? String(membership.name).trim() : null,
+            roles: normalizedRoles,
+            branches: normalizedBranches,
+          });
+          return acc;
+        }
+
+        const existingRoles = Array.isArray(existing.roles) ? existing.roles : [];
+        const existingBranches = Array.isArray(existing.branches) ? existing.branches : [];
+        const existingStatus = String(existing.membershipStatus || existing.status || '').trim().toLowerCase();
+        const incomingStatus = String(membership?.membershipStatus || membership?.status || '').trim().toLowerCase();
+
+        existing.roles = Array.from(new Set([...existingRoles, ...normalizedRoles]));
+        existing.branches = [...existingBranches, ...normalizedBranches];
+        existing.organizationName = existing.organizationName
+          || (membership?.organizationName ? String(membership.organizationName).trim() : null)
+          || (membership?.name ? String(membership.name).trim() : null)
+          || null;
+        existing.name = existing.name
+          || (membership?.name ? String(membership.name).trim() : null)
+          || (membership?.organizationName ? String(membership.organizationName).trim() : null)
+          || null;
+
+        if ((!existingStatus || existingStatus !== 'active') && incomingStatus === 'active') {
+          existing.status = membership?.status || 'active';
+          existing.membershipStatus = membership?.membershipStatus || membership?.status || 'active';
+        }
+
+        return acc;
+      }, new Map()).values()
+    );
+
+    const operationalChecks = await Promise.all(uniqueMemberships.map(async (membership) => {
+      try {
+        const orgResponse = await fetch(`${organizationApiBaseUrl}/internal/orgs/${encodeURIComponent(membership.organizationId)}/access`, {
+          method: 'GET',
+          headers: {
+            'x-internal-token': internalServiceToken,
+            'content-type': 'application/json',
+          },
+        });
+        if (!orgResponse.ok) {
+          return null;
+        }
+        const orgAccess = await orgResponse.json();
+        if (!orgAccess?.allowed) {
+          return null;
+        }
+        const branchAssignments = Array.isArray(membership.branches)
+          ? (await Promise.all(membership.branches.map(async (assignment) => {
+            const branchId = assignment?.branchId ? String(assignment.branchId).trim() : null;
+            const institutionId = assignment?.institutionId ? String(assignment.institutionId).trim() : null;
+            const roles = Array.isArray(assignment?.roles)
+              ? assignment.roles.map((role) => String(role || '').trim().toLowerCase()).filter(Boolean)
+              : [];
+            if ((!branchId && !institutionId) || roles.length === 0) {
+              return null;
+            }
+            let branchName = assignment?.branchName ? String(assignment.branchName).trim() : null;
+            let institutionName = assignment?.institutionName ? String(assignment.institutionName).trim() : null;
+            if ((!branchName && branchId) || (!institutionName && institutionId)) {
+              try {
+                const search = new URLSearchParams();
+                if (institutionId) search.set('institutionId', institutionId);
+                if (branchId) search.set('branchId', branchId);
+                const scopeResponse = await fetch(`${organizationApiBaseUrl}/internal/orgs/${encodeURIComponent(membership.organizationId)}/access?${search.toString()}`, {
+                  method: 'GET',
+                  headers: {
+                    'x-internal-token': internalServiceToken,
+                    'content-type': 'application/json',
+                  },
+                });
+                if (scopeResponse.ok) {
+                  const scopeAccess = await scopeResponse.json();
+                  if (scopeAccess?.allowed) {
+                    branchName = branchName || (scopeAccess?.branchName ? String(scopeAccess.branchName).trim() : null);
+                    institutionName = institutionName || (scopeAccess?.institutionName ? String(scopeAccess.institutionName).trim() : null);
+                  }
+                }
+              } catch (_scopeErr) {
+                // Keep the original scope payload if name hydration fails.
+              }
+            }
+            return {
+              branchId,
+              institutionId,
+              institutionName,
+              branchName,
+              roles,
+            };
+          }))).filter(Boolean)
+          : [];
+        return {
+          type: 'organization',
+          id: membership.organizationId,
+          organizationId: membership.organizationId,
+          organizationName: orgAccess?.organizationName || membership.organizationName || membership.organizationId,
+          name: orgAccess?.organizationName || membership.organizationName || membership.organizationId,
+          themeScopeType: 'organization',
+          themeScopeId: membership.organizationId,
+          membershipStatus: membership.membershipStatus || membership.status || 'active',
+          roles: Array.isArray(membership.roles)
+            ? membership.roles.map((role) => String(role || '').trim().toLowerCase()).filter(Boolean)
+            : [],
+          branchAssignments,
+        };
+      } catch (_err) {
+        return null;
+      }
     }));
+    return operationalChecks.filter(Boolean);
   } catch (_err) {
     return [];
   }
@@ -507,9 +723,20 @@ async function fetchEffectiveTheme(scopeType, scopeId) {
   }
 }
 
+async function fetchEffectiveThemeCached(scopeType, scopeId) {
+  const key = `auth:theme:effective:v1:${String(scopeType || 'platform')}:${String(scopeId || 'platform')}`;
+  const cached = await getCachedJson(key);
+  if (cached) return cached;
+  const effective = await fetchEffectiveTheme(scopeType, scopeId);
+  if (effective) {
+    await setCachedJson(key, effective, authThemeCacheTtlSec);
+  }
+  return effective;
+}
+
 async function fetchRbacScopeSummary(authorization) {
   if (!authorization) {
-    return { permissions: [], appRoles: [] };
+    return { version: '0', permissions: [], appPermissions: [], orgScopePermissions: [], appRoles: [], orgRolesByOrganization: {} };
   }
 
   try {
@@ -521,10 +748,11 @@ async function fetchRbacScopeSummary(authorization) {
       },
     });
     if (!response.ok) {
-      return { permissions: [], appRoles: [] };
+      return { permissions: [], appPermissions: [], orgScopePermissions: [], appRoles: [], orgRolesByOrganization: {} };
     }
 
     const body = await response.json();
+    const cacheVersion = String(body?.cacheVersion ?? body?.version ?? '0');
     const normalizePermissionKeys = (items = []) => (
       (Array.isArray(items) ? items : [])
         .map((item) => {
@@ -537,9 +765,31 @@ async function fetchRbacScopeSummary(authorization) {
         .filter(Boolean)
     );
 
-    const appPermissions = normalizePermissionKeys(body?.appScopePermissions);
-    const orgPermissions = Array.isArray(body?.orgScopePermissions)
-      ? body.orgScopePermissions.flatMap((entry) => normalizePermissionKeys(entry?.permissions))
+    const appPermissions = Array.from(new Set(normalizePermissionKeys(body?.appScopePermissions).map((item) => String(item))));
+    const orgScopePermissions = Array.isArray(body?.orgScopePermissions)
+      ? body.orgScopePermissions
+        .map((entry) => {
+          const organizationId = String(entry?.organizationId || '').trim();
+          if (!organizationId) return null;
+          const permissions = Array.from(new Set(normalizePermissionKeys(entry?.permissions).map((item) => String(item))));
+          const roles = Array.isArray(entry?.roles)
+            ? Array.from(new Set(
+              entry.roles
+                .map((role) => {
+                  if (typeof role === 'string') return role;
+                  if (!role || typeof role !== 'object') return '';
+                  return String(role.name || role.role || role.roleName || '').trim();
+                })
+                .filter(Boolean),
+            ))
+            : [];
+          return {
+            organizationId,
+            permissions,
+            roles,
+          };
+        })
+        .filter(Boolean)
       : [];
     const appRoles = Array.isArray(body?.rolesUsed?.app)
       ? body.rolesUsed.app
@@ -550,17 +800,135 @@ async function fetchRbacScopeSummary(authorization) {
         })
         .filter(Boolean)
       : [];
+    const orgRolesByOrganization = {};
+    for (const entry of orgScopePermissions) {
+      const organizationId = String(entry.organizationId || '').trim();
+      if (!organizationId) continue;
+      if (Array.isArray(entry.roles) && entry.roles.length > 0) {
+        orgRolesByOrganization[organizationId] = entry.roles;
+      }
+    }
     return {
-      permissions: [...new Set([...appPermissions, ...orgPermissions].map((item) => String(item)))],
+      version: cacheVersion,
+      permissions: appPermissions,
+      appPermissions,
+      orgScopePermissions,
       appRoles: [...new Set(appRoles.map((item) => String(item).trim()).filter(Boolean))],
+      orgRolesByOrganization,
     };
   } catch (_err) {
-    return { permissions: [], appRoles: [] };
+    return { version: '0', permissions: [], appPermissions: [], orgScopePermissions: [], appRoles: [], orgRolesByOrganization: {} };
   }
 }
 
-async function buildAvailableContexts(userId, authorization) {
+async function fetchRbacScopeSummaryCached(userId, authorization, rbacCacheVersion = '0') {
+  const key = buildRbacScopeCacheKey(userId, rbacCacheVersion);
+  const cached = await getCachedJson(key);
+  if (cached) return cached;
+  const summary = await fetchRbacScopeSummary(authorization);
+  await setCachedJson(key, summary, authMeDependencyCacheTtlSec);
+  return summary;
+}
+
+function toRoleLabel(roleName) {
+  const normalized = String(roleName || '').trim().toLowerCase();
+  if (!normalized) return 'Member';
+  if (normalized === 'owner') return 'Owner';
+  if (normalized === 'super_staff') return 'Super Staff';
+  return normalized
+    .split(/[_\s-]+/)
+    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : ''))
+    .join(' ');
+}
+
+function normalizeOrgRole(roleName) {
+  const normalized = String(roleName || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'org_owner') return 'owner';
+  return normalized;
+}
+
+function buildContextSubtitle(scopeLabel, roleName, scopeName = null) {
+  const readableScopeName = String(scopeName || '').trim();
+  if (readableScopeName) {
+    return `${scopeLabel}: ${readableScopeName} / ${toRoleLabel(roleName)}`;
+  }
+  return `${scopeLabel} / ${toRoleLabel(roleName)}`;
+}
+
+async function buildAvailableContexts(userId, authorization, rbacScopeSummary = null) {
   const membershipContexts = await fetchMembershipContexts(userId, authorization);
+  const rolesByOrganization = rbacScopeSummary?.orgRolesByOrganization && typeof rbacScopeSummary.orgRolesByOrganization === 'object'
+    ? rbacScopeSummary.orgRolesByOrganization
+    : {};
+  const orgRoleContexts = [];
+  for (const membership of membershipContexts) {
+    const organizationId = String(membership?.id || membership?.organizationId || '').trim();
+    if (!organizationId) continue;
+    const branchAssignments = Array.isArray(membership?.branchAssignments) ? membership.branchAssignments : [];
+    const scopedRoleNames = new Set(
+      branchAssignments.flatMap((assignment) => (
+        Array.isArray(assignment?.roles)
+          ? assignment.roles.map((role) => normalizeOrgRole(role)).filter(Boolean)
+          : []
+      )),
+    );
+    const membershipRoles = Array.isArray(membership?.roles)
+      ? membership.roles.map((role) => normalizeOrgRole(role)).filter(Boolean)
+      : [];
+    const rbacRoles = Array.isArray(rolesByOrganization[organizationId])
+      ? rolesByOrganization[organizationId].map((role) => normalizeOrgRole(role)).filter(Boolean)
+      : [];
+    const roleNames = Array.from(new Set([
+      ...membershipRoles,
+      ...rbacRoles.filter((role) => membershipRoles.includes(role) || !scopedRoleNames.has(role)),
+    ]));
+    for (const roleName of roleNames) {
+      const encodedRole = encodeURIComponent(roleName);
+      orgRoleContexts.push({
+        type: 'organization',
+        id: `org:${organizationId}:role:${encodedRole}`,
+        organizationId,
+        roleName,
+        name: membership.name || membership.organizationName || organizationId,
+        subtitle: buildContextSubtitle('Organization', roleName),
+        themeScopeType: 'organization',
+        themeScopeId: organizationId,
+        membershipStatus: membership.membershipStatus || membership.status || 'active',
+      });
+    }
+
+    for (const assignment of branchAssignments) {
+      const institutionId = assignment?.institutionId ? String(assignment.institutionId).trim() : '';
+      const branchId = assignment?.branchId ? String(assignment.branchId).trim() : '';
+      const assignmentRoles = Array.isArray(assignment?.roles)
+        ? assignment.roles.map((role) => String(role || '').trim().toLowerCase()).filter(Boolean)
+        : [];
+      for (const roleName of assignmentRoles) {
+        const encodedRole = encodeURIComponent(roleName);
+        const scopeLabel = branchId ? 'Branch' : 'Institution';
+        const scopeName = branchId
+          ? assignment?.branchName
+          : assignment?.institutionName;
+        orgRoleContexts.push({
+          type: 'organization',
+          id: `org:${organizationId}:institution:${institutionId || 'none'}:branch:${branchId || 'none'}:role:${encodedRole}`,
+          organizationId,
+          institutionId: institutionId || null,
+          branchId: branchId || null,
+          roleName,
+          name: membership.name || membership.organizationName || organizationId,
+          subtitle: buildContextSubtitle(scopeLabel, roleName, scopeName),
+          themeScopeType: 'organization',
+          themeScopeId: organizationId,
+          membershipStatus: membership.membershipStatus || membership.status || 'active',
+        });
+      }
+    }
+  }
+  const uniqueOrgContexts = Array.from(
+    new Map(orgRoleContexts.map((entry) => [`${entry.id}`, entry])).values(),
+  );
   const base = {
     type: 'public',
     id: 'platform',
@@ -568,10 +936,21 @@ async function buildAvailableContexts(userId, authorization) {
     themeScopeType: 'platform',
     themeScopeId: null,
   };
-  const availableContexts = [base, ...membershipContexts];
+  const availableContexts = [base, ...uniqueOrgContexts];
   // Default landing context is always citizen/public unless user explicitly switches in-session.
   const defaultContext = base;
   return { availableContexts, defaultContext };
+}
+
+async function buildAvailableContextsCached(userId, authorization, rbacScopeSummary = null, rbacCacheVersion = '0') {
+  const key = buildContextsCacheKey(userId, rbacScopeSummary, rbacCacheVersion);
+  const cached = await getCachedJson(key);
+  if (cached && Array.isArray(cached.availableContexts) && cached.defaultContext) {
+    return cached;
+  }
+  const built = await buildAvailableContexts(userId, authorization, rbacScopeSummary);
+  await setCachedJson(key, built, authMeDependencyCacheTtlSec);
+  return built;
 }
 
 async function requireAuth(req, reply) {
@@ -613,28 +992,115 @@ async function requireInternal(req, reply) {
   }
 }
 
+async function closeMongoClientQuietly() {
+  if (!mongoClient) return;
+  try {
+    await mongoClient.close();
+  } catch (_err) {
+    // Ignore cleanup failures while retrying the auth database connection.
+  }
+  mongoClient = null;
+}
+
+async function ensureMongoIndexes() {
+  if (authIndexesReady || !dbReady || !db || !outboxRepo) {
+    return;
+  }
+  await Promise.all([
+    collections.ninCache().createIndex({ nin: 1 }, { unique: true }),
+    collections.users().createIndex({ nin: 1 }, { unique: true }),
+    collections.users().createIndex({ email: 1 }, { sparse: true }),
+    collections.users().createIndex({ phone: 1 }, { sparse: true }),
+    collections.roles().createIndex({ name: 1 }, { unique: true }),
+    collections.otp().createIndex({ destination: 1, channel: 1, status: 1 }),
+    collections.sessions().createIndex({ jti: 1 }, { unique: true }),
+    collections.users().createIndex({ lockUntil: 1 }),
+    outboxRepo.createIndexes(),
+  ]);
+
+  await collections.roles().updateOne(
+    { name: 'citizen' },
+    {
+      $set: {
+        name: 'citizen',
+        updatedAt: new Date(),
+      },
+      $setOnInsert: {
+        createdAt: new Date(),
+      },
+      $addToSet: {
+        permissions: { $each: citizenFallbackPermissions },
+      },
+    },
+    { upsert: true }
+  );
+
+  await collections.roles().deleteMany({ name: 'admin' });
+  authIndexesReady = true;
+}
+
+function scheduleMongoReconnect() {
+  if (dbReady || mongoReconnectTimer || !mongoUri) {
+    return;
+  }
+  mongoReconnectTimer = setTimeout(() => {
+    mongoReconnectTimer = null;
+    void ensureMongoConnection();
+  }, mongoReconnectDelayMs);
+}
+
+async function ensureMongoConnection() {
+  if (dbReady) {
+    return true;
+  }
+  if (!mongoUri) {
+    fastify.log.warn('Missing MONGODB_URI; starting without database connection');
+    return false;
+  }
+  if (mongoConnectPromise) {
+    return mongoConnectPromise;
+  }
+
+  mongoConnectPromise = (async () => {
+    try {
+      await closeMongoClientQuietly();
+      mongoClient = new MongoClient(mongoUri, {
+        serverApi: {
+          version: ServerApiVersion.v1,
+          strict: true,
+          deprecationErrors: true,
+        },
+      });
+
+      await mongoClient.connect();
+      db = mongoClient.db(dbName);
+      await db.command({ ping: 1 });
+      dbReady = true;
+      outboxRepo = createOutboxRepository(db);
+      await ensureMongoIndexes();
+      fastify.log.info({ dbName }, 'auth-api MongoDB connection ready');
+      return true;
+    } catch (err) {
+      dbReady = false;
+      db = null;
+      outboxRepo = null;
+      fastify.log.warn({ err }, 'MongoDB connection failed; auth-api running in degraded mode');
+      await closeMongoClientQuietly();
+      scheduleMongoReconnect();
+      return false;
+    } finally {
+      mongoConnectPromise = null;
+    }
+  })();
+
+  return mongoConnectPromise;
+}
+
 async function connect() {
   if (!mongoUri) {
     fastify.log.warn('Missing MONGODB_URI; starting without database connection');
-    return;
-  }
-
-  try {
-    mongoClient = new MongoClient(mongoUri, {
-      serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-      },
-    });
-
-    await mongoClient.connect();
-    db = mongoClient.db(dbName);
-    await db.command({ ping: 1 });
-    dbReady = true;
-    outboxRepo = createOutboxRepository(db);
-  } catch (err) {
-    fastify.log.warn({ err }, 'MongoDB connection failed; auth-api running in degraded mode');
+  } else {
+    await ensureMongoConnection();
   }
 
   try {
@@ -644,39 +1110,6 @@ async function connect() {
     redisReady = true;
   } catch (err) {
     fastify.log.warn({ err }, 'Redis connection failed; auth-api running in degraded mode');
-  }
-
-  if (dbReady) {
-    await Promise.all([
-      collections.ninCache().createIndex({ nin: 1 }, { unique: true }),
-      collections.users().createIndex({ nin: 1 }, { unique: true }),
-      collections.users().createIndex({ email: 1 }, { sparse: true }),
-      collections.users().createIndex({ phone: 1 }, { sparse: true }),
-      collections.roles().createIndex({ name: 1 }, { unique: true }),
-      collections.otp().createIndex({ destination: 1, channel: 1, status: 1 }),
-      collections.sessions().createIndex({ jti: 1 }, { unique: true }),
-      collections.users().createIndex({ lockUntil: 1 }),
-      outboxRepo.createIndexes(),
-    ]);
-
-    await collections.roles().updateOne(
-      { name: 'citizen' },
-      {
-        $set: {
-          name: 'citizen',
-          updatedAt: new Date(),
-        },
-        $setOnInsert: {
-          createdAt: new Date(),
-        },
-        $addToSet: {
-          permissions: { $each: citizenFallbackPermissions },
-        },
-      },
-      { upsert: true }
-    );
-
-    await collections.roles().deleteMany({ name: 'admin' });
   }
 
   fastify.log.info({ dbName, redisUrl, dbReady, redisReady }, 'auth-api dependency status');
@@ -710,6 +1143,9 @@ function startOutboxWorker() {
 fastify.addHook('onRequest', async (req, reply) => {
   if (req.url === '/health') {
     return;
+  }
+  if (!dbReady) {
+    await ensureMongoConnection();
   }
   if (!dbReady || !redisReady) {
     return reply.code(503).send({ message: 'Service dependencies unavailable' });
@@ -1504,7 +1940,22 @@ fastify.post('/logout', async (req, reply) => {
 });
 
 fastify.get('/me', { preHandler: requireAuth }, async (req, reply) => {
-  const rbacScope = await fetchRbacScopeSummary(req.headers.authorization || '');
+  const authorization = req.headers.authorization || '';
+  const rbacCacheVersion = await getRbacCacheVersion();
+  const meCacheKey = buildAuthMeCacheKey(req.user, authorization, rbacCacheVersion);
+  if (authMeCacheTtlSec > 0 && meCacheKey) {
+    const cached = await getCachedJson(meCacheKey);
+    if (cached) {
+      reply.header('x-auth-me-cache', 'hit');
+      return reply.send(cached);
+    }
+  }
+
+  const userId = String(req.user._id);
+  const [rbacScope, defaultContextTheme] = await Promise.all([
+    fetchRbacScopeSummaryCached(userId, authorization, rbacCacheVersion),
+    fetchEffectiveThemeCached('platform', null),
+  ]);
   const mergedRoleNames = [
     ...new Set([
       ...((Array.isArray(req.user.roles) ? req.user.roles : ['citizen']).map((role) => String(role).trim()).filter(Boolean)),
@@ -1515,31 +1966,65 @@ fastify.get('/me', { preHandler: requireAuth }, async (req, reply) => {
     mergedRoleNames.push('citizen');
   }
 
-  const roleScope = await getRolePermissions(mergedRoleNames);
-  const scope = [...new Set([...roleScope, ...(rbacScope.permissions || [])])];
-  const { availableContexts, defaultContext } = await buildAvailableContexts(req.user._id, req.headers.authorization || '');
-  const defaultContextTheme = await fetchEffectiveTheme(defaultContext.themeScopeType, defaultContext.themeScopeId);
+  const [roleScope, contextBundle] = await Promise.all([
+    getRolePermissions(mergedRoleNames),
+    buildAvailableContextsCached(
+      req.user._id,
+      authorization,
+      rbacScope,
+      rbacCacheVersion,
+    ),
+  ]);
+  const appPermissions = [...new Set([
+    ...roleScope.map((permission) => String(permission)),
+    ...((Array.isArray(rbacScope.appPermissions) ? rbacScope.appPermissions : []).map((permission) => String(permission))),
+  ])];
+  const { availableContexts, defaultContext } = contextBundle;
 
-  return reply.send({
-    user: toUserResponse({ ...req.user, roles: mergedRoleNames }, scope),
+  const payload = {
+    user: toUserResponse({ ...req.user, roles: mergedRoleNames }, appPermissions),
+    permissions: appPermissions,
+    appPermissions,
+    orgPermissions: Array.isArray(rbacScope.orgScopePermissions) ? rbacScope.orgScopePermissions : [],
+    rbacScope: {
+      version: String(rbacScope.version || rbacCacheVersion || '0'),
+      appScopePermissions: appPermissions,
+      orgScopePermissions: Array.isArray(rbacScope.orgScopePermissions) ? rbacScope.orgScopePermissions : [],
+      appRoles: Array.isArray(rbacScope.appRoles) ? rbacScope.appRoles : [],
+      orgRolesByOrganization: rbacScope.orgRolesByOrganization || {},
+    },
     availableContexts,
     defaultContext,
     defaultContextTheme,
-  });
+  };
+  if (authMeCacheTtlSec > 0 && meCacheKey) {
+    await setCachedJson(meCacheKey, payload, authMeCacheTtlSec);
+  }
+  reply.header('x-auth-me-cache', 'miss');
+  return reply.send(payload);
 });
 
 fastify.post('/context/switch', { preHandler: requireAuth }, async (req, reply) => {
   const requested = req.body || {};
-  const { availableContexts } = await buildAvailableContexts(req.user._id, req.headers.authorization || '');
+  const authorization = req.headers.authorization || '';
+  const userId = String(req.user._id);
+  const rbacCacheVersion = await getRbacCacheVersion();
+  const rbacScope = await fetchRbacScopeSummaryCached(userId, authorization, rbacCacheVersion);
+  const { availableContexts } = await buildAvailableContextsCached(req.user._id, authorization, rbacScope, rbacCacheVersion);
+  const requestedId = requested.id || requested.contextId || null;
+  const requestedType = requested.type ? String(requested.type) : null;
+  if (!requestedId) {
+    return reply.code(400).send({ message: 'Context id is required' });
+  }
   const match = availableContexts.find((ctx) => (
-    String(ctx.type) === String(requested.type)
-    && String(ctx.id) === String(requested.id)
+    String(ctx.id) === String(requestedId)
+    && (!requestedType || String(ctx.type) === requestedType)
   ));
   if (!match) {
     return reply.code(403).send({ message: 'Requested context is not available for this user' });
   }
 
-  const effectiveTheme = await fetchEffectiveTheme(match.themeScopeType, match.themeScopeId);
+  const effectiveTheme = await fetchEffectiveThemeCached(match.themeScopeType, match.themeScopeId);
   return reply.send({
     activeContext: match,
     effectiveTheme,

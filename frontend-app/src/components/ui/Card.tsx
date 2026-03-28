@@ -16,3 +16,7 @@ export function CardTitle({ children, className }: PropsWithChildren<{ className
 export function CardDescription({ children, className }: PropsWithChildren<{ className?: string }>) {
   return <p className={cn('text-sm text-muted', className)}>{children}</p>;
 }
+
+export function CardContent({ children, className }: PropsWithChildren<{ className?: string }>) {
+  return <div className={cn(className)}>{children}</div>;
+}

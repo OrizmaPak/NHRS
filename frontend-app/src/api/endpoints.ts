@@ -13,6 +13,12 @@ export const endpoints = {
     contexts: '/auth/me',
     switchContext: '/auth/context/switch',
   },
+  profile: {
+    me: '/profile/me',
+    search: '/profile/search',
+    byUserId: (userId: string) => `/profile/${userId}`,
+    updateByUserId: (userId: string) => `/profile/${userId}`,
+  },
   uiTheme: {
     platform: '/ui/theme/platform',
     effective: '/ui/theme/effective',
@@ -89,6 +95,8 @@ export const endpoints = {
     settings: '/admin/system-settings',
   },
   org: {
+    publicList: '/public/organizations',
+    publicById: (orgId: string) => `/public/organizations/${orgId}`,
     list: '/orgs',
     deleted: '/orgs/deleted',
     search: '/orgs/search',
@@ -105,6 +113,7 @@ export const endpoints = {
     globalBranchById: (branchId: string) => `/branches/${branchId}`,
     institutions: (orgId: string) => `/orgs/${orgId}/institutions`,
     institutionById: (orgId: string, institutionId: string) => `/orgs/${orgId}/institutions/${institutionId}`,
+    institutionFilesUpload: (orgId: string, institutionId: string) => `/orgs/${orgId}/institutions/${institutionId}/files/upload`,
     institutionBranches: (orgId: string, institutionId: string) => `/orgs/${orgId}/institutions/${institutionId}/branches`,
     institutionBranchById: (orgId: string, institutionId: string, branchId: string) =>
       `/orgs/${orgId}/institutions/${institutionId}/branches/${branchId}`,
@@ -116,6 +125,19 @@ export const endpoints = {
     memberBranchAssignmentById: (orgId: string, memberId: string, assignmentId: string) =>
       `/orgs/${orgId}/members/${memberId}/branches/${assignmentId}`,
   },
+  geo: {
+    regions: '/geo/regions',
+    regionById: (regionId: string) => `/geo/regions/${regionId}`,
+    states: '/geo/states',
+    stateById: (stateId: string) => `/geo/states/${stateId}`,
+    lgas: '/geo/lgas',
+    lgaById: (lgaId: string) => `/geo/lgas/${lgaId}`,
+    hierarchy: '/geo/hierarchy',
+  },
+  catalog: {
+    globalServices: '/global-services',
+    globalServiceById: (serviceId: string) => `/global-services/${serviceId}`,
+  },
   rbac: {
     appPermissions: '/rbac/app/permissions',
     appRoles: '/rbac/app/roles',
@@ -124,6 +146,7 @@ export const endpoints = {
     appUserRoles: (userId: string) => `/rbac/app/users/${userId}/roles`,
     appUserOverrides: (userId: string) => `/rbac/app/users/${userId}/overrides`,
     orgPermissions: (organizationId: string) => `/rbac/org/${organizationId}/permissions`,
+    orgPermissionByKey: (organizationId: string, key: string) => `/rbac/org/${organizationId}/permissions/${encodeURIComponent(key)}`,
     orgRoles: (organizationId: string) => `/rbac/org/${organizationId}/roles`,
     orgRoleById: (organizationId: string, id: string) => `/rbac/org/${organizationId}/roles/${id}`,
     orgUserAccess: (organizationId: string, userId: string) => `/rbac/org/${organizationId}/users/${userId}/access`,

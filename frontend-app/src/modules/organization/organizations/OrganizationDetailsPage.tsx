@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Building2, GitBranch, ShieldCheck, ShieldX, Trash2, Users } from 'lucide-react';
+import { ShieldX, Trash2, UserCog } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -13,19 +13,19 @@ import { EmptyState } from '@/components/feedback/EmptyState';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
 import { FormField } from '@/components/forms/FormField';
 import { Input } from '@/components/ui/Input';
+import { SmartSelect } from '@/components/data/SmartSelect';
 import { PermissionGate } from '@/components/navigation/PermissionGate';
 import { usePermissionsStore } from '@/stores/permissionsStore';
+import { useContextStore } from '@/stores/contextStore';
+import { getOrganizationIdFromContext } from '@/lib/organizationContext';
 import {
   useOrgDetails,
-  useOrgInstitutions,
   useRequestOrganizationDeletion,
   useRestoreOrganization,
-  useReviewOrganizationApproval,
-  useReviewOrganizationDeletion,
-  useScopedBranches,
   useUpdateOrganization,
   useUploadOrganizationFile,
 } from '@/api/hooks/useInstitutions';
+import { useGeoLgas, useGeoStates } from '@/api/hooks/useGeography';
 import { useAuditEvents } from '@/api/hooks/useAuditEvents';
 
 const formSchema = z.object({
@@ -36,8 +36,8 @@ const formSchema = z.object({
   foundedAt: z.string().optional(),
   openedAt: z.string().optional(),
   website: z.string().optional(),
-  state: z.string().optional(),
-  lga: z.string().optional(),
+  state: z.string().min(2, 'State is required'),
+  lga: z.string().min(2, 'LGA is required'),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -53,27 +53,25 @@ export function OrganizationDetailsPage() {
   const { orgId = '' } = useParams();
   const navigate = useNavigate();
   const hasPermission = usePermissionsStore((state) => state.hasPermission);
+  const activeContext = useContextStore((state) => state.activeContext);
+  const contextOrganizationId = getOrganizationIdFromContext(activeContext);
   const canEdit = hasPermission('org.update');
+  const canViewAudit = hasPermission('audit.read') || hasPermission('audit.view');
+  const inOrganizationContext = activeContext?.type === 'organization';
+  const inPlatformContext = activeContext?.type === 'platform';
   const [editOpen, setEditOpen] = useState(false);
-  const [approvalOpen, setApprovalOpen] = useState(false);
-  const [approvalDecision, setApprovalDecision] = useState<'approve' | 'decline' | 'revoke'>('approve');
-  const [approvalNotes, setApprovalNotes] = useState('');
   const [deleteRequestOpen, setDeleteRequestOpen] = useState(false);
   const [deleteReason, setDeleteReason] = useState('');
-  const [deleteReviewOpen, setDeleteReviewOpen] = useState(false);
-  const [deleteReviewDecision, setDeleteReviewDecision] = useState<'approve' | 'decline'>('approve');
-  const [deleteReviewNotes, setDeleteReviewNotes] = useState('');
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [cacFile, setCacFile] = useState<File | null>(null);
 
   const detailsQuery = useOrgDetails(orgId);
-  const institutionsQuery = useOrgInstitutions(orgId);
-  const branchesQuery = useScopedBranches({ page: 1, limit: 8, orgId });
-  const auditQuery = useAuditEvents({ page: 1, limit: 8, institution: orgId });
+  const auditQuery = useAuditEvents(
+    { page: 1, limit: 8, institution: orgId },
+    { enabled: canViewAudit, suppressGlobalErrors: true },
+  );
   const updateOrg = useUpdateOrganization();
-  const reviewApproval = useReviewOrganizationApproval();
   const requestDeletion = useRequestOrganizationDeletion();
-  const reviewDeletion = useReviewOrganizationDeletion();
   const restoreOrg = useRestoreOrganization();
   const uploadOrgFile = useUploadOrganizationFile();
 
@@ -93,6 +91,31 @@ export function OrganizationDetailsPage() {
       lga: '',
     },
   });
+  const selectedStateName = form.watch('state') || '';
+  const selectedLgaName = form.watch('lga') || '';
+  const geoStatesQuery = useGeoStates();
+  const geoStates = geoStatesQuery.data ?? [];
+  const selectedState = geoStates.find((entry) => entry.name.toLowerCase() === selectedStateName.toLowerCase()) ?? null;
+  const geoLgasQuery = useGeoLgas({
+    stateId: selectedState?.stateId,
+    includeInactive: false,
+    enabled: Boolean(selectedState?.stateId),
+  });
+  const geoLgas = geoLgasQuery.data ?? [];
+  const stateOptions = useMemo(() => {
+    const options = geoStates.map((entry) => ({ value: entry.name, label: entry.name }));
+    if (selectedStateName && !options.some((entry) => entry.value.toLowerCase() === selectedStateName.toLowerCase())) {
+      options.unshift({ value: selectedStateName, label: selectedStateName });
+    }
+    return options;
+  }, [geoStates, selectedStateName]);
+  const lgaOptions = useMemo(() => {
+    const options = geoLgas.map((entry) => ({ value: entry.name, label: entry.name }));
+    if (selectedLgaName && !options.some((entry) => entry.value.toLowerCase() === selectedLgaName.toLowerCase())) {
+      options.unshift({ value: selectedLgaName, label: selectedLgaName });
+    }
+    return options;
+  }, [geoLgas, selectedLgaName]);
 
   useEffect(() => {
     if (!org) return;
@@ -109,9 +132,6 @@ export function OrganizationDetailsPage() {
     });
   }, [form, org]);
 
-  const recentInstitutions = useMemo(() => (institutionsQuery.data?.rows ?? []).slice(0, 6), [institutionsQuery.data?.rows]);
-  const recentBranches = useMemo(() => (branchesQuery.data?.rows ?? []).slice(0, 8), [branchesQuery.data?.rows]);
-
   if (!orgId) {
     return <ErrorState title="Organization not found" description="Invalid organization identifier." />;
   }
@@ -122,6 +142,15 @@ export function OrganizationDetailsPage() {
 
   if (!org) {
     return <EmptyState title="No organization found" description="This organization may have been removed or you may not have visibility." />;
+  }
+  if (inOrganizationContext && contextOrganizationId && org.organizationId !== contextOrganizationId) {
+    return (
+      <ErrorState
+        title="Organization not in active context"
+        description="Switch to the correct organization context to view this workspace."
+        onRetry={() => navigate(`/app/organizations/${contextOrganizationId}`)}
+      />
+    );
   }
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -155,21 +184,21 @@ export function OrganizationDetailsPage() {
       <PageHeader
         title={org.name}
         description={detailsQuery.data?.viewerScope?.message || 'Organization profile and oversight view.'}
-        breadcrumbs={[{ label: 'Organization' }, { label: 'Organizations', href: '/app/organizations' }, { label: org.name }]}
+        breadcrumbs={[
+          { label: 'Organization' },
+          { label: 'Organizations', href: inPlatformContext ? '/app/organizations' : undefined },
+          { label: org.name },
+        ]}
         actions={(
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => navigate(`/app/organizations/${org.organizationId}/staff`)}>
-              <Users className="h-4 w-4" />
-              View Staff
-            </Button>
-            <Button variant="outline" onClick={() => navigate(`/app/institutions?orgId=${encodeURIComponent(org.organizationId)}`)}>
-              <Building2 className="h-4 w-4" />
-              View Institutions
-            </Button>
-            <Button variant="outline" onClick={() => navigate(`/app/branches?orgId=${encodeURIComponent(org.organizationId)}`)}>
-              <GitBranch className="h-4 w-4" />
-              View Branches
-            </Button>
+            {inOrganizationContext ? (
+              <PermissionGate permission="org.member.read">
+                <Button variant="outline" onClick={() => navigate(`/app/organizations/${org.organizationId}/staff`)}>
+                  <UserCog className="h-4 w-4" />
+                  Manage Staff
+                </Button>
+              </PermissionGate>
+            ) : null}
             {canEdit ? <Button variant="outline" onClick={() => setEditOpen(true)}>Edit Organization</Button> : null}
           </div>
         )}
@@ -190,7 +219,6 @@ export function OrganizationDetailsPage() {
         </CardHeader>
         <div className="grid gap-4 p-6 pt-0 md:grid-cols-2 xl:grid-cols-4">
           <div><p className="text-xs text-muted">Organization ID</p><p className="text-sm text-foreground">{org.organizationId}</p></div>
-          <div><p className="text-xs text-muted">Type</p><p className="text-sm text-foreground">{cap(org.type)}</p></div>
           <div><p className="text-xs text-muted">Owner Type</p><p className="text-sm text-foreground">{cap(org.ownerType || 'N/A')}</p></div>
           <div><p className="text-xs text-muted">Registration</p><p className="text-sm text-foreground">{org.registrationNumber || 'Not set'}</p></div>
           <div><p className="text-xs text-muted">Founded</p><p className="text-sm text-foreground">{org.foundedAt ? new Date(org.foundedAt).toLocaleDateString() : 'N/A'}</p></div>
@@ -205,28 +233,10 @@ export function OrganizationDetailsPage() {
         <div className="flex flex-wrap gap-2 border-t border-border p-6 pt-4">
           <PermissionGate permission="org.update">
             <>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setApprovalDecision(org.approvalStatus === 'approved' ? 'revoke' : 'approve');
-                  setApprovalNotes('');
-                  setApprovalOpen(true);
-                }}
-              >
-                <ShieldCheck className="h-4 w-4" />
-                Review Approval
-              </Button>
               {org.lifecycleStatus === 'delete_pending' ? (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDeleteReviewDecision('approve');
-                    setDeleteReviewNotes('');
-                    setDeleteReviewOpen(true);
-                  }}
-                >
+                <Button variant="outline" onClick={() => navigate('/app/organizations/approvals')}>
                   <ShieldX className="h-4 w-4" />
-                  Review Deletion
+                  Deletion Pending Review
                 </Button>
               ) : org.lifecycleStatus === 'deleted' ? (
                 <Button onClick={() => restoreOrg.mutate({ orgId: org.organizationId })} loading={restoreOrg.isPending}>
@@ -243,51 +253,22 @@ export function OrganizationDetailsPage() {
         </div>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Institutions (Preview)</CardTitle>
-            <CardDescription>Click any item to open full institution details.</CardDescription>
-          </CardHeader>
-          <div className="space-y-2 p-6 pt-0">
-            {recentInstitutions.length === 0 ? <p className="text-sm text-muted">No institutions available.</p> : recentInstitutions.map((institution) => (
-              <Link key={institution.institutionId} to={`/app/institutions/${institution.institutionId}`} className="flex items-center justify-between rounded-md border border-border p-3 text-sm hover:bg-muted/40">
-                <span>{institution.name}</span>
-                <StatusBadge status={institution.status} />
-              </Link>
-            ))}
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Branches (Preview)</CardTitle>
-            <CardDescription>View organization branches at a glance.</CardDescription>
-          </CardHeader>
-          <div className="space-y-2 p-6 pt-0">
-            {recentBranches.length === 0 ? <p className="text-sm text-muted">No branches available.</p> : recentBranches.map((branch) => (
-              <Link key={branch.branchId} to={`/app/branches/${branch.branchId}`} className="flex items-center justify-between rounded-md border border-border p-3 text-sm hover:bg-muted/40">
-                <span>{branch.name}</span>
-                <StatusBadge status={branch.status} />
-              </Link>
-            ))}
-          </div>
-        </Card>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>Recent Organization Activity</CardTitle>
           <CardDescription>Audit events for this organization.</CardDescription>
         </CardHeader>
         <div className="space-y-2 p-6 pt-0">
+          {!canViewAudit ? <p className="text-sm text-muted">No audit visibility in the current role context.</p> : null}
           {auditQuery.isLoading ? <p className="text-sm text-muted">Loading activity...</p> : null}
-          {(auditQuery.data?.rows ?? []).length === 0 ? <p className="text-sm text-muted">No recent activity.</p> : (auditQuery.data?.rows ?? []).map((event) => (
+          {canViewAudit && auditQuery.isError ? <p className="text-sm text-muted">Unable to load activity right now.</p> : null}
+          {canViewAudit && (auditQuery.data?.rows ?? []).length === 0 ? <p className="text-sm text-muted">No recent activity.</p> : null}
+          {canViewAudit ? (auditQuery.data?.rows ?? []).map((event) => (
             <div key={event.eventId} className="rounded-md border border-border p-3 text-sm">
               <p className="font-medium text-foreground">{event.action}</p>
               <p className="text-muted">{event.actor} - {new Date(event.timestamp).toLocaleString()}</p>
             </div>
-          ))}
+          )) : null}
         </div>
       </Card>
 
@@ -306,8 +287,35 @@ export function OrganizationDetailsPage() {
             <FormField label="Opened Date"><Input type="date" {...form.register('openedAt')} /></FormField>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <FormField label="State"><Input {...form.register('state')} /></FormField>
-            <FormField label="LGA"><Input {...form.register('lga')} /></FormField>
+            <FormField label="State">
+              <SmartSelect
+                value={form.watch('state') || null}
+                onChange={(next) => {
+                  form.setValue('state', next, { shouldDirty: true, shouldValidate: true });
+                  form.setValue('lga', '', { shouldDirty: true, shouldValidate: true });
+                }}
+                placeholder={geoStatesQuery.isLoading ? 'Loading states...' : 'Select state'}
+                debounceMs={200}
+                loadOptions={async (input) =>
+                  stateOptions.filter((entry) => entry.label.toLowerCase().includes(input.toLowerCase()))
+                }
+              />
+            </FormField>
+            <FormField label="LGA">
+              {selectedState ? (
+                <SmartSelect
+                  value={form.watch('lga') || null}
+                  onChange={(next) => form.setValue('lga', next, { shouldDirty: true, shouldValidate: true })}
+                  placeholder={geoLgasQuery.isLoading ? 'Loading LGAs...' : 'Select LGA'}
+                  debounceMs={200}
+                  loadOptions={async (input) =>
+                    lgaOptions.filter((entry) => entry.label.toLowerCase().includes(input.toLowerCase()))
+                  }
+                />
+              ) : (
+                <Input value="" readOnly placeholder="Select state first" />
+              )}
+            </FormField>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <FormField label="Logo Upload (optional)">
@@ -333,40 +341,6 @@ export function OrganizationDetailsPage() {
         </form>
       </Modal>
 
-      <Modal open={approvalOpen} onOpenChange={setApprovalOpen} title="Review Organization Approval">
-        <form
-          className="space-y-3"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            await reviewApproval.mutateAsync({
-              orgId: org.organizationId,
-              decision: approvalDecision,
-              notes: approvalNotes || undefined,
-            });
-            setApprovalOpen(false);
-          }}
-        >
-          <FormField label="Decision">
-            <select
-              className="h-10 w-full rounded-md border border-border px-3 text-sm"
-              value={approvalDecision}
-              onChange={(event) => setApprovalDecision(event.target.value as 'approve' | 'decline' | 'revoke')}
-            >
-              <option value="approve">Approve</option>
-              <option value="decline">Decline</option>
-              <option value="revoke">Revoke</option>
-            </select>
-          </FormField>
-          <FormField label="Notes (optional)">
-            <Input value={approvalNotes} onChange={(event) => setApprovalNotes(event.target.value)} />
-          </FormField>
-          <ModalFooter>
-            <Button type="button" variant="outline" onClick={() => setApprovalOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={reviewApproval.isPending}>Submit</Button>
-          </ModalFooter>
-        </form>
-      </Modal>
-
       <Modal open={deleteRequestOpen} onOpenChange={setDeleteRequestOpen} title="Request Organization Deletion">
         <form
           className="space-y-3"
@@ -385,39 +359,6 @@ export function OrganizationDetailsPage() {
           <ModalFooter>
             <Button type="button" variant="outline" onClick={() => setDeleteRequestOpen(false)}>Cancel</Button>
             <Button type="submit" loading={requestDeletion.isPending}>Request</Button>
-          </ModalFooter>
-        </form>
-      </Modal>
-
-      <Modal open={deleteReviewOpen} onOpenChange={setDeleteReviewOpen} title="Review Deletion Request">
-        <form
-          className="space-y-3"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            await reviewDeletion.mutateAsync({
-              orgId: org.organizationId,
-              decision: deleteReviewDecision,
-              notes: deleteReviewNotes || undefined,
-            });
-            setDeleteReviewOpen(false);
-          }}
-        >
-          <FormField label="Decision">
-            <select
-              className="h-10 w-full rounded-md border border-border px-3 text-sm"
-              value={deleteReviewDecision}
-              onChange={(event) => setDeleteReviewDecision(event.target.value as 'approve' | 'decline')}
-            >
-              <option value="approve">Approve Delete</option>
-              <option value="decline">Decline Delete</option>
-            </select>
-          </FormField>
-          <FormField label="Review notes (optional)">
-            <Input value={deleteReviewNotes} onChange={(event) => setDeleteReviewNotes(event.target.value)} />
-          </FormField>
-          <ModalFooter>
-            <Button type="button" variant="outline" onClick={() => setDeleteReviewOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={reviewDeletion.isPending}>Submit</Button>
           </ModalFooter>
         </form>
       </Modal>

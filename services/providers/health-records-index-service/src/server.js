@@ -20,6 +20,7 @@ const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-con
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
 const outboxBatchSize = Number(process.env.OUTBOX_BATCH_SIZE) || 20;
 const outboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS) || 20;
+const mongoReconnectDelayMs = Math.max(1000, Number(process.env.MONGO_RECONNECT_DELAY_MS) || 10000);
 
 function parseBearerToken(req) {
   const authHeader = req.headers.authorization || '';
@@ -42,6 +43,8 @@ function createApp(options = {}) {
     mongoClient: null,
     db: null,
     repository: null,
+    mongoConnectPromise: null,
+    mongoReconnectTimer: null,
     fetchClient: options.fetchImpl || ((...args) => fetch(...args)),
     startedWithInjectedDb: Boolean(options.db),
     outboxTimer: null,
@@ -156,9 +159,76 @@ function createApp(options = {}) {
     }));
   }
 
+  async function closeMongoClientQuietly() {
+    if (!state.mongoClient) return;
+    try {
+      await state.mongoClient.close();
+    } catch (_err) {
+      // Ignore cleanup failures while retrying the health-records-index database connection.
+    }
+    state.mongoClient = null;
+  }
+
+  function scheduleMongoReconnect() {
+    if (state.dbReady || state.mongoReconnectTimer || !mongoUri) {
+      return;
+    }
+    state.mongoReconnectTimer = setTimeout(() => {
+      state.mongoReconnectTimer = null;
+      void ensureMongoConnection();
+    }, mongoReconnectDelayMs);
+  }
+
+  async function ensureMongoConnection() {
+    if (state.dbReady) {
+      return true;
+    }
+    if (!mongoUri) {
+      fastify.log.warn('Missing MONGODB_URI; health-records-index-service running in degraded mode');
+      return false;
+    }
+    if (state.mongoConnectPromise) {
+      return state.mongoConnectPromise;
+    }
+
+    state.mongoConnectPromise = (async () => {
+      try {
+        await closeMongoClientQuietly();
+        state.mongoClient = new MongoClient(mongoUri, {
+          serverApi: {
+            version: ServerApiVersion.v1,
+            strict: true,
+            deprecationErrors: true,
+          },
+        });
+        await state.mongoClient.connect();
+        state.db = state.mongoClient.db(dbName);
+        await state.db.command({ ping: 1 });
+        state.repository = createRepository(state.db);
+        await state.repository.createIndexes();
+        state.dbReady = true;
+        fastify.log.info({ dbName }, 'health-records-index-service MongoDB connection ready');
+        return true;
+      } catch (err) {
+        state.dbReady = false;
+        state.db = null;
+        state.repository = null;
+        fastify.log.warn({ err }, 'MongoDB connection failed; health-records-index-service running in degraded mode');
+        await closeMongoClientQuietly();
+        scheduleMongoReconnect();
+        return false;
+      } finally {
+        state.mongoConnectPromise = null;
+      }
+    })();
+
+    return state.mongoConnectPromise;
+  }
+
   fastify.addHook('onRequest', async (req, reply) => {
     if (req.url === '/health') return;
     if (!state.dbReady) {
+      void ensureMongoConnection();
       return reply.code(503).send({ message: 'Health records index storage unavailable' });
     }
   });
@@ -197,30 +267,13 @@ function createApp(options = {}) {
       fastify.log.warn('Missing MONGODB_URI; health-records-index-service running in degraded mode');
       return;
     }
-    try {
-      state.mongoClient = new MongoClient(mongoUri, {
-        serverApi: {
-          version: ServerApiVersion.v1,
-          strict: true,
-          deprecationErrors: true,
-        },
-      });
-      await state.mongoClient.connect();
-      state.db = state.mongoClient.db(dbName);
-      await state.db.command({ ping: 1 });
-      state.repository = createRepository(state.db);
-      await state.repository.createIndexes();
-      state.dbReady = true;
-    } catch (err) {
-      fastify.log.warn({ err }, 'MongoDB connection failed');
-    }
+    void ensureMongoConnection();
   }
 
   async function close() {
     if (state.outboxTimer) clearInterval(state.outboxTimer);
-    if (state.mongoClient) {
-      await state.mongoClient.close();
-    }
+    if (state.mongoReconnectTimer) clearTimeout(state.mongoReconnectTimer);
+    await closeMongoClientQuietly();
     await fastify.close();
   }
 

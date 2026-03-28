@@ -77,9 +77,11 @@ function makeFakeDb() {
           insertOne: async (doc) => { assignments.push(structuredClone(doc)); return { acknowledged: true }; },
           findOne: async (query) => assignments.find((a) => {
             if (query.assignmentId) return a.assignmentId === query.assignmentId;
-            if (query.organizationId && query.membershipId && query.branchId) {
+            if (query.organizationId && query.membershipId) {
               const statusMatch = query.status?.$in ? query.status.$in.includes(a.status) : (!query.status || a.status === query.status);
-              return a.organizationId === query.organizationId && a.membershipId === query.membershipId && a.branchId === query.branchId && statusMatch;
+              const branchMatch = Object.prototype.hasOwnProperty.call(query, 'branchId') ? a.branchId === query.branchId : true;
+              const institutionMatch = Object.prototype.hasOwnProperty.call(query, 'institutionId') ? a.institutionId === query.institutionId : true;
+              return a.organizationId === query.organizationId && a.membershipId === query.membershipId && branchMatch && institutionMatch && statusMatch;
             }
             return false;
           }) || null,
@@ -95,7 +97,15 @@ function makeFakeDb() {
             };
           },
           updateOne: async (query, update) => {
-            const idx = assignments.findIndex((a) => a.assignmentId === query.assignmentId || (a.organizationId === query.organizationId && a.membershipId === query.membershipId && a.assignmentId === query.assignmentId));
+            const idx = assignments.findIndex((a) => {
+              if (query.assignmentId) return a.assignmentId === query.assignmentId;
+              if (query.organizationId && query.membershipId) {
+                const branchMatch = Object.prototype.hasOwnProperty.call(query, 'branchId') ? a.branchId === query.branchId : true;
+                const institutionMatch = Object.prototype.hasOwnProperty.call(query, 'institutionId') ? a.institutionId === query.institutionId : true;
+                return a.organizationId === query.organizationId && a.membershipId === query.membershipId && branchMatch && institutionMatch;
+              }
+              return false;
+            });
             if (idx >= 0) assignments[idx] = { ...assignments[idx], ...(update.$set || {}) };
             return { acknowledged: true };
           },
@@ -163,6 +173,98 @@ test('membership invite allowed -> 201', async () => {
   });
   assert.equal(res.statusCode, 201);
   assert.equal(fakeDb.__inspect.memberships.length, 1);
+});
+
+test('existing organization member can later receive institution assignment through add-member flow', async () => {
+  const { app, fakeDb } = buildTestApp({ allow: true });
+  const token = makeAccessToken({ sub: 'user-1' }, 'change-me');
+
+  const orgAdd = await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/members',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { nin: '90000000001', initialRoles: ['manager'] },
+  });
+  assert.equal(orgAdd.statusCode, 201);
+  assert.equal(fakeDb.__inspect.memberships.length, 1);
+  assert.equal(fakeDb.__inspect.assignments.length, 0);
+
+  const institutionAdd = await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/members',
+    headers: { authorization: `Bearer ${token}` },
+    payload: {
+      nin: '90000000001',
+      initialBranchAssignments: [{ institutionId: 'inst-1', roles: ['manager'] }],
+    },
+  });
+
+  assert.equal(institutionAdd.statusCode, 200);
+  assert.equal(institutionAdd.json().assignmentUpserts, 1);
+  assert.equal(fakeDb.__inspect.memberships.length, 1);
+  assert.equal(fakeDb.__inspect.assignments.length, 1);
+  assert.equal(fakeDb.__inspect.assignments[0].institutionId, 'inst-1');
+  assert.deepEqual(fakeDb.__inspect.assignments[0].roles, ['manager']);
+});
+
+test('re-adding same scoped assignment does not duplicate assignment rows', async () => {
+  const { app, fakeDb } = buildTestApp({ allow: true });
+  const token = makeAccessToken({ sub: 'user-1' }, 'change-me');
+
+  await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/members',
+    headers: { authorization: `Bearer ${token}` },
+    payload: {
+      nin: '90000000001',
+      initialBranchAssignments: [{ institutionId: 'inst-1', roles: ['manager'] }],
+    },
+  });
+
+  const secondAdd = await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/members',
+    headers: { authorization: `Bearer ${token}` },
+    payload: {
+      nin: '90000000001',
+      initialBranchAssignments: [{ institutionId: 'inst-1', roles: ['supervisor'] }],
+    },
+  });
+
+  assert.equal(secondAdd.statusCode, 200);
+  assert.equal(secondAdd.json().assignmentUpserts, 1);
+  assert.equal(fakeDb.__inspect.assignments.length, 1);
+  assert.deepEqual(fakeDb.__inspect.assignments[0].roles, ['supervisor']);
+});
+
+test('membership listing does not trust spoofed super context headers', async () => {
+  const { app } = buildTestApp({ allow: true });
+  const ownerToken = makeAccessToken({ sub: 'owner-1' }, 'change-me');
+  const viewerToken = makeAccessToken({ sub: 'viewer-2' }, 'change-me');
+
+  const invite = await app.inject({
+    method: 'POST',
+    url: '/orgs/org-1/memberships/invite',
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: { nin: '90000000001', roles: ['doctor'], branchIds: [] },
+  });
+  assert.equal(invite.statusCode, 201);
+
+  const res = await app.inject({
+    method: 'GET',
+    url: '/orgs/org-1/members?page=1&limit=20',
+    headers: {
+      authorization: `Bearer ${viewerToken}`,
+      'x-active-context-id': 'app:super',
+      'x-active-context-name': 'Super Admin',
+      'x-active-context-type': 'super',
+    },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().total, 0);
+  assert.equal(Array.isArray(res.json().items), true);
+  assert.equal(res.json().items.length, 0);
 });
 
 test('assign user to multiple branches creates two assignments', async () => {

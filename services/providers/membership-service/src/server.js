@@ -15,6 +15,7 @@ const jwtSecret = process.env.JWT_SECRET || 'change-me';
 const authApiBaseUrl = process.env.AUTH_API_BASE_URL || 'http://auth-api:8081';
 const rbacApiBaseUrl = process.env.RBAC_API_BASE_URL || 'http://rbac-service:8090';
 const auditApiBaseUrl = process.env.AUDIT_API_BASE_URL || 'http://audit-log-service:8091';
+const organizationApiBaseUrl = process.env.ORGANIZATION_API_BASE_URL || 'http://organization-service:8093';
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'change-me-internal-token';
 const nhrsContextSecret = process.env.NHRS_CONTEXT_HMAC_SECRET || 'change-me-context-secret';
 const outboxIntervalMs = Number(process.env.OUTBOX_INTERVAL_MS) || 2000;
@@ -27,6 +28,11 @@ let db;
 let fetchClient = (...args) => fetch(...args);
 let outboxRepo = null;
 let outboxTimer = null;
+let mongoConnectPromise = null;
+let mongoReconnectTimer = null;
+let membershipIndexesReady = false;
+
+const mongoReconnectDelayMs = Math.max(1000, Number(process.env.MONGO_RECONNECT_DELAY_MS) || 10000);
 
 const collections = {
   memberships: () => db.collection('org_memberships'),
@@ -54,6 +60,16 @@ function parseBearerToken(req) {
   return authHeader.slice(7);
 }
 
+function forwardAccessHeaders(req) {
+  return {
+    authorization: req.headers.authorization || '',
+    'content-type': 'application/json',
+    'x-active-context-id': req.headers['x-active-context-id'] || '',
+    'x-active-context-name': req.headers['x-active-context-name'] || '',
+    'x-active-context-type': req.headers['x-active-context-type'] || '',
+  };
+}
+
 async function callJson(url, options = {}) {
   const res = await fetchClient(url, options);
   const text = await res.text();
@@ -66,6 +82,90 @@ async function callJson(url, options = {}) {
     }
   }
   return { ok: res.ok, status: res.status, body };
+}
+
+function normalizeRoleNames(value) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function serializeRoleNamesForRbac(value) {
+  return Array.from(new Set(
+    normalizeRoleNames(value)
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean),
+  ));
+}
+
+function enforceExclusiveLeadershipRoleNames(value) {
+  const normalizedRoles = normalizeRoleNames(value);
+  const hasOwner = normalizedRoles.some((role) => String(role || '').trim().toLowerCase() === 'owner');
+  if (!hasOwner) {
+    return normalizedRoles;
+  }
+  return normalizedRoles.filter((role) => String(role || '').trim().toLowerCase() !== 'super_staff');
+}
+
+async function resolveScopeNames(organizationId, institutionId = null, branchId = null) {
+  const normalizedOrganizationId = String(organizationId || '').trim();
+  if (!normalizedOrganizationId) {
+    return { organizationName: null, institutionId: null, institutionName: null, branchId: null, branchName: null };
+  }
+  const search = new URLSearchParams();
+  const normalizedInstitutionId = institutionId ? String(institutionId).trim() : '';
+  const normalizedBranchId = branchId ? String(branchId).trim() : '';
+  if (normalizedInstitutionId) search.set('institutionId', normalizedInstitutionId);
+  if (normalizedBranchId) search.set('branchId', normalizedBranchId);
+  const suffix = search.size > 0 ? `?${search.toString()}` : '';
+  const response = await callJson(`${organizationApiBaseUrl}/internal/orgs/${encodeURIComponent(normalizedOrganizationId)}/access${suffix}`, {
+    method: 'GET',
+    headers: {
+      'x-internal-token': internalServiceToken,
+      'content-type': 'application/json',
+    },
+  });
+  if (!response.ok || !response.body?.allowed) {
+    return { organizationName: null, institutionId: normalizedInstitutionId || null, institutionName: null, branchId: normalizedBranchId || null, branchName: null };
+  }
+  return {
+    organizationName: response.body?.organizationName ? String(response.body.organizationName).trim() : null,
+    institutionId: response.body?.institutionId ? String(response.body.institutionId).trim() : (normalizedInstitutionId || null),
+    institutionName: response.body?.institutionName ? String(response.body.institutionName).trim() : null,
+    branchId: response.body?.branchId ? String(response.body.branchId).trim() : (normalizedBranchId || null),
+    branchName: response.body?.branchName ? String(response.body.branchName).trim() : null,
+  };
+}
+
+async function syncOrgMembershipRolesToRbac(organizationId, userId, roleNames = []) {
+  const normalizedOrganizationId = String(organizationId || '').trim();
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedOrganizationId || !normalizedUserId) {
+    return { synced: false, skipped: true };
+  }
+
+  const response = await callJson(
+    `${rbacApiBaseUrl}/internal/rbac/org/${encodeURIComponent(normalizedOrganizationId)}/users/${encodeURIComponent(normalizedUserId)}/roles`,
+    {
+      method: 'POST',
+      headers: {
+        'x-internal-token': internalServiceToken,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ roleNames: serializeRoleNamesForRbac(roleNames) }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(response.body?.message || `RBAC org role sync failed (${response.status})`);
+  }
+
+  return { synced: true, roleIds: Array.isArray(response.body?.roleIds) ? response.body.roleIds : [] };
 }
 
 function emitAuditEvent(event) {
@@ -147,19 +247,106 @@ function validateCoverageType(type) {
   return ['primary', 'secondary', 'floating'].includes(type);
 }
 
-function hasCrossBranchRole(roles) {
-  const elevated = new Set(['org_owner', 'org_admin', 'regional_manager', 'supervisor']);
-  return Array.isArray(roles) && roles.some((role) => elevated.has(String(role).trim().toLowerCase()));
+function applyExclusiveLeadershipRoles(existingRoles = [], desiredRoles = []) {
+  const normalizedExisting = Array.isArray(existingRoles)
+    ? existingRoles.map((role) => String(role || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  const normalizedDesired = Array.isArray(desiredRoles)
+    ? desiredRoles.map((role) => String(role || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  const next = new Set(normalizedExisting);
+  const wantsOwner = normalizedDesired.includes('owner');
+  const wantsSuperStaff = normalizedDesired.includes('super_staff');
+
+  if (wantsOwner) {
+    next.delete('super_staff');
+  }
+  if (wantsSuperStaff) {
+    next.delete('owner');
+  }
+  for (const role of normalizedDesired) {
+    next.add(role);
+  }
+  return Array.from(next);
 }
 
-function hasSuperContext(req) {
-  const contextName = String(req.headers['x-active-context-name'] || '').trim().toLowerCase();
-  const contextId = String(req.headers['x-active-context-id'] || '').trim().toLowerCase();
-  const contextType = String(req.headers['x-active-context-type'] || '').trim().toLowerCase();
-  if (contextType === 'super') return true;
-  if (['super', 'superadmin', 'super admin', 'platform admin', 'app admin'].includes(contextName)) return true;
-  if (['app:super', 'super', 'superadmin', 'super_admin'].includes(contextId)) return true;
-  return false;
+function toAssignmentStartDate(value) {
+  if (!value) return now();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? now() : parsed;
+}
+
+async function upsertInitialAssignments(organizationId, membership, rawAssignments = []) {
+  const normalizedOrganizationId = String(organizationId || '').trim();
+  const normalizedMembershipId = String(membership?.membershipId || '').trim();
+  if (!normalizedOrganizationId || !normalizedMembershipId || !Array.isArray(rawAssignments) || rawAssignments.length === 0) {
+    return { count: 0, assignments: [] };
+  }
+
+  const upsertedAssignments = [];
+  for (const rawAssignment of rawAssignments) {
+    const branchId = rawAssignment?.branchId ? String(rawAssignment.branchId).trim() : null;
+    const institutionId = rawAssignment?.institutionId ? String(rawAssignment.institutionId).trim() : null;
+    if (!branchId && !institutionId) {
+      continue;
+    }
+
+    const scopeNames = await resolveScopeNames(normalizedOrganizationId, institutionId, branchId);
+    const effectiveStart = toAssignmentStartDate(rawAssignment?.activeFrom || rawAssignment?.startDate);
+    const updates = {
+      institutionId,
+      branchId,
+      institutionName: scopeNames.institutionName,
+      branchName: scopeNames.branchName,
+      roles: normalizeRoleNames(rawAssignment?.roles),
+      departments: Array.isArray(rawAssignment?.departments) ? rawAssignment.departments : [],
+      isPrimary: rawAssignment?.isPrimary === true,
+      coverageType: validateCoverageType(rawAssignment?.coverageType) ? rawAssignment.coverageType : 'secondary',
+      activeFrom: effectiveStart,
+      activeTo: null,
+      assignedAt: effectiveStart,
+      removedAt: null,
+      removalReason: null,
+      removalOtherReason: null,
+      removalMoreInformation: null,
+      status: 'active',
+      updatedAt: now(),
+    };
+
+    const existingAssignment = await collections.assignments().findOne({
+      organizationId: normalizedOrganizationId,
+      membershipId: normalizedMembershipId,
+      institutionId,
+      branchId,
+      status: { $in: ['active', 'inactive'] },
+    });
+
+    if (existingAssignment) {
+      await collections.assignments().updateOne(
+        { assignmentId: existingAssignment.assignmentId },
+        { $set: updates },
+      );
+      upsertedAssignments.push({ ...existingAssignment, ...updates });
+      continue;
+    }
+
+    const assignment = {
+      assignmentId: crypto.randomUUID(),
+      membershipId: normalizedMembershipId,
+      organizationId: normalizedOrganizationId,
+      createdAt: now(),
+      ...updates,
+    };
+    await collections.assignments().insertOne(assignment);
+    upsertedAssignments.push(assignment);
+  }
+
+  return { count: upsertedAssignments.length, assignments: upsertedAssignments };
+}
+
+function hasCrossBranchRole(roles) {
+  const elevated = new Set(['owner', 'super_staff', 'org_owner', 'org_admin', 'regional_manager', 'supervisor']);
+  return Array.isArray(roles) && roles.some((role) => elevated.has(String(role).trim().toLowerCase()));
 }
 
 function hasSuperRole(req) {
@@ -167,7 +354,7 @@ function hasSuperRole(req) {
 }
 
 async function resolveRequesterScope(req, organizationId) {
-  if (hasSuperRole(req) || hasSuperContext(req)) {
+  if (hasSuperRole(req)) {
     return { all: true, branchIds: new Set(), institutionIds: new Set(), membershipId: null };
   }
   const membership = await collections.memberships().findOne({
@@ -205,11 +392,15 @@ function toMembershipSummary(membership, assignments) {
     branches: assignments.map((assignment) => ({
       branchId: assignment.branchId,
       institutionId: assignment.institutionId || null,
+      institutionName: assignment.institutionName || null,
       branchName: assignment.branchName || null,
       roles: assignment.roles || [],
       departments: assignment.departments || [],
       assignedAt: assignment.assignedAt || assignment.activeFrom || null,
       removedAt: assignment.removedAt || assignment.activeTo || null,
+      removalReason: assignment.removalReason || null,
+      removalOtherReason: assignment.removalOtherReason || null,
+      removalMoreInformation: assignment.removalMoreInformation || null,
     })),
   };
 }
@@ -228,6 +419,31 @@ async function ensureNinExists(nin, authorization) {
   return ninRes.body;
 }
 
+async function findExistingAuthUserByNin(nin, authorization) {
+  const userSearch = await callJson(`${authApiBaseUrl}/users/search?q=${encodeURIComponent(String(nin))}&page=1&limit=10`, {
+    method: 'GET',
+    headers: {
+      authorization,
+      'content-type': 'application/json',
+    },
+  });
+  if (!userSearch.ok || !Array.isArray(userSearch.body?.items)) {
+    return null;
+  }
+  const exactMatch = userSearch.body.items.find((entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    return String(entry.nin || '').trim() === String(nin).trim();
+  });
+  if (!exactMatch) return null;
+  const userId = String(exactMatch.id || exactMatch.userId || '').trim();
+  if (!userId) return null;
+  return {
+    userId,
+    nin: String(exactMatch.nin || '').trim() || String(nin).trim(),
+    status: String(exactMatch.status || 'active').trim().toLowerCase() || 'active',
+  };
+}
+
 async function writeEvent(payload) {
   await collections.events().insertOne({
     eventId: crypto.randomUUID(),
@@ -236,42 +452,99 @@ async function writeEvent(payload) {
   });
 }
 
+async function closeMongoClientQuietly() {
+  if (!mongoClient) return;
+  try {
+    await mongoClient.close();
+  } catch (_err) {
+    // Ignore cleanup failures while retrying the membership database connection.
+  }
+  mongoClient = null;
+}
+
+async function ensureMongoIndexes() {
+  if (membershipIndexesReady || !dbReady || !db || !outboxRepo) {
+    return;
+  }
+  await Promise.all([
+    collections.memberships().createIndex({ membershipId: 1 }, { unique: true }),
+    collections.memberships().createIndex({ organizationId: 1, nin: 1 }, { unique: true }),
+    collections.memberships().createIndex({ userId: 1, organizationId: 1 }),
+    collections.assignments().createIndex({ assignmentId: 1 }, { unique: true }),
+    collections.assignments().createIndex({ organizationId: 1, membershipId: 1 }),
+    collections.assignments().createIndex({ organizationId: 1, institutionId: 1, branchId: 1, status: 1 }),
+    collections.events().createIndex({ membershipId: 1, timestamp: -1 }),
+    collections.events().createIndex({ organizationId: 1, timestamp: -1 }),
+    collections.archives().createIndex({ organizationId: 1, archivedAt: -1 }),
+    collections.archives().createIndex({ organizationId: 1, restoredAt: 1 }),
+    outboxRepo.createIndexes(),
+  ]);
+  membershipIndexesReady = true;
+}
+
+function scheduleMongoReconnect() {
+  if (dbReady || mongoReconnectTimer || !mongoUri) {
+    return;
+  }
+  mongoReconnectTimer = setTimeout(() => {
+    mongoReconnectTimer = null;
+    void ensureMongoConnection();
+  }, mongoReconnectDelayMs);
+}
+
+async function ensureMongoConnection() {
+  if (dbReady) {
+    return true;
+  }
+  if (!mongoUri) {
+    fastify.log.warn('Missing MONGODB_URI; membership-service running in degraded mode');
+    return false;
+  }
+  if (mongoConnectPromise) {
+    return mongoConnectPromise;
+  }
+
+  mongoConnectPromise = (async () => {
+    try {
+      await closeMongoClientQuietly();
+      mongoClient = new MongoClient(mongoUri, {
+        serverApi: {
+          version: ServerApiVersion.v1,
+          strict: true,
+          deprecationErrors: true,
+        },
+      });
+      await mongoClient.connect();
+      db = mongoClient.db(dbName);
+      await db.command({ ping: 1 });
+      dbReady = true;
+      outboxRepo = createOutboxRepository(db);
+      await ensureMongoIndexes();
+      fastify.log.info({ dbName }, 'membership-service MongoDB connection ready');
+      return true;
+    } catch (err) {
+      dbReady = false;
+      db = null;
+      outboxRepo = null;
+      fastify.log.warn({ err }, 'MongoDB connection failed');
+      await closeMongoClientQuietly();
+      scheduleMongoReconnect();
+      return false;
+    } finally {
+      mongoConnectPromise = null;
+    }
+  })();
+
+  return mongoConnectPromise;
+}
+
 async function connect() {
   if (!mongoUri) {
     fastify.log.warn('Missing MONGODB_URI; membership-service running in degraded mode');
     return;
   }
 
-  try {
-    mongoClient = new MongoClient(mongoUri, {
-      serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-      },
-    });
-    await mongoClient.connect();
-    db = mongoClient.db(dbName);
-    await db.command({ ping: 1 });
-    dbReady = true;
-    outboxRepo = createOutboxRepository(db);
-
-    await Promise.all([
-      collections.memberships().createIndex({ membershipId: 1 }, { unique: true }),
-      collections.memberships().createIndex({ organizationId: 1, nin: 1 }, { unique: true }),
-      collections.memberships().createIndex({ userId: 1, organizationId: 1 }),
-      collections.assignments().createIndex({ assignmentId: 1 }, { unique: true }),
-      collections.assignments().createIndex({ organizationId: 1, membershipId: 1 }),
-      collections.assignments().createIndex({ organizationId: 1, institutionId: 1, branchId: 1, status: 1 }),
-      collections.events().createIndex({ membershipId: 1, timestamp: -1 }),
-      collections.events().createIndex({ organizationId: 1, timestamp: -1 }),
-      collections.archives().createIndex({ organizationId: 1, archivedAt: -1 }),
-      collections.archives().createIndex({ organizationId: 1, restoredAt: 1 }),
-      outboxRepo.createIndexes(),
-    ]);
-  } catch (err) {
-    fastify.log.warn({ err }, 'MongoDB connection failed');
-  }
+  await ensureMongoConnection();
 }
 
 async function flushOutboxOnce() {
@@ -302,13 +575,21 @@ function startOutboxWorker() {
 fastify.addHook('onRequest', async (req, reply) => {
   if (req.url === '/health') return;
   if (!dbReady) {
+    await ensureMongoConnection();
+  }
+  if (!dbReady) {
     return reply.code(503).send({ message: 'Membership storage unavailable' });
   }
 });
 
 fastify.addHook('onRequest', createContextVerificationHook({
   secret: nhrsContextSecret,
-  requiredMatcher: (req) => req.url.startsWith('/orgs/') || req.url.startsWith('/users/'),
+  requiredMatcher: (req) => {
+    const internal = req.headers['x-internal-token'];
+    if (internal && internal === internalServiceToken) return false;
+    if (req.url.startsWith('/internal/')) return false;
+    return req.url.startsWith('/orgs/') || req.url.startsWith('/users/');
+  },
 }));
 
 fastify.get('/health', async () => ({
@@ -359,72 +640,109 @@ fastify.post('/orgs/:orgId/members', {
   const orgId = req.params.orgId;
   const denied = await enforcePermission(req, reply, 'org.member.add', orgId);
   if (denied) return;
+  const orgScopeNames = await resolveScopeNames(orgId);
+  const requestedInitialRoles = normalizeRoleNames(req.body.initialRoles);
+  const initialAssignments = Array.isArray(req.body.initialBranchAssignments) ? req.body.initialBranchAssignments : [];
 
   const nin = String(req.body.nin);
   const ninRecord = await ensureNinExists(nin, req.headers.authorization);
   if (!ninRecord) {
     return reply.code(503).send({ message: 'Fetching from NIN is currently not available.' });
   }
+  const resolvedAuthUser = await findExistingAuthUserByNin(nin, req.headers.authorization);
 
   const existing = await collections.memberships().findOne({ organizationId: orgId, nin });
   if (existing) {
-    return reply.send({ membership: existing, created: false });
+    const setPatch = { updatedAt: now() };
+    let needsUpdate = false;
+    if (!existing.organizationName && orgScopeNames.organizationName) {
+      setPatch.organizationName = orgScopeNames.organizationName;
+      needsUpdate = true;
+    }
+    if ((!Array.isArray(existing.roles) || existing.roles.length === 0) && requestedInitialRoles.length > 0) {
+      setPatch.roles = requestedInitialRoles;
+      needsUpdate = true;
+    }
+    const nextStatus = resolvedAuthUser?.userId ? 'active' : 'invited';
+    if (String(existing.status || '').trim().toLowerCase() !== nextStatus) {
+      setPatch.status = nextStatus;
+      setPatch.activeTo = null;
+      needsUpdate = true;
+    }
+    if (needsUpdate) {
+      await collections.memberships().updateOne(
+        { membershipId: existing.membershipId, organizationId: orgId },
+        { $set: setPatch },
+      );
+      if (setPatch.organizationName) {
+        existing.organizationName = setPatch.organizationName;
+      }
+      if (Array.isArray(setPatch.roles)) {
+        existing.roles = setPatch.roles;
+      }
+      if (typeof setPatch.status === 'string') {
+        existing.status = setPatch.status;
+      }
+    }
+    const assignmentUpsertResult = await upsertInitialAssignments(orgId, existing, initialAssignments);
+    if (!existing.userId && resolvedAuthUser?.userId) {
+      await collections.memberships().updateOne(
+        { membershipId: existing.membershipId, organizationId: orgId },
+        {
+          $set: {
+            userId: resolvedAuthUser.userId,
+            status: 'active',
+            ...(orgScopeNames.organizationName && !existing.organizationName ? { organizationName: orgScopeNames.organizationName } : {}),
+            updatedAt: now(),
+          },
+        },
+      );
+      const linkedMembership = await collections.memberships().findOne({ membershipId: existing.membershipId, organizationId: orgId });
+      await syncOrgMembershipRolesToRbac(orgId, resolvedAuthUser.userId, linkedMembership?.roles || existing.roles || []);
+      return reply.send({
+        membership: linkedMembership || { ...existing, userId: resolvedAuthUser.userId, status: 'active' },
+        created: false,
+        linked: true,
+        assignmentUpserts: assignmentUpsertResult.count,
+      });
+    }
+    if (existing.userId) {
+      await syncOrgMembershipRolesToRbac(orgId, existing.userId, existing.roles || []);
+    }
+    return reply.send({ membership: existing, created: false, assignmentUpserts: assignmentUpsertResult.count });
   }
 
   const membershipId = crypto.randomUUID();
   const membership = {
     membershipId,
     organizationId: orgId,
-    userId: null,
+    organizationName: orgScopeNames.organizationName,
+    userId: resolvedAuthUser?.userId || null,
     nin,
     addedByUserId: req.auth.userId,
-    status: 'invited',
+    status: resolvedAuthUser?.userId ? 'active' : 'invited',
+    roles: requestedInitialRoles,
     activeFrom: now(),
     activeTo: null,
-    metadata: { notes: null, initialRoles: req.body.initialRoles || [] },
+    metadata: { notes: null, initialRoles: requestedInitialRoles },
     createdAt: now(),
     updatedAt: now(),
   };
   await collections.memberships().insertOne(membership);
-
-  const initialAssignments = Array.isArray(req.body.initialBranchAssignments) ? req.body.initialBranchAssignments : [];
-  for (const assignment of initialAssignments) {
-    const branchId = assignment?.branchId ? String(assignment.branchId).trim() : null;
-    const institutionId = assignment?.institutionId ? String(assignment.institutionId).trim() : null;
-    if (!branchId && !institutionId) {
-      // Skip invalid assignment payload without institution/branch scope.
-      // Membership can still be created as org-level membership.
-      continue;
-    }
-    const assignmentId = crypto.randomUUID();
-    await collections.assignments().insertOne({
-      assignmentId,
-      membershipId,
-      organizationId: orgId,
-      institutionId,
-      branchId,
-      roles: Array.isArray(assignment.roles) ? assignment.roles : [],
-      departments: Array.isArray(assignment.departments) ? assignment.departments : [],
-      isPrimary: assignment.isPrimary === true,
-      coverageType: validateCoverageType(assignment.coverageType) ? assignment.coverageType : 'secondary',
-      activeFrom: assignment.startDate ? new Date(assignment.startDate) : now(),
-      activeTo: null,
-      assignedAt: assignment.startDate ? new Date(assignment.startDate) : now(),
-      removedAt: null,
-      status: 'active',
-      createdAt: now(),
-      updatedAt: now(),
-    });
+  if (membership.userId) {
+    await syncOrgMembershipRolesToRbac(orgId, membership.userId, membership.roles || []);
   }
+
+  const assignmentUpsertResult = await upsertInitialAssignments(orgId, membership, initialAssignments);
 
   await writeEvent({
     organizationId: orgId,
     membershipId,
-    userId: null,
+    userId: membership.userId,
     nin,
     eventType: 'ORG_MEMBER_ADDED',
     from: null,
-    to: { status: 'invited' },
+    to: { status: membership.status },
     performedByUserId: req.auth.userId,
     reason: null,
   });
@@ -439,10 +757,15 @@ fastify.post('/orgs/:orgId/members', {
     ipAddress: getClientIp(req),
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
-    metadata: { nin, initialAssignments: initialAssignments.length },
+    metadata: {
+      nin,
+      initialRoles: requestedInitialRoles,
+      initialAssignments: assignmentUpsertResult.count,
+      linkedUserId: membership.userId || null,
+    },
   });
 
-  return reply.code(201).send({ membership, created: true });
+  return reply.code(201).send({ membership, created: true, assignmentUpserts: assignmentUpsertResult.count });
 });
 
 fastify.get('/orgs/:orgId/members', {
@@ -462,6 +785,7 @@ fastify.get('/orgs/:orgId/members', {
         includeAssignments: { type: 'boolean' },
         branchId: { type: 'string' },
         institutionId: { type: 'string' },
+        assignmentStatus: { type: 'string', enum: ['active', 'inactive'] },
       },
     },
     response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true } },
@@ -484,6 +808,7 @@ fastify.get('/orgs/:orgId/members', {
     includeAssignments = false,
     branchId = null,
     institutionId = null,
+    assignmentStatus = null,
   } = req.query || {};
   const safePage = Math.max(Number(page) || 1, 1);
   const safeLimit = Math.min(Number(limit) || 20, 100);
@@ -504,6 +829,7 @@ fastify.get('/orgs/:orgId/members', {
     includeAssignments === 'true' ||
     Boolean(branchId) ||
     Boolean(institutionId) ||
+    Boolean(assignmentStatus) ||
     (!scope.all && (scope.branchIds.size > 0 || scope.institutionIds.size > 0));
 
   if (!requiresAssignmentFilter) {
@@ -522,7 +848,7 @@ fastify.get('/orgs/:orgId/members', {
   const assignmentFilter = {
     organizationId: orgId,
     membershipId: { $in: membershipIds },
-    status: 'active',
+    status: assignmentStatus ? String(assignmentStatus).trim() : 'active',
   };
   if (branchId) assignmentFilter.branchId = String(branchId).trim();
   if (institutionId) assignmentFilter.institutionId = String(institutionId).trim();
@@ -536,9 +862,21 @@ fastify.get('/orgs/:orgId/members', {
   }
 
   const visibleMemberships = allMemberships.filter((membership) => {
-    if (scope.all) return true;
-    if (membership.membershipId === scope.membershipId) return true;
     const assignments = assignmentsByMembership.get(membership.membershipId) || [];
+    const requiresMatchedAssignment = Boolean(branchId) || Boolean(institutionId) || Boolean(assignmentStatus);
+    if (requiresMatchedAssignment && assignments.length === 0) return false;
+    if (scope.all) {
+      if (requiresMatchedAssignment) {
+        return assignments.length > 0;
+      }
+      return true;
+    }
+    if (membership.membershipId === scope.membershipId) {
+      if (requiresMatchedAssignment) {
+        return assignments.length > 0;
+      }
+      return true;
+    }
     if (assignments.length === 0) return false;
     if (scope.branchIds.size > 0) {
       if (assignments.some((entry) => scope.branchIds.has(String(entry?.branchId || '').trim()))) {
@@ -733,6 +1071,112 @@ fastify.patch('/orgs/:orgId/members/:memberId/status', {
   return reply.send({ message: 'Membership status updated' });
 });
 
+fastify.delete('/orgs/:orgId/members/:memberId', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Remove organization-level member access',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['orgId', 'memberId'],
+      properties: { orgId: { type: 'string' }, memberId: { type: 'string' } },
+    },
+    body: {
+      type: 'object',
+      required: ['reason'],
+      properties: {
+        reason: { type: 'string' },
+        otherReason: { type: 'string' },
+        moreInformation: { type: 'string' },
+      },
+    },
+    response: {
+      200: { type: 'object', additionalProperties: true },
+      401: { type: 'object', additionalProperties: true },
+      403: { type: 'object', additionalProperties: true },
+      404: { type: 'object', additionalProperties: true },
+    },
+  },
+}, async (req, reply) => {
+  const orgId = req.params.orgId;
+  const denied = await enforcePermission(req, reply, 'org.member.status.update', orgId);
+  if (denied) return;
+
+  const existing = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.memberId });
+  if (!existing) return reply.code(404).send({ message: 'Membership not found' });
+  if (Array.isArray(existing.roles) && existing.roles.some((role) => String(role || '').trim().toLowerCase() === 'owner')) {
+    return reply.code(400).send({ message: 'Reassign owner before removing organization access' });
+  }
+
+  const activeAssignments = await collections.assignments().countDocuments({
+    organizationId: orgId,
+    membershipId: req.params.memberId,
+    status: 'active',
+  });
+  const nextStatus = activeAssignments > 0 ? 'active' : 'left';
+  const removalReason = String(req.body?.reason || '').trim() || 'unspecified';
+  const otherReason = String(req.body?.otherReason || '').trim() || null;
+  const moreInformation = String(req.body?.moreInformation || '').trim() || null;
+  const updates = {
+    roles: [],
+    status: nextStatus,
+    updatedAt: now(),
+    ...(nextStatus === 'left' ? { activeTo: now() } : {}),
+  };
+
+  await collections.memberships().updateOne(
+    { organizationId: orgId, membershipId: req.params.memberId },
+    { $set: updates },
+  );
+
+  if (existing.userId) {
+    await callJson(`${rbacApiBaseUrl}/rbac/org/${encodeURIComponent(orgId)}/users/${encodeURIComponent(String(existing.userId))}/roles`, {
+      method: 'POST',
+      headers: forwardAccessHeaders(req),
+      body: JSON.stringify({ roleIds: [] }),
+    });
+    await callJson(`${rbacApiBaseUrl}/rbac/org/${encodeURIComponent(orgId)}/users/${encodeURIComponent(String(existing.userId))}/overrides`, {
+      method: 'POST',
+      headers: forwardAccessHeaders(req),
+      body: JSON.stringify({ overrides: [] }),
+    });
+  }
+
+  await writeEvent({
+    organizationId: orgId,
+    membershipId: req.params.memberId,
+    userId: existing.userId || null,
+    nin: existing.nin,
+    eventType: 'ORG_MEMBER_REMOVED',
+    from: { roles: existing.roles || [], status: existing.status },
+    to: { roles: [], status: nextStatus, retainedAssignments: activeAssignments, otherReason, moreInformation },
+    performedByUserId: req.auth.userId,
+    reason: removalReason,
+  });
+
+  emitAuditEvent({
+    userId: req.auth.userId,
+    organizationId: orgId,
+    eventType: 'ORG_MEMBER_REMOVED',
+    action: 'org.member.status.update',
+    permissionKey: 'org.member.status.update',
+    resource: { type: 'membership', id: req.params.memberId },
+    ipAddress: getClientIp(req),
+    userAgent: req.headers['user-agent'] || null,
+    outcome: 'success',
+    metadata: { retainedAssignments: activeAssignments, nextStatus, removalReason, otherReason, moreInformation },
+  });
+
+  return reply.send({
+    message: activeAssignments > 0
+      ? 'Organization access removed. Branch or institution assignments were retained.'
+      : 'Membership removed',
+    retainedAssignments: activeAssignments,
+    status: nextStatus,
+  });
+});
+
 fastify.post('/orgs/:orgId/members/:memberId/branches', {
   preHandler: requireAuth,
   schema: {
@@ -771,6 +1215,7 @@ fastify.post('/orgs/:orgId/members/:memberId/branches', {
     return reply.code(400).send({ message: 'Provide branchId or institutionId' });
   }
 
+  const scopeNames = await resolveScopeNames(orgId, scopedInstitutionId, scopedBranchId);
   const assignmentId = crypto.randomUUID();
   const assignment = {
     assignmentId,
@@ -778,7 +1223,9 @@ fastify.post('/orgs/:orgId/members/:memberId/branches', {
     organizationId: orgId,
     institutionId: scopedInstitutionId,
     branchId: scopedBranchId,
-    roles: Array.isArray(req.body.roles) ? req.body.roles : [],
+    institutionName: scopeNames.institutionName,
+    branchName: scopeNames.branchName,
+    roles: normalizeRoleNames(req.body.roles),
     departments: Array.isArray(req.body.departments) ? req.body.departments : [],
     isPrimary: req.body.isPrimary === true,
     coverageType: validateCoverageType(req.body.coverageType) ? req.body.coverageType : 'secondary',
@@ -865,7 +1312,7 @@ fastify.patch('/orgs/:orgId/members/:memberId/branches/:assignmentId', {
   if (!existing) return reply.code(404).send({ message: 'Assignment not found' });
 
   const updates = { updatedAt: now() };
-  if (req.body.roles) updates.roles = req.body.roles;
+  if (req.body.roles) updates.roles = normalizeRoleNames(req.body.roles);
   if (req.body.departments) updates.departments = req.body.departments;
   if (req.body.isPrimary !== undefined) updates.isPrimary = req.body.isPrimary;
   if (req.body.coverageType) updates.coverageType = req.body.coverageType;
@@ -923,6 +1370,15 @@ fastify.delete('/orgs/:orgId/members/:memberId/branches/:assignmentId', {
         assignmentId: { type: 'string' },
       },
     },
+    body: {
+      type: 'object',
+      required: ['reason'],
+      properties: {
+        reason: { type: 'string' },
+        otherReason: { type: 'string' },
+        moreInformation: { type: 'string' },
+      },
+    },
     response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true }, 403: { type: 'object', additionalProperties: true }, 404: { type: 'object', additionalProperties: true } },
   },
 }, async (req, reply) => {
@@ -936,10 +1392,23 @@ fastify.delete('/orgs/:orgId/members/:memberId/branches/:assignmentId', {
     assignmentId: req.params.assignmentId,
   });
   if (!existing) return reply.code(404).send({ message: 'Assignment not found' });
+  const removalReason = String(req.body?.reason || '').trim() || 'unspecified';
+  const otherReason = String(req.body?.otherReason || '').trim() || null;
+  const moreInformation = String(req.body?.moreInformation || '').trim() || null;
 
   await collections.assignments().updateOne(
     { organizationId: orgId, membershipId: req.params.memberId, assignmentId: req.params.assignmentId },
-    { $set: { status: 'inactive', activeTo: now(), removedAt: now(), updatedAt: now() } }
+    {
+      $set: {
+        status: 'inactive',
+        activeTo: now(),
+        removedAt: now(),
+        removalReason,
+        removalOtherReason: otherReason,
+        removalMoreInformation: moreInformation,
+        updatedAt: now(),
+      },
+    }
   );
 
   const membership = await collections.memberships().findOne({ organizationId: orgId, membershipId: req.params.memberId });
@@ -951,9 +1420,9 @@ fastify.delete('/orgs/:orgId/members/:memberId/branches/:assignmentId', {
     nin: membership?.nin || null,
     eventType: 'BRANCH_UNASSIGNED',
     from: { assignmentId: req.params.assignmentId, branchId: existing.branchId },
-    to: null,
+    to: { institutionId: existing.institutionId || null, branchId: existing.branchId || null, otherReason, moreInformation },
     performedByUserId: req.auth.userId,
-    reason: null,
+    reason: removalReason,
   });
 
   emitAuditEvent({
@@ -966,6 +1435,7 @@ fastify.delete('/orgs/:orgId/members/:memberId/branches/:assignmentId', {
     ipAddress: getClientIp(req),
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
+    metadata: { removalReason, otherReason, moreInformation },
   });
 
   return reply.send({ message: 'Assignment removed' });
@@ -1016,12 +1486,16 @@ fastify.post('/orgs/:orgId/members/:memberId/transfer', {
     { $set: { status: 'inactive', activeTo: now(), removedAt: now(), updatedAt: now() } }
   );
 
+  const nextScopeNames = await resolveScopeNames(orgId, null, req.body.toBranchId);
   const newAssignment = {
     assignmentId: crypto.randomUUID(),
     membershipId: req.params.memberId,
     organizationId: orgId,
-    branchId: req.body.toBranchId,
-    roles: Array.isArray(req.body.roles) && req.body.roles.length > 0 ? req.body.roles : currentAssignment.roles,
+    institutionId: nextScopeNames.institutionId,
+    institutionName: nextScopeNames.institutionName,
+    branchId: nextScopeNames.branchId || req.body.toBranchId,
+    branchName: nextScopeNames.branchName,
+    roles: normalizeRoleNames(Array.isArray(req.body.roles) && req.body.roles.length > 0 ? req.body.roles : currentAssignment.roles),
     departments: Array.isArray(req.body.departments) ? req.body.departments : currentAssignment.departments,
     isPrimary: currentAssignment.isPrimary,
     coverageType: currentAssignment.coverageType,
@@ -1139,13 +1613,12 @@ fastify.post('/internal/memberships/link-user', {
     return reply.send({ message: 'No pending memberships found', linked: 0 });
   }
 
-  const ids = candidates.map((m) => m.membershipId);
-  await collections.memberships().updateMany(
-    { membershipId: { $in: ids } },
-    { $set: { userId: String(userId), status: 'active', updatedAt: now() } }
-  );
-
   for (const item of candidates) {
+    await collections.memberships().updateOne(
+      { membershipId: item.membershipId },
+      { $set: { userId: String(userId), status: 'active', updatedAt: now() } },
+    );
+    await syncOrgMembershipRolesToRbac(item.organizationId, String(userId), item.roles || []);
     await writeEvent({
       organizationId: item.organizationId,
       membershipId: item.membershipId,
@@ -1160,6 +1633,56 @@ fastify.post('/internal/memberships/link-user', {
   }
 
   return reply.send({ message: 'Memberships linked', linked: candidates.length });
+});
+
+fastify.post('/internal/memberships/org/:orgId/users/:userId/roles', {
+  preHandler: requireInternal,
+  schema: {
+    tags: ['Membership'],
+    summary: 'Internal sync of organization membership roles from RBAC',
+    params: {
+      type: 'object',
+      required: ['orgId', 'userId'],
+      properties: {
+        orgId: { type: 'string' },
+        userId: { type: 'string' },
+      },
+    },
+    body: {
+      type: 'object',
+      properties: {
+        roles: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    response: {
+      200: { type: 'object', additionalProperties: true },
+      401: { type: 'object', additionalProperties: true },
+      404: { type: 'object', additionalProperties: true },
+    },
+  },
+}, async (req, reply) => {
+  const orgId = String(req.params.orgId || '').trim();
+  const userId = String(req.params.userId || '').trim();
+  const membership = await collections.memberships().findOne({ organizationId: orgId, userId });
+  if (!membership) {
+    return reply.code(404).send({ message: 'Membership not found' });
+  }
+
+  const scopeNames = !membership.organizationName ? await resolveScopeNames(orgId) : null;
+  const roles = enforceExclusiveLeadershipRoleNames(req.body?.roles);
+  await collections.memberships().updateOne(
+    { membershipId: membership.membershipId, organizationId: orgId },
+    {
+      $set: {
+        roles,
+        ...(scopeNames?.organizationName && !membership.organizationName ? { organizationName: scopeNames.organizationName } : {}),
+        updatedAt: now(),
+      },
+    },
+  );
+
+  const updatedMembership = await collections.memberships().findOne({ membershipId: membership.membershipId, organizationId: orgId });
+  return reply.send({ membership: updatedMembership || { ...membership, roles } });
 });
 
 fastify.get('/internal/memberships/summary/:userId', {
@@ -1230,26 +1753,54 @@ fastify.post('/orgs/:orgId/memberships/invite', {
   if (!ninRecord) {
     return reply.code(503).send({ message: 'Fetching from NIN is currently not available.' });
   }
+  const orgScopeNames = await resolveScopeNames(orgId);
+  const requestedRoles = normalizeRoleNames(req.body.roles);
+  const resolvedAuthUser = await findExistingAuthUserByNin(nin, req.headers.authorization);
 
   let membership = await collections.memberships().findOne({ organizationId: orgId, nin });
   if (!membership) {
     membership = {
       membershipId: crypto.randomUUID(),
-      userId: null,
+      userId: resolvedAuthUser?.userId || null,
       nin,
       organizationId: orgId,
-      status: 'invited',
-      roles: Array.isArray(req.body.roles) ? req.body.roles : [],
+      organizationName: orgScopeNames.organizationName,
+      status: resolvedAuthUser?.userId ? 'active' : 'invited',
+      roles: requestedRoles,
       createdAt: now(),
       updatedAt: now(),
     };
     await collections.memberships().insertOne(membership);
-  } else if (Array.isArray(req.body.roles) && req.body.roles.length > 0) {
+  } else if (requestedRoles.length > 0) {
     await collections.memberships().updateOne(
       { membershipId: membership.membershipId },
-      { $set: { roles: req.body.roles, updatedAt: now() } }
+      {
+        $set: {
+          roles: requestedRoles,
+          ...(!membership.userId && resolvedAuthUser?.userId ? { userId: resolvedAuthUser.userId, status: 'active' } : {}),
+          ...(orgScopeNames.organizationName && !membership.organizationName ? { organizationName: orgScopeNames.organizationName } : {}),
+          updatedAt: now(),
+        },
+      }
     );
-    membership.roles = req.body.roles;
+    membership.roles = requestedRoles;
+    if (!membership.userId && resolvedAuthUser?.userId) {
+      membership.userId = resolvedAuthUser.userId;
+      membership.status = 'active';
+    }
+  } else if (!membership.organizationName && orgScopeNames.organizationName) {
+    await collections.memberships().updateOne(
+      { membershipId: membership.membershipId },
+      { $set: { organizationName: orgScopeNames.organizationName, updatedAt: now() } }
+    );
+    membership.organizationName = orgScopeNames.organizationName;
+  } else if (!membership.userId && resolvedAuthUser?.userId) {
+    await collections.memberships().updateOne(
+      { membershipId: membership.membershipId },
+      { $set: { userId: resolvedAuthUser.userId, status: 'active', updatedAt: now() } },
+    );
+    membership.userId = resolvedAuthUser.userId;
+    membership.status = 'active';
   }
 
   const branchIds = Array.isArray(req.body.branchIds) ? req.body.branchIds : [];
@@ -1262,12 +1813,16 @@ fastify.post('/orgs/:orgId/memberships/invite', {
       status: 'active',
     });
     if (existingAssignment) continue;
+    const scopeNames = await resolveScopeNames(orgId, null, branchId);
     const assignment = {
       assignmentId: crypto.randomUUID(),
       membershipId: membership.membershipId,
-      branchId,
+      branchId: scopeNames.branchId || branchId,
       organizationId: orgId,
-      roles: Array.isArray(req.body.roles) ? req.body.roles : [],
+      institutionId: scopeNames.institutionId,
+      institutionName: scopeNames.institutionName,
+      branchName: scopeNames.branchName,
+      roles: requestedRoles,
       activeFrom: now(),
       activeTo: null,
       assignedAt: now(),
@@ -1299,6 +1854,10 @@ fastify.post('/orgs/:orgId/memberships/invite', {
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
   });
+
+  if (membership.userId) {
+    await syncOrgMembershipRolesToRbac(orgId, membership.userId, membership.roles || []);
+  }
 
   return reply.code(201).send({ membership, assignmentsCreated: insertedAssignments.length });
 });
@@ -1337,7 +1896,7 @@ fastify.post('/orgs/:orgId/memberships/:membershipId/branches', {
   if (!membership) return reply.code(404).send({ message: 'Membership not found' });
 
   const branchIds = Array.isArray(req.body.branchIds) ? req.body.branchIds : [];
-  const roles = Array.isArray(req.body.roles) ? req.body.roles : [];
+  const roles = normalizeRoleNames(req.body.roles);
   const created = [];
   for (const branchId of branchIds) {
     const active = await collections.assignments().findOne({
@@ -1347,11 +1906,15 @@ fastify.post('/orgs/:orgId/memberships/:membershipId/branches', {
       status: 'active',
     });
     if (active) continue;
+    const scopeNames = await resolveScopeNames(orgId, null, branchId);
     const assignment = {
       assignmentId: crypto.randomUUID(),
       membershipId: req.params.membershipId,
-      branchId,
+      branchId: scopeNames.branchId || branchId,
       organizationId: orgId,
+      institutionId: scopeNames.institutionId,
+      institutionName: scopeNames.institutionName,
+      branchName: scopeNames.branchName,
       roles,
       activeFrom: now(),
       activeTo: null,
@@ -1416,7 +1979,7 @@ fastify.patch('/orgs/:orgId/memberships/:membershipId/branches/:branchId', {
   });
   if (!existing) return reply.code(404).send({ message: 'Assignment not found' });
   const updates = { updatedAt: now() };
-  if (Array.isArray(req.body?.roles)) updates.roles = req.body.roles;
+  if (Array.isArray(req.body?.roles)) updates.roles = normalizeRoleNames(req.body.roles);
   if (req.body?.status) updates.status = req.body.status;
   if (req.body?.activeTo) updates.activeTo = new Date(req.body.activeTo);
   if (req.body?.status === 'inactive') {
@@ -1527,11 +2090,17 @@ fastify.get('/users/:userId/memberships', {
       assignmentId: assignment.assignmentId,
       branchId: assignment.branchId,
       institutionId: assignment.institutionId || null,
+      institutionName: assignment.institutionName || null,
+      branchName: assignment.branchName || null,
       roles: assignment.roles || [],
       departments: assignment.departments || [],
       status: assignment.status,
       activeFrom: assignment.activeFrom || null,
       activeTo: assignment.activeTo || null,
+      removedAt: assignment.removedAt || null,
+      removalReason: assignment.removalReason || null,
+      removalOtherReason: assignment.removalOtherReason || null,
+      removalMoreInformation: assignment.removalMoreInformation || null,
     });
     return acc;
   }, {});
@@ -1676,6 +2245,7 @@ fastify.post('/internal/memberships/bootstrap', {
       required: ['organizationId'],
       properties: {
         organizationId: { type: 'string' },
+        organizationName: { type: 'string' },
         createdByUserId: { type: 'string' },
         ownerUserId: { type: 'string' },
         ownerNin: { type: 'string' },
@@ -1684,18 +2254,44 @@ fastify.post('/internal/memberships/bootstrap', {
     response: { 200: { type: 'object', additionalProperties: true }, 401: { type: 'object', additionalProperties: true } },
   },
 }, async (req, reply) => {
-  const { organizationId, createdByUserId = null, ownerUserId = null, ownerNin = null } = req.body || {};
+  const {
+    organizationId,
+    organizationName = null,
+    createdByUserId = null,
+    ownerUserId = null,
+    ownerNin = null,
+  } = req.body || {};
+  const normalizedOrganizationName = organizationName ? String(organizationName).trim() : null;
+  const normalizedCreatorUserId = createdByUserId ? String(createdByUserId) : null;
+  const normalizedOwnerUserId = ownerUserId ? String(ownerUserId) : null;
+  const ownerIsDifferentFromCreator = Boolean(ownerNin)
+    || (normalizedCreatorUserId && normalizedOwnerUserId && normalizedCreatorUserId !== normalizedOwnerUserId);
+  const creatorBootstrapRoles = ownerIsDifferentFromCreator ? ['super_staff'] : ['owner'];
+  const ownerBootstrapRoles = ['owner'];
   const created = [];
-  if (createdByUserId) {
-    const exists = await collections.memberships().findOne({ organizationId, userId: String(createdByUserId) });
+  if (normalizedCreatorUserId) {
+    const exists = await collections.memberships().findOne({ organizationId, userId: normalizedCreatorUserId });
+    if (exists) {
+      const setPatch = {};
+      if (normalizedOrganizationName && !exists.organizationName) {
+        setPatch.organizationName = normalizedOrganizationName;
+      }
+      setPatch.roles = applyExclusiveLeadershipRoles(exists.roles, creatorBootstrapRoles);
+      setPatch.updatedAt = now();
+      await collections.memberships().updateOne(
+        { membershipId: exists.membershipId, organizationId },
+        { $set: setPatch },
+      );
+    }
     if (!exists) {
       const membership = {
         membershipId: crypto.randomUUID(),
-        userId: String(createdByUserId),
+        userId: normalizedCreatorUserId,
         nin: null,
         organizationId,
+        organizationName: normalizedOrganizationName,
         status: 'active',
-        roles: ['org_owner'],
+        roles: creatorBootstrapRoles,
         createdAt: now(),
         updatedAt: now(),
       };
@@ -1703,16 +2299,29 @@ fastify.post('/internal/memberships/bootstrap', {
       created.push(membership.membershipId);
     }
   }
-  if (ownerUserId) {
-    const exists = await collections.memberships().findOne({ organizationId, userId: String(ownerUserId) });
+  if (normalizedOwnerUserId) {
+    const exists = await collections.memberships().findOne({ organizationId, userId: normalizedOwnerUserId });
+    if (exists) {
+      const setPatch = {};
+      if (normalizedOrganizationName && !exists.organizationName) {
+        setPatch.organizationName = normalizedOrganizationName;
+      }
+      setPatch.roles = applyExclusiveLeadershipRoles(exists.roles, ownerBootstrapRoles);
+      setPatch.updatedAt = now();
+      await collections.memberships().updateOne(
+        { membershipId: exists.membershipId, organizationId },
+        { $set: setPatch },
+      );
+    }
     if (!exists) {
       const membership = {
         membershipId: crypto.randomUUID(),
-        userId: String(ownerUserId),
+        userId: normalizedOwnerUserId,
         nin: null,
         organizationId,
+        organizationName: normalizedOrganizationName,
         status: 'active',
-        roles: ['org_owner'],
+        roles: ownerBootstrapRoles,
         createdAt: now(),
         updatedAt: now(),
       };
@@ -1721,14 +2330,27 @@ fastify.post('/internal/memberships/bootstrap', {
     }
   } else if (ownerNin) {
     const exists = await collections.memberships().findOne({ organizationId, nin: String(ownerNin) });
+    if (exists) {
+      const setPatch = {};
+      if (normalizedOrganizationName && !exists.organizationName) {
+        setPatch.organizationName = normalizedOrganizationName;
+      }
+      setPatch.roles = applyExclusiveLeadershipRoles(exists.roles, ownerBootstrapRoles);
+      setPatch.updatedAt = now();
+      await collections.memberships().updateOne(
+        { membershipId: exists.membershipId, organizationId },
+        { $set: setPatch },
+      );
+    }
     if (!exists) {
       const membership = {
         membershipId: crypto.randomUUID(),
         userId: null,
         nin: String(ownerNin),
         organizationId,
+        organizationName: normalizedOrganizationName,
         status: 'invited',
-        roles: ['org_owner'],
+        roles: ownerBootstrapRoles,
         createdAt: now(),
         updatedAt: now(),
       };

@@ -22,10 +22,16 @@ function contextSignature(context: AppContext): string {
     context.type,
     context.name,
     context.subtitle ?? '',
+    context.roleName ?? '',
     context.themeScopeType,
     context.themeScopeId ?? '',
     context.organizationId ?? '',
     context.branchId ?? '',
+    JSON.stringify(
+      Array.isArray(context.permissions)
+        ? context.permissions.map((permission) => String(permission || '').trim()).filter(Boolean).sort()
+        : [],
+    ),
   ].join('::');
 }
 

@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useMemo } from 'react';
 import { cn } from '@/lib/cn';
 import { navigationItems } from '@/routes/navigation';
+import { isNavigationItemVisibleInContext } from '@/lib/navigationAccess';
 import { usePermissionsStore } from '@/stores/permissionsStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useContextStore } from '@/stores/contextStore';
@@ -21,10 +22,11 @@ export function Sidebar() {
   const items = useMemo(
     () =>
       navigationItems.filter((item) => {
+        if (!isNavigationItemVisibleInContext(item, activeContext)) return false;
         if (!item.permission) return true;
         return Array.isArray(item.permission) ? hasAny(item.permission) : hasPermission(item.permission);
       }),
-    [_permissionsVersion, hasAny, hasPermission],
+    [_permissionsVersion, hasAny, hasPermission, activeContext],
   );
 
   const groupedItems = useMemo(

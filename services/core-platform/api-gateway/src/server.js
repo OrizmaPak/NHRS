@@ -174,16 +174,6 @@ function hasSuperBypassRole(roles = []) {
   );
 }
 
-function hasSuperBypassContext(req) {
-  const contextName = String(req.headers['x-active-context-name'] || '').trim().toLowerCase();
-  const contextId = String(req.headers['x-active-context-id'] || '').trim().toLowerCase();
-  const contextType = String(req.headers['x-active-context-type'] || '').trim().toLowerCase();
-  if (contextType === 'super') return true;
-  if (contextName === 'super' || contextName === 'super admin' || contextName === 'superadmin') return true;
-  if (contextId === 'super' || contextId === 'super_admin' || contextId === 'superadmin') return true;
-  return false;
-}
-
 function getRequestId(req) {
   return String(req.headers['x-request-id'] || req.id || crypto.randomUUID());
 }
@@ -611,10 +601,11 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
 async function enforcePermission(req, reply) {
   const routePath = req.routeOptions?.url || req.url.split('?')[0];
   const rule = findPermissionRule(req.method, routePath);
+  const isExplicitPublicRoute = Boolean(req.routeOptions?.config?.publicRoute);
   const ipAddress = getClientIp(req);
   const userAgent = req.headers['user-agent'] || null;
 
-  if (!rule || rule.public || !rule.permissionKey) {
+  if (isExplicitPublicRoute || !rule || rule.public || !rule.permissionKey) {
     req.authzContext = {
       userId: null,
       roles: [],
@@ -649,7 +640,7 @@ async function enforcePermission(req, reply) {
   const tokenPayload = parseTokenPayload(authorization);
   const tokenUserId = tokenPayload?.sub ? String(tokenPayload.sub) : getUserIdFromAuthorization(authorization);
   const tokenRoles = Array.isArray(tokenPayload?.roles) ? tokenPayload.roles.map((r) => String(r)) : [];
-  const superBypass = hasSuperBypassRole(tokenRoles) || hasSuperBypassContext(req);
+  const superBypass = hasSuperBypassRole(tokenRoles);
 
   try {
     const isSelfAccessResolutionRoute = routePath === '/rbac/app/users/:userId/access';
@@ -1181,6 +1172,23 @@ function registerProfileRoutes() {
   });
 
   registerProxyRoute({
+    method: 'PATCH',
+    url: '/profile/:userId',
+    targetBase: profileApiBaseUrl,
+    targetPath: (req) => `/profile/${req.params.userId}`,
+    schema: {
+      tags: ['Profile'],
+      summary: 'Update profile by userId (staff/admin)',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      params: { type: 'object', required: ['userId'], properties: { userId: { type: 'string' } } },
+      querystring: { type: 'object', additionalProperties: true },
+      body: { type: 'object', additionalProperties: true },
+      response: standardResponses({ 200: { type: 'object' }, 404: errorMessageSchema }),
+    },
+  });
+
+  registerProxyRoute({
     method: 'GET',
     url: '/profile/by-nin/:nin',
     targetBase: profileApiBaseUrl,
@@ -1219,11 +1227,68 @@ function registerProfileRoutes() {
 }
 
 function registerOrganizationMembershipRoutes() {
+  const publicOrganizationReadRoutes = new Set([
+    'GET /geo/regions',
+    'GET /geo/states',
+    'GET /geo/state-regions',
+    'GET /geo/lgas',
+  ]);
+
+  registerProxyRoute({
+    method: 'GET',
+    url: '/public/organizations',
+    publicRoute: true,
+    targetBase: organizationApiBaseUrl,
+    targetPath: '/public/organizations',
+    schema: {
+      tags: ['Organization'],
+      summary: 'Public organization directory',
+      description: 'Citizen-facing searchable organization directory.',
+      security: [],
+      querystring: {
+        type: 'object',
+        properties: {
+          q: { type: 'string' },
+          state: { type: 'string' },
+          lga: { type: 'string' },
+          institutionType: { type: 'string' },
+          page: { type: 'integer' },
+          limit: { type: 'integer' },
+        },
+      },
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'GET',
+    url: '/public/organizations/:orgId',
+    publicRoute: true,
+    targetBase: organizationApiBaseUrl,
+    targetPath: (req) => `/public/organizations/${encodeURIComponent(String(req.params?.orgId || ''))}`,
+    schema: {
+      tags: ['Organization'],
+      summary: 'Public organization profile',
+      security: [],
+      params: {
+        type: 'object',
+        required: ['orgId'],
+        properties: {
+          orgId: { type: 'string' },
+        },
+      },
+      response: standardResponses({ 200: { type: 'object' } }),
+    },
+  });
+
   const orgRoutes = [
     ['POST', '/orgs', '/orgs'],
     ['GET', '/orgs', '/orgs'],
     ['GET', '/orgs/deleted', '/orgs/deleted'],
     ['GET', '/orgs/search', '/orgs/search'],
+    ['GET', '/global-services', '/global-services'],
+    ['POST', '/global-services', '/global-services'],
+    ['DELETE', '/global-services/:serviceId', '/global-services/:serviceId'],
     ['GET', '/institutions', '/institutions'],
     ['GET', '/institutions/:institutionId', '/institutions/:institutionId'],
     ['GET', '/branches', '/branches'],
@@ -1238,10 +1303,24 @@ function registerOrganizationMembershipRoutes() {
     ['POST', '/orgs/:orgId/files/upload', '/orgs/:orgId/files/upload'],
     ['PATCH', '/orgs/:orgId/owner', '/orgs/:orgId/owner'],
     ['POST', '/orgs/:orgId/assign-owner', '/orgs/:orgId/assign-owner'],
+    ['GET', '/geo/regions', '/geo/regions'],
+    ['GET', '/geo/states', '/geo/states'],
+    ['GET', '/geo/state-regions', '/geo/state-regions'],
+    ['GET', '/geo/lgas', '/geo/lgas'],
+    ['GET', '/geo/hierarchy', '/geo/hierarchy'],
+    ['POST', '/geo/regions', '/geo/regions'],
+    ['PATCH', '/geo/regions/:regionId', '/geo/regions/:regionId'],
+    ['POST', '/geo/states', '/geo/states'],
+    ['PATCH', '/geo/states/:stateId', '/geo/states/:stateId'],
+    ['POST', '/geo/state-regions', '/geo/state-regions'],
+    ['PATCH', '/geo/state-regions/:stateRegionId', '/geo/state-regions/:stateRegionId'],
+    ['POST', '/geo/lgas', '/geo/lgas'],
+    ['PATCH', '/geo/lgas/:lgaId', '/geo/lgas/:lgaId'],
     ['POST', '/orgs/:orgId/institutions', '/orgs/:orgId/institutions'],
     ['GET', '/orgs/:orgId/institutions', '/orgs/:orgId/institutions'],
     ['GET', '/orgs/:orgId/institutions/:institutionId', '/orgs/:orgId/institutions/:institutionId'],
     ['PATCH', '/orgs/:orgId/institutions/:institutionId', '/orgs/:orgId/institutions/:institutionId'],
+    ['POST', '/orgs/:orgId/institutions/:institutionId/files/upload', '/orgs/:orgId/institutions/:institutionId/files/upload'],
     ['DELETE', '/orgs/:orgId/institutions/:institutionId', '/orgs/:orgId/institutions/:institutionId'],
     ['POST', '/orgs/:orgId/institutions/:institutionId/branches', '/orgs/:orgId/institutions/:institutionId/branches'],
     ['GET', '/orgs/:orgId/institutions/:institutionId/branches', '/orgs/:orgId/institutions/:institutionId/branches'],
@@ -1256,9 +1335,11 @@ function registerOrganizationMembershipRoutes() {
   ];
 
   for (const [method, routePath, upstreamPath] of orgRoutes) {
+    const isPublicRoute = publicOrganizationReadRoutes.has(`${method} ${routePath}`);
     registerProxyRoute({
       method,
       url: routePath,
+      publicRoute: isPublicRoute,
       targetBase: organizationApiBaseUrl,
       targetPath: (req) => {
         let p = upstreamPath;
@@ -1271,8 +1352,8 @@ function registerOrganizationMembershipRoutes() {
         tags: ['Organization'],
         summary: `Proxy ${method} ${routePath}`,
         description: 'Organization and branch management endpoints.',
-        security: [{ bearerAuth: [] }],
-        headers: authHeaderSchema(true),
+        security: isPublicRoute ? [] : [{ bearerAuth: [] }],
+        headers: isPublicRoute ? undefined : authHeaderSchema(true),
         params: { type: 'object', additionalProperties: true },
         querystring: { type: 'object', additionalProperties: true },
         body: { type: 'object', additionalProperties: true },
@@ -1286,6 +1367,7 @@ function registerOrganizationMembershipRoutes() {
     ['GET', '/orgs/:orgId/members', '/orgs/:orgId/members'],
     ['GET', '/orgs/:orgId/members/:memberId', '/orgs/:orgId/members/:memberId'],
     ['PATCH', '/orgs/:orgId/members/:memberId', '/orgs/:orgId/members/:memberId'],
+    ['DELETE', '/orgs/:orgId/members/:memberId', '/orgs/:orgId/members/:memberId'],
     ['PATCH', '/orgs/:orgId/members/:memberId/status', '/orgs/:orgId/members/:memberId/status'],
     ['POST', '/orgs/:orgId/members/:memberId/branches', '/orgs/:orgId/members/:memberId/branches'],
     ['PATCH', '/orgs/:orgId/members/:memberId/branches/:assignmentId', '/orgs/:orgId/members/:memberId/branches/:assignmentId'],

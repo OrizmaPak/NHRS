@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { ErrorState } from '@/components/feedback/ErrorState';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
 import { useAppPermissions, useSaveAppPermission, useUpdateAppPermission, type PermissionRow } from '@/api/hooks/useAccessControl';
-import { findInterfacePermissions } from '@/lib/interfacePermissions';
+import { getPermissionDisplayMeta } from '@/lib/interfacePermissions';
 
 const formSchema = z.object({
   key: z.string().min(3, 'Permission key is required'),
@@ -42,32 +42,47 @@ export function AppPermissionsPage() {
     const rows = permissionsQuery.data ?? [];
     if (!query.trim()) return rows;
     const key = query.toLowerCase();
-    return rows.filter((entry) => `${entry.key} ${entry.module} ${entry.description}`.toLowerCase().includes(key));
+    return rows.filter((entry) => {
+      const meta = getPermissionDisplayMeta(entry);
+      return `${entry.key} ${entry.module} ${entry.description} ${meta.title} ${meta.groupLabel} ${meta.actionLabel} ${meta.interfaceSummary ?? ''}`.toLowerCase().includes(key);
+    });
   }, [permissionsQuery.data, query]);
   const start = pagination.pageIndex * pagination.pageSize;
   const paged = filtered.slice(start, start + pagination.pageSize);
 
   const columns = useMemo<ColumnDef<PermissionRow>[]>(
     () => [
-      { accessorKey: 'key', header: 'Permission Key' },
-      { accessorKey: 'module', header: 'Module' },
+      {
+        id: 'permission',
+        header: 'Permission',
+        cell: ({ row }) => {
+          const meta = getPermissionDisplayMeta(row.original);
+          return (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">{meta.title}</p>
+              <p className="text-[11px] text-muted">{row.original.key}</p>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'area',
+        header: 'Area',
+        cell: ({ row }) => getPermissionDisplayMeta(row.original).groupLabel,
+      },
       { accessorKey: 'description', header: 'Description' },
       {
         id: 'interface',
-        header: 'Interface Access',
+        header: 'Used In',
         cell: ({ row }) => {
-          const interfaces = findInterfacePermissions(row.original.key);
-          if (interfaces.length === 0) return <span className="text-xs text-muted">No</span>;
+          const meta = getPermissionDisplayMeta(row.original);
+          if (!meta.interfaceSummary) return <span className="text-xs text-muted">Custom action only</span>;
           return (
             <div className="max-w-[300px] space-y-1">
-              {interfaces.slice(0, 3).map((entry) => (
-                <div key={`${row.original.key}-${entry.route}`} className="rounded border border-border/60 px-2 py-1">
-                  <p className="text-xs font-medium text-foreground">{entry.interfaceLabel}</p>
-                  <p className="truncate text-[11px] text-muted">{entry.route}</p>
-                </div>
-              ))}
-              {interfaces.length > 3 ? (
-                <p className="text-[11px] text-muted">+{interfaces.length - 3} more interfaces</p>
+              <p className="text-xs font-medium text-foreground">{meta.interfaceSummary}</p>
+              {meta.routeSummary ? <p className="truncate text-[11px] text-muted">{meta.routeSummary}</p> : null}
+              {meta.interfaceCount > 2 ? (
+                <p className="text-[11px] text-muted">+{meta.interfaceCount - 2} more interfaces</p>
               ) : null}
             </div>
           );
@@ -130,7 +145,7 @@ export function AppPermissionsPage() {
 
       <FilterBar>
         <div className="w-full md:max-w-md">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search permissions" />
+          <SearchInput value={query} onChange={setQuery} placeholder="Search by page, action, area, or permission key" />
         </div>
       </FilterBar>
 

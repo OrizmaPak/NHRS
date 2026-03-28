@@ -28,16 +28,27 @@ function normalizeRoleList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function resolveRbacScopeRecord(source: Record<string, unknown>): Record<string, unknown> | null {
+  if (source.rbacScope && typeof source.rbacScope === 'object') {
+    return source.rbacScope as Record<string, unknown>;
+  }
+  if (source.rbacSummary && typeof source.rbacSummary === 'object') {
+    return source.rbacSummary as Record<string, unknown>;
+  }
+  return null;
+}
+
 function collectRoles(source: Record<string, unknown>, rawUser: Record<string, unknown>): string[] {
-  const rbacSummary =
-    source.rbacSummary && typeof source.rbacSummary === 'object'
-      ? (source.rbacSummary as Record<string, unknown>)
-      : null;
-  const appRolesFromRbac = normalizeRoleList(rbacSummary?.appRoles);
-  const orgRolesFromRbac = Array.isArray(rbacSummary?.orgRoles)
-    ? (rbacSummary?.orgRoles as Array<Record<string, unknown>>).flatMap((entry) =>
+  const rbacScope = resolveRbacScopeRecord(source);
+  const appRolesFromRbac = normalizeRoleList(rbacScope?.appRoles);
+  const orgRolesFromRbac = Array.isArray(rbacScope?.orgRoles)
+    ? (rbacScope?.orgRoles as Array<Record<string, unknown>>).flatMap((entry) =>
         normalizeRoleList(entry.roles ?? entry.roleKeys),
       )
+    : Array.isArray(rbacScope?.orgScopePermissions)
+      ? (rbacScope?.orgScopePermissions as Array<Record<string, unknown>>).flatMap((entry) =>
+          normalizeRoleList(entry.roles),
+        )
     : [];
 
   const merged = new Set<string>([
@@ -50,6 +61,31 @@ function collectRoles(source: Record<string, unknown>, rawUser: Record<string, u
   ]);
 
   return Array.from(merged);
+}
+
+function collectAppLevelRoles(source: Record<string, unknown>, rawUser: Record<string, unknown>): string[] {
+  const rbacScope = resolveRbacScopeRecord(source);
+  const appRolesFromRbac = normalizeRoleList(rbacScope?.appRoles);
+  const orgRolesFromRbac = Array.isArray(rbacScope?.orgRoles)
+    ? (rbacScope?.orgRoles as Array<Record<string, unknown>>).flatMap((entry) =>
+        normalizeRoleList(entry.roles ?? entry.roleKeys),
+      )
+    : Array.isArray(rbacScope?.orgScopePermissions)
+      ? (rbacScope?.orgScopePermissions as Array<Record<string, unknown>>).flatMap((entry) =>
+          normalizeRoleList(entry.roles),
+        )
+    : [];
+  const orgRolesSet = new Set(orgRolesFromRbac.map((role) => role.trim().toLowerCase()));
+
+  const merged = new Set<string>([
+    ...normalizeRoleList(source.roles),
+    ...normalizeRoleList(rawUser.roles),
+    ...normalizeRoleList(rawUser.appRoles),
+    ...normalizeRoleList(rawUser.roleKeys),
+    ...appRolesFromRbac,
+  ]);
+
+  return Array.from(merged).filter((role) => !orgRolesSet.has(role.trim().toLowerCase()));
 }
 
 function isSuperRole(role: string): boolean {
@@ -97,6 +133,34 @@ function ensureAppLevelContexts(
   return [citizen, ...withoutSynthetic];
 }
 
+function getCitizenOnlyPermissions(
+  source: Record<string, unknown>,
+  rawUser: Record<string, unknown>,
+): string[] {
+  const mergedRoles = new Set<string>([
+    ...normalizeRoleList(source.roles),
+    ...normalizeRoleList(rawUser.roles),
+    ...normalizeRoleList(rawUser.appRoles),
+    ...normalizeRoleList(rawUser.roleKeys),
+    'citizen',
+  ]);
+
+  const isCitizenOnly = Array.from(mergedRoles).every((role) => role.trim().toLowerCase() === 'citizen');
+  if (!isCitizenOnly) {
+    return [];
+  }
+
+  const directUserScope = normalizePermissionList(rawUser.scope);
+  const topLevelScope = normalizePermissionList(source.scope);
+  const topLevelPermissions = normalizePermissionList(source.appPermissions ?? source.permissions);
+  const merged = new Set<string>([
+    ...directUserScope,
+    ...topLevelScope,
+    ...topLevelPermissions,
+  ]);
+  return Array.from(merged);
+}
+
 function toRoleContextName(role: string): string {
   const normalized = role.trim();
   if (!normalized) return 'Role';
@@ -139,36 +203,23 @@ function ensureRoleContexts(baseContexts: AppContext[], roles: string[]): AppCon
   return withRoles;
 }
 
-function collectPermissions(source: Record<string, unknown>, defaultContextId: string | undefined, availableContexts: AppContext[]): string[] {
+function collectAppPermissions(source: Record<string, unknown>): string[] {
   const userRecord =
     source.user && typeof source.user === 'object'
       ? (source.user as Record<string, unknown>)
       : null;
 
-  const fromTopLevel = normalizePermissionList(source.permissions);
+  const fromTopLevel = normalizePermissionList(source.appPermissions ?? source.permissions);
   const fromScope = normalizePermissionList(source.scope);
   const fromUserScope = normalizePermissionList(userRecord?.scope);
-
-  const rbacScope =
-    source.rbacScope && typeof source.rbacScope === 'object'
-      ? (source.rbacScope as Record<string, unknown>)
-      : null;
+  const rbacScope = resolveRbacScopeRecord(source);
   const fromRbacApp = normalizePermissionList(rbacScope?.appScopePermissions);
-  const fromRbacOrg = Array.isArray(rbacScope?.orgScopePermissions)
-    ? (rbacScope?.orgScopePermissions as Array<Record<string, unknown>>).flatMap((item) =>
-        normalizePermissionList(item.permissions),
-      )
-    : [];
-
-  const fromDefaultContext = availableContexts.find((context) => context.id === defaultContextId)?.permissions ?? [];
 
   const merged = new Set<string>([
     ...fromTopLevel,
     ...fromScope,
     ...fromUserScope,
     ...fromRbacApp,
-    ...fromRbacOrg,
-    ...fromDefaultContext,
   ]);
 
   return Array.from(merged);
@@ -206,13 +257,21 @@ export function toContexts(payload: Record<string, unknown>): AppContext[] {
     const context = item as Record<string, unknown>;
     const type = String(context.type ?? context.scopeType ?? 'public') as AppContext['type'];
     const themeScopeType = String(context.themeScopeType ?? (type === 'public' ? 'platform' : type)) as ThemeScopeType;
-    const organizationId = context.organizationId ? String(context.organizationId) : (type === 'organization' ? String(context.id ?? context.contextId ?? '') : undefined);
+    const contextId = String(context.id ?? context.contextId ?? `ctx-${index}`);
+    const contextRoleName = context.roleName ? String(context.roleName) : undefined;
+    const orgIdFromPattern = type === 'organization' && contextId.startsWith('org:')
+      ? contextId.split(':')[1] || ''
+      : '';
+    const organizationId = context.organizationId
+      ? String(context.organizationId)
+      : (type === 'organization' ? orgIdFromPattern || contextId : undefined);
     const branchId = context.branchId ? String(context.branchId) : undefined;
     return {
-      id: String(context.id ?? context.contextId ?? `ctx-${index}`),
+      id: contextId,
       type,
       name: String(context.name ?? context.label ?? 'Context'),
       subtitle: context.subtitle ? String(context.subtitle) : undefined,
+      roleName: contextRoleName || undefined,
       logoUrl: context.logoUrl ? String(context.logoUrl) : undefined,
       themeScopeType,
       themeScopeId: context.themeScopeId ? String(context.themeScopeId) : null,
@@ -227,6 +286,10 @@ export function toIdentityResponse(payload: unknown): IdentityResponse {
   const source = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
   const user = toUserProfile(source);
   const roles = user.roles;
+  const rawUser = source.user && typeof source.user === 'object'
+    ? (source.user as Record<string, unknown>)
+    : source;
+  const appLevelRoles = collectAppLevelRoles(source, rawUser);
   const rawContexts = toContexts(source).filter(
     (ctx) => !(ctx.type === 'public' || ctx.name.toLowerCase() === 'nhrs public'),
   );
@@ -235,10 +298,10 @@ export function toIdentityResponse(payload: unknown): IdentityResponse {
       ? (source.defaultContext as Record<string, unknown>)
       : null;
   const isGlobalAdmin = roles.some(isSuperRole);
-  const basePermissions = collectPermissions(source, undefined, rawContexts);
-  const citizenPermissions = isGlobalAdmin ? [] : basePermissions;
+  const basePermissions = collectAppPermissions(source);
+  const citizenPermissions = isGlobalAdmin ? [] : getCitizenOnlyPermissions(source, rawUser);
   const withAppContexts = ensureAppLevelContexts(rawContexts, isGlobalAdmin, citizenPermissions);
-  const availableContexts = ensureRoleContexts(withAppContexts, roles);
+  const availableContexts = ensureRoleContexts(withAppContexts, appLevelRoles);
   const defaultContextId =
     isGlobalAdmin
       ? 'app:super'
@@ -249,12 +312,28 @@ export function toIdentityResponse(payload: unknown): IdentityResponse {
           : 'app:citizen';
   const permissions = isGlobalAdmin
     ? ['*']
-    : collectPermissions(source, defaultContextId, rawContexts);
+    : collectAppPermissions(source);
+  const orgPermissionSource = Array.isArray(source.orgPermissions)
+    ? source.orgPermissions
+    : Array.isArray(resolveRbacScopeRecord(source)?.orgScopePermissions)
+      ? resolveRbacScopeRecord(source)?.orgScopePermissions
+      : [];
 
   return {
     user,
     roles,
     permissions,
+    appPermissions: permissions,
+    orgPermissions: Array.isArray(orgPermissionSource)
+      ? orgPermissionSource
+          .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+          .map((entry) => ({
+            organizationId: String(entry.organizationId ?? ''),
+            permissions: normalizePermissionList(entry.permissions),
+            roles: normalizeRoleList(entry.roles),
+          }))
+          .filter((entry) => entry.organizationId)
+      : [],
     availableContexts,
     defaultContextId,
   };

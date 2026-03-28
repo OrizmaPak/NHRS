@@ -9,6 +9,7 @@ const { setStandardErrorHandler } = require('../../../../../libs/shared/src/erro
 const {
   computeOnboarding,
   pickEditableProfileFields,
+  pickManagedProfileFields,
   buildProfileUpsertFromEnsure,
   mergeProfileView,
 } = require('./profile-logic');
@@ -154,6 +155,85 @@ function emitAuditEvent(event, req = null) {
   })).catch((err) => {
     fastify.log.warn({ err, eventType: event?.eventType }, 'profile outbox enqueue failed');
   });
+}
+
+function getPermissionOrganizationId(req) {
+  const queryOrgId = req?.query && typeof req.query === 'object' ? req.query.organizationId : null;
+  const headerOrgId = req?.headers?.['x-org-id'] || null;
+  return String(queryOrgId || headerOrgId || '').trim() || null;
+}
+
+function buildForwardHeaders(req) {
+  const headers = {
+    authorization: req.headers.authorization,
+    'content-type': 'application/json',
+  };
+  if (req.headers['x-active-context-id']) headers['x-active-context-id'] = req.headers['x-active-context-id'];
+  if (req.headers['x-active-context-name']) headers['x-active-context-name'] = req.headers['x-active-context-name'];
+  if (req.headers['x-active-context-type']) headers['x-active-context-type'] = req.headers['x-active-context-type'];
+  if (req.headers['x-org-id']) headers['x-org-id'] = req.headers['x-org-id'];
+  if (req.headers['x-branch-id']) headers['x-branch-id'] = req.headers['x-branch-id'];
+  return headers;
+}
+
+async function fetchOrganizationMemberRefs(organizationId, req) {
+  if (!organizationId || !membershipApiBaseUrl) return null;
+
+  const allowedUserIds = new Set();
+  const allowedNins = new Set();
+  let page = 1;
+  const limit = 500;
+  const maxPages = 10;
+
+  while (page <= maxPages) {
+    const qs = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      status: 'active',
+    });
+    const res = await callJson(fetchClient, `${membershipApiBaseUrl}/orgs/${encodeURIComponent(String(organizationId))}/members?${qs.toString()}`, {
+      method: 'GET',
+      headers: buildForwardHeaders(req),
+    });
+    if (!res.ok) return null;
+
+    const items = Array.isArray(res.body?.items) ? res.body.items : [];
+    for (const item of items) {
+      const userId = String(item?.userId || '').trim();
+      const nin = String(item?.nin || '').trim();
+      if (userId) allowedUserIds.add(userId);
+      if (nin) allowedNins.add(nin);
+    }
+
+    const total = Number(res.body?.total || items.length || 0);
+    if (items.length < limit || (page * limit) >= total) break;
+    page += 1;
+  }
+
+  return { allowedUserIds, allowedNins };
+}
+
+function isProfileAllowedInOrganization(profile, memberRefs) {
+  if (!memberRefs) return true;
+  const userId = String(profile?.userId || '').trim();
+  const nin = String(profile?.nin || '').trim();
+  return memberRefs.allowedUserIds.has(userId) || memberRefs.allowedNins.has(nin);
+}
+
+async function updateProfileDocument(userId, editable, picker = pickEditableProfileFields) {
+  const updates = picker(editable || {});
+  const setDoc = {
+    ...updates,
+    'metadata.updatedAt': new Date(),
+  };
+  await collections.profiles().updateOne({ userId }, { $set: setDoc }, { upsert: true });
+  const updated = await collections.profiles().findOne({ userId });
+  const onboarding = computeOnboarding(updated || {});
+  await collections.profiles().updateOne(
+    { userId },
+    { $set: { 'onboarding.completedSteps': onboarding.completedSteps, 'onboarding.completenessScore': onboarding.completenessScore } },
+  );
+  return { profile: await collections.profiles().findOne({ userId }), updatedKeys: Object.keys(updates) };
 }
 
 async function applySearchRateLimit(req, reply) {
@@ -444,18 +524,7 @@ fastify.patch('/profile/me', {
   const denied = await enforcePermission(req, reply, 'profile.me.update');
   if (denied) return;
 
-  const editable = pickEditableProfileFields(req.body || {});
-  const setDoc = {
-    ...editable,
-    'metadata.updatedAt': new Date(),
-  };
-  await collections.profiles().updateOne({ userId: req.auth.userId }, { $set: setDoc }, { upsert: true });
-  const updated = await collections.profiles().findOne({ userId: req.auth.userId });
-  const onboarding = computeOnboarding(updated || {});
-  await collections.profiles().updateOne(
-    { userId: req.auth.userId },
-    { $set: { 'onboarding.completedSteps': onboarding.completedSteps, 'onboarding.completenessScore': onboarding.completenessScore } }
-  );
+  const { profile, updatedKeys } = await updateProfileDocument(req.auth.userId, req.body || {}, pickEditableProfileFields);
 
   emitAuditEvent({
     userId: req.auth.userId,
@@ -464,9 +533,9 @@ fastify.patch('/profile/me', {
     ipAddress: getClientIp(req),
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
-    metadata: { updatedKeys: Object.keys(editable) },
+    metadata: { updatedKeys },
   }, req);
-  return reply.send({ message: 'Profile updated', profile: await collections.profiles().findOne({ userId: req.auth.userId }) });
+  return reply.send({ message: 'Profile updated', profile });
 });
 
 fastify.post('/profile/me/request-nin-refresh', { preHandler: requireAuth }, async (req, reply) => {
@@ -573,7 +642,8 @@ fastify.get('/profile/search', {
     }),
   },
 }, async (req, reply) => {
-  const denied = await enforcePermission(req, reply, 'profile.search', req.query?.organizationId);
+  const organizationId = getPermissionOrganizationId(req);
+  const denied = await enforcePermission(req, reply, 'profile.search', organizationId);
   if (denied) return;
   const limited = await applySearchRateLimit(req, reply);
   if (limited) return;
@@ -598,14 +668,31 @@ fastify.get('/profile/search', {
     filter.$text = { $search: String(q) };
   }
 
-  const [items, total] = await Promise.all([
-    collections.profiles()
-      .find(filter, { projection: { userId: 1, nin: 1, displayName: 1, firstName: 1, lastName: 1, phone: 1, email: 1, professionTypes: 1, profileStatus: 1 } })
-      .skip((safePage - 1) * safeLimit)
-      .limit(safeLimit)
-      .toArray(),
-    collections.profiles().countDocuments(filter),
-  ]);
+  const projection = { userId: 1, nin: 1, displayName: 1, firstName: 1, lastName: 1, phone: 1, email: 1, professionTypes: 1, profileStatus: 1 };
+  let items = [];
+  let total = 0;
+
+  if (organizationId) {
+    const memberRefs = await fetchOrganizationMemberRefs(organizationId, req);
+    if (!memberRefs) {
+      return reply.code(503).send({ message: 'Membership scope unavailable' });
+    }
+    const matched = await collections.profiles()
+      .find(filter, { projection })
+      .toArray();
+    const visible = matched.filter((profile) => isProfileAllowedInOrganization(profile, memberRefs));
+    total = visible.length;
+    items = visible.slice((safePage - 1) * safeLimit, safePage * safeLimit);
+  } else {
+    [items, total] = await Promise.all([
+      collections.profiles()
+        .find(filter, { projection })
+        .skip((safePage - 1) * safeLimit)
+        .limit(safeLimit)
+        .toArray(),
+      collections.profiles().countDocuments(filter),
+    ]);
+  }
 
   emitAuditEvent({
     userId: req.auth.userId,
@@ -633,6 +720,12 @@ fastify.get('/profile/:userId', {
         userId: { type: 'string' },
       },
     },
+    querystring: {
+      type: 'object',
+      properties: {
+        organizationId: { type: 'string' },
+      },
+    },
     response: profileResponses({
       200: {
         type: 'object',
@@ -644,11 +737,21 @@ fastify.get('/profile/:userId', {
     }),
   },
 }, async (req, reply) => {
-  const denied = await enforcePermission(req, reply, 'profile.user.read', req.query?.organizationId);
+  const organizationId = getPermissionOrganizationId(req);
+  const denied = await enforcePermission(req, reply, 'profile.user.read', organizationId);
   if (denied) return;
   const { userId } = req.params;
   const profile = await collections.profiles().findOne({ userId: String(userId) });
   if (!profile) return reply.code(404).send({ message: 'Profile not found' });
+  if (organizationId) {
+    const memberRefs = await fetchOrganizationMemberRefs(organizationId, req);
+    if (!memberRefs) {
+      return reply.code(503).send({ message: 'Membership scope unavailable' });
+    }
+    if (!isProfileAllowedInOrganization(profile, memberRefs)) {
+      return reply.code(404).send({ message: 'Profile not found' });
+    }
+  }
 
   emitAuditEvent({
     userId: req.auth.userId,
@@ -660,6 +763,81 @@ fastify.get('/profile/:userId', {
     metadata: { targetUserId: userId },
   }, req);
   return reply.send({ profile });
+});
+
+fastify.patch('/profile/:userId', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['User Profile'],
+    summary: 'Update profile by userId',
+    description: 'Authorized org staff profile update.',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['userId'],
+      properties: {
+        userId: { type: 'string' },
+      },
+    },
+    querystring: {
+      type: 'object',
+      properties: {
+        organizationId: { type: 'string' },
+      },
+    },
+    body: {
+      type: 'object',
+      additionalProperties: true,
+      properties: {
+        displayName: { type: 'string' },
+        firstName: { type: 'string' },
+        lastName: { type: 'string' },
+        otherName: { type: 'string' },
+        dob: { type: 'string' },
+        gender: { type: 'string' },
+        phone: { type: 'string' },
+        email: { type: 'string' },
+        professionTypes: { type: 'array', items: { type: 'string' } },
+        address: { type: 'object', additionalProperties: true },
+        preferences: { type: 'object', additionalProperties: true },
+      },
+    },
+    response: profileResponses({
+      200: { type: 'object', additionalProperties: true },
+      404: errorSchema,
+    }),
+  },
+}, async (req, reply) => {
+  const organizationId = getPermissionOrganizationId(req);
+  const denied = await enforcePermission(req, reply, 'profile.user.update', organizationId);
+  if (denied) return;
+
+  const { userId } = req.params;
+  const existing = await collections.profiles().findOne({ userId: String(userId) });
+  if (!existing) return reply.code(404).send({ message: 'Profile not found' });
+  if (organizationId) {
+    const memberRefs = await fetchOrganizationMemberRefs(organizationId, req);
+    if (!memberRefs) {
+      return reply.code(503).send({ message: 'Membership scope unavailable' });
+    }
+    if (!isProfileAllowedInOrganization(existing, memberRefs)) {
+      return reply.code(404).send({ message: 'Profile not found' });
+    }
+  }
+
+  const { profile, updatedKeys } = await updateProfileDocument(String(userId), req.body || {}, pickManagedProfileFields);
+
+  emitAuditEvent({
+    userId: req.auth.userId,
+    eventType: 'PROFILE_UPDATED_ADMIN',
+    action: 'profile.user.update',
+    ipAddress: getClientIp(req),
+    userAgent: req.headers['user-agent'] || null,
+    outcome: 'success',
+    metadata: { targetUserId: String(userId), updatedKeys },
+  }, req);
+
+  return reply.send({ message: 'Profile updated', profile });
 });
 
 fastify.get('/profile/by-nin/:nin', {
@@ -687,13 +865,23 @@ fastify.get('/profile/by-nin/:nin', {
     }),
   },
 }, async (req, reply) => {
-  const denied = await enforcePermission(req, reply, 'profile.user.read', req.query?.organizationId);
+  const organizationId = getPermissionOrganizationId(req);
+  const denied = await enforcePermission(req, reply, 'profile.user.read', organizationId);
   if (denied) return;
   const { nin } = req.params;
   if (!/^\d{11}$/.test(String(nin))) return reply.code(400).send({ message: 'nin must be 11 digits' });
 
   const profile = await collections.profiles().findOne({ nin: String(nin) });
   if (profile) {
+    if (organizationId) {
+      const memberRefs = await fetchOrganizationMemberRefs(organizationId, req);
+      if (!memberRefs) {
+        return reply.code(503).send({ message: 'Membership scope unavailable' });
+      }
+      if (!isProfileAllowedInOrganization(profile, memberRefs)) {
+        return reply.send({ registered: false, ninSummary: await fetchNinSummary(String(nin), req.headers.authorization) });
+      }
+    }
     return reply.send({ registered: true, profile });
   }
   const ninSummary = await fetchNinSummary(String(nin), req.headers.authorization);

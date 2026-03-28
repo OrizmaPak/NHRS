@@ -16,14 +16,20 @@ export type AuditEventsParams = {
   limit: number;
 };
 
+type UseAuditEventsOptions = {
+  enabled?: boolean;
+  suppressGlobalErrors?: boolean;
+};
+
 type Result = {
   rows: AuditEventRow[];
   total: number;
 };
 
-export function useAuditEvents(params: AuditEventsParams) {
+export function useAuditEvents(params: AuditEventsParams, options?: UseAuditEventsOptions) {
   return useQuery({
     queryKey: ['governance', 'audit', params],
+    enabled: options?.enabled ?? true,
     queryFn: async (): Promise<Result> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.governance.auditEvents, {
         query: {
@@ -38,6 +44,7 @@ export function useAuditEvents(params: AuditEventsParams) {
           page: params.page,
           limit: params.limit,
         },
+        suppressGlobalErrors: options?.suppressGlobalErrors ?? false,
       });
       const items =
         (Array.isArray(response.items) ? response.items : null) ??

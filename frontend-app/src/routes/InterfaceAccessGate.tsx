@@ -6,6 +6,7 @@ import { endpoints } from '@/api/endpoints';
 import { useAuthStore } from '@/stores/authStore';
 import { useContextStore } from '@/stores/contextStore';
 import { usePermissionsStore } from '@/stores/permissionsStore';
+import { getOrganizationIdFromContext } from '@/lib/organizationContext';
 
 type EffectivePermission = { key: string; granted: boolean };
 
@@ -45,7 +46,7 @@ export function InterfaceAccessGate({
 
   const isSyntheticAppContext = Boolean(activeContext?.id?.startsWith('app:'));
   const shouldUseOrgScope = Boolean(activeContext?.organizationId || (activeContext?.type === 'organization' && activeContext?.id));
-  const organizationId = activeContext?.organizationId ?? (activeContext?.type === 'organization' ? activeContext.id : undefined);
+  const organizationId = getOrganizationIdFromContext(activeContext);
 
   const query = useQuery({
     queryKey: ['route-access', user?.id, activeContext?.id ?? 'none', organizationId ?? 'app', required.join('|')],

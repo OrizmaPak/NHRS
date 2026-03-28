@@ -6,6 +6,7 @@ import { useSwitchContext } from '@/api/hooks/useSwitchContext';
 import { getFirstAllowedNavigationPath } from '@/lib/navigationAccess';
 import { navigationItems } from '@/routes/navigation';
 import { usePermissionsStore } from '@/stores/permissionsStore';
+import { useContextStore } from '@/stores/contextStore';
 
 export function ContextSwitcher() {
   const navigate = useNavigate();
@@ -36,11 +37,13 @@ export function ContextSwitcher() {
         switchContextMutation.mutate(contextId, {
           onSuccess: () => {
             const permissionState = usePermissionsStore.getState();
+            const active = useContextStore.getState().activeContext;
             const target =
               getFirstAllowedNavigationPath(
                 navigationItems,
                 permissionState.hasPermission,
                 permissionState.hasAny,
+                active,
               ) ?? '/app/unauthorized';
             navigate(target, { replace: true });
           },

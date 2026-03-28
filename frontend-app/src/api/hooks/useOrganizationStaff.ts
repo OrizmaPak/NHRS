@@ -13,6 +13,10 @@ export type StaffAssignment = {
   status: string;
   activeFrom?: string;
   activeTo?: string | null;
+  removedAt?: string | null;
+  removalReason?: string | null;
+  removalOtherReason?: string | null;
+  removalMoreInformation?: string | null;
 };
 
 export type OrganizationMemberRow = {
@@ -34,6 +38,7 @@ type MembersParams = {
   status?: string;
   branchId?: string;
   institutionId?: string;
+  assignmentStatus?: 'active' | 'inactive';
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -58,6 +63,10 @@ function toAssignment(raw: unknown): StaffAssignment | null {
     status: asString(entry.status, 'active'),
     activeFrom: asString(entry.activeFrom) || undefined,
     activeTo: asString(entry.activeTo) || null,
+    removedAt: asString(entry.removedAt) || null,
+    removalReason: asString(entry.removalReason) || null,
+    removalOtherReason: asString(entry.removalOtherReason) || null,
+    removalMoreInformation: asString(entry.removalMoreInformation) || null,
   };
 }
 
@@ -94,12 +103,30 @@ export function useOrganizationMembers(orgId?: string, params?: MembersParams) {
           status: params?.status || undefined,
           branchId: params?.branchId || undefined,
           institutionId: params?.institutionId || undefined,
+          assignmentStatus: params?.assignmentStatus || undefined,
           includeAssignments: true,
         },
       });
       const items = Array.isArray(response.items) ? response.items : [];
       const rows = items.map(toMember).filter((entry): entry is OrganizationMemberRow => Boolean(entry));
       return { rows, total: Number(response.total ?? rows.length) };
+    },
+  });
+}
+
+export function useOrganizationMember(orgId?: string, memberId?: string) {
+  return useQuery({
+    queryKey: ['org', 'member', orgId ?? 'none', memberId ?? 'none'],
+    enabled: Boolean(orgId && memberId),
+    queryFn: async (): Promise<OrganizationMemberRow | null> => {
+      if (!orgId || !memberId) return null;
+      const response = await apiClient.get<Record<string, unknown>>(endpoints.org.memberById(orgId, memberId), {
+        query: { includeAssignments: true },
+      });
+      const membership = asRecord(response.membership ?? response.item ?? response.data ?? response);
+      if (!membership) return null;
+      const assignments = Array.isArray(response.assignments) ? response.assignments : [];
+      return toMember({ ...membership, assignments });
     },
   });
 }
@@ -130,6 +157,33 @@ export function useAddOrganizationMember() {
   });
 }
 
+export function useUpdateMemberScopeAssignment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      orgId: string;
+      memberId: string;
+      assignmentId: string;
+      roles?: string[];
+      departments?: string[];
+      isPrimary?: boolean;
+      coverageType?: string;
+      status?: string;
+      activeTo?: string;
+    }) => {
+      const { orgId, memberId, assignmentId, ...body } = payload;
+      return apiClient.patch(endpoints.org.memberBranchAssignmentById(orgId, memberId, assignmentId), body);
+    },
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['org', 'member', variables.orgId, variables.memberId] }),
+        queryClient.invalidateQueries({ queryKey: ['org', 'members', variables.orgId] }),
+        queryClient.invalidateQueries({ queryKey: ['access', 'user'] }),
+      ]);
+    },
+  });
+}
+
 export function useAssignMemberScope() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -151,3 +205,41 @@ export function useAssignMemberScope() {
   });
 }
 
+export function useRemoveOrganizationMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      orgId: string;
+      memberId: string;
+      reason: string;
+      otherReason?: string;
+      moreInformation?: string;
+    }) => {
+      const { orgId, memberId, ...body } = payload;
+      return apiClient.delete(endpoints.org.memberById(orgId, memberId), body);
+    },
+    onSuccess: async (_result, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ['org', 'members', variables.orgId] });
+    },
+  });
+}
+
+export function useRemoveMemberScope() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      orgId: string;
+      memberId: string;
+      assignmentId: string;
+      reason: string;
+      otherReason?: string;
+      moreInformation?: string;
+    }) => {
+      const { orgId, memberId, assignmentId, ...body } = payload;
+      return apiClient.delete(endpoints.org.memberBranchAssignmentById(orgId, memberId, assignmentId), body);
+    },
+    onSuccess: async (_result, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ['org', 'members', variables.orgId] });
+    },
+  });
+}

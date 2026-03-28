@@ -5,6 +5,7 @@ import { endpoints } from '@/api/endpoints';
 import { queryClient } from '@/app/providers/queryClient';
 import { ALLOW_CONTEXT_SWITCH_FALLBACK } from '@/lib/constants';
 import { interfacePermissions } from '@/lib/interfacePermissions';
+import { getContextFallbackPermissions, mergeContextPermissions } from '@/lib/contextPermissionFallback';
 import { useAuthStore } from '@/stores/authStore';
 import { useContextStore } from '@/stores/contextStore';
 import { usePermissionsStore, type EffectivePermission } from '@/stores/permissionsStore';
@@ -14,6 +15,7 @@ type UserAccessPayload = {
   assignment?: { roleIds?: unknown[] } | null;
   roles?: unknown[];
   overrides?: unknown[];
+  effectivePermissions?: unknown[];
 };
 
 type AppRolePayload = {
@@ -306,6 +308,81 @@ export async function resolveSyntheticContextPermissions(userId: string, context
   return { permissions: resolvedPermissions, overrides };
 }
 
+function normalizeScopedRoleName(value: string | null | undefined): string | null {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === 'org_owner') return 'owner';
+  return raw;
+}
+
+function organizationRoleFromContext(contextId: string, roleName?: string | null): string | null {
+  const explicit = normalizeScopedRoleName(roleName);
+  if (explicit) return explicit;
+  if (!contextId.startsWith('org:')) return null;
+  const parts = contextId.split(':');
+  const roleIndex = parts.findIndex((part) => part.toLowerCase() === 'role');
+  if (roleIndex === -1 || !parts[roleIndex + 1]) return null;
+  return normalizeScopedRoleName(decodeURIComponent(parts[roleIndex + 1]));
+}
+
+function toOverrideMap(overridesRaw: unknown): Record<string, 'allow' | 'deny'> {
+  if (!Array.isArray(overridesRaw)) return {};
+  const map: Record<string, 'allow' | 'deny'> = {};
+  for (const entry of overridesRaw) {
+    const rule = toPermissionRule(entry);
+    if (!rule) continue;
+    map[rule.permissionKey] = rule.effect;
+  }
+  return map;
+}
+
+export async function resolveOrganizationContextPermissions(
+  userId: string,
+  organizationId: string,
+  contextId: string,
+  contextName: string,
+  roleName?: string | null,
+): Promise<{ permissions: string[]; overrides: Record<string, 'allow' | 'deny'> }> {
+  const activeRole = organizationRoleFromContext(contextId, roleName);
+  const accessResponse = await apiClient.get<UserAccessPayload>(
+    endpoints.rbac.orgUserAccess(organizationId, userId),
+    {
+      query: {
+        activeRole: activeRole ?? undefined,
+        activeContextId: contextId,
+        activeContextName: contextName,
+        activeContextType: 'organization',
+      },
+      suppressGlobalErrors: true,
+    },
+  );
+
+  const overrides = toOverrideMap(accessResponse.overrides);
+  const effectiveRaw = Array.isArray(accessResponse.effectivePermissions)
+    ? accessResponse.effectivePermissions
+    : [];
+  const effectiveRules = effectiveRaw
+    .map((entry) => {
+      const base = toPermissionRule(entry);
+      if (!base || typeof entry !== 'object' || !entry) return base;
+      const row = entry as Record<string, unknown>;
+      if (Object.prototype.hasOwnProperty.call(row, 'granted') && row.granted === false) {
+        return { ...base, effect: 'deny' as const };
+      }
+      return base;
+    })
+    .filter((entry): entry is PermissionRule => Boolean(entry));
+  const effectivePermissions = effectiveRules
+    .filter((entry) => entry.effect === 'allow')
+    .map((entry) => entry.permissionKey);
+
+  if (effectivePermissions.length > 0) {
+    return { permissions: Array.from(new Set(effectivePermissions)), overrides };
+  }
+
+  return { permissions: [], overrides };
+}
+
 export function useSwitchContext() {
   const switchContext = useContextStore((state) => state.switchContext);
   const availableContexts = useContextStore((state) => state.availableContexts);
@@ -340,20 +417,66 @@ export function useSwitchContext() {
       if (next.id.startsWith('app:') && userId) {
         try {
           const resolved = await resolveSyntheticContextPermissions(userId, next.id, next.name);
-          const contextFallbackPermissions = Array.isArray(next.permissions) ? next.permissions : [];
-          const resolvedPermissions =
-            resolved.permissions.length > 0
-              ? resolved.permissions
-              : applyOverridesToPermissions(contextFallbackPermissions, resolved.overrides);
+          const contextFallbackPermissions = mergeContextPermissions(
+            next.permissions,
+            getContextFallbackPermissions(next),
+          );
+          const resolvedPermissions = applyOverridesToPermissions(
+            mergeContextPermissions(contextFallbackPermissions, resolved.permissions),
+            resolved.overrides,
+          );
           setOverrides(resolved.overrides);
           setEffectivePermissions(toEffectiveEntries(resolvedPermissions, resolved.overrides));
         } catch {
-          const fallbackPermissions = Array.isArray(next.permissions) ? next.permissions : [];
+          const fallbackPermissions = mergeContextPermissions(
+            next.permissions,
+            getContextFallbackPermissions(next),
+          );
           setOverrides({});
           setEffectivePermissions(toEffectiveEntries(fallbackPermissions, {}));
         }
+      } else if (next.type === 'organization' && userId) {
+        try {
+          const organizationId = String(next.organizationId || '').trim();
+          if (organizationId) {
+            const resolved = await resolveOrganizationContextPermissions(
+              userId,
+              organizationId,
+              next.id,
+              next.name,
+              next.roleName,
+            );
+            const contextFallbackPermissions = mergeContextPermissions(
+              next.permissions,
+              getContextFallbackPermissions(next),
+            );
+            const resolvedPermissions = applyOverridesToPermissions(
+              mergeContextPermissions(contextFallbackPermissions, resolved.permissions),
+              resolved.overrides,
+            );
+            setOverrides(resolved.overrides);
+            setEffectivePermissions(toEffectiveEntries(resolvedPermissions, resolved.overrides));
+          } else {
+            const scopedPermissions = mergeContextPermissions(
+              next.permissions,
+              getContextFallbackPermissions(next),
+            );
+            setOverrides({});
+            setEffectivePermissions(toEffectiveEntries(scopedPermissions, {}));
+          }
+        } catch {
+          const scopedPermissions = mergeContextPermissions(
+            next.permissions,
+            getContextFallbackPermissions(next),
+          );
+          setOverrides({});
+          setEffectivePermissions(toEffectiveEntries(scopedPermissions, {}));
+        }
       } else {
-        const scopedPermissions = Array.isArray(next.permissions) ? next.permissions : [];
+        const scopedPermissions = mergeContextPermissions(
+          next.permissions,
+          getContextFallbackPermissions(next),
+        );
         setOverrides({});
         setEffectivePermissions(toEffectiveEntries(scopedPermissions, {}));
       }

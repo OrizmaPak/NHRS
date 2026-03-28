@@ -127,6 +127,18 @@ function buildTestContext(fetchImpl) {
   return { app, db };
 }
 
+test('health remains available when database is unavailable', async () => {
+  const app = buildApp();
+
+  const healthRes = await app.inject({
+    method: 'GET',
+    url: '/health',
+  });
+
+  assert.equal(healthRes.statusCode, 200);
+  assert.equal(healthRes.json().dbReady, false);
+});
+
 test('citizen can create symptom entry and later edit it', async () => {
   const { app } = buildTestContext(async (url) => {
     const target = String(url);

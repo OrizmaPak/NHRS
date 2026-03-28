@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   flexRender,
   getCoreRowModel,
@@ -12,7 +13,7 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronDown, Columns3, Search } from 'lucide-react';
+import { ChevronDown, Columns3, RefreshCcw, Search } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { LoadingSkeleton } from '@/components/feedback/LoadingSkeleton';
 import { EmptyState } from '@/components/feedback/EmptyState';
@@ -28,6 +29,7 @@ type DataTableProps<TData> = {
   pagination: PaginationState;
   onPaginationChange: OnChangeFn<PaginationState>;
   onRowAction?: (row: TData) => void;
+  onRefresh?: () => void | Promise<void>;
 };
 
 export function DataTable<TData>({
@@ -39,10 +41,13 @@ export function DataTable<TData>({
   searchPlaceholder = 'Search records',
   pagination,
   onPaginationChange,
+  onRefresh,
 }: DataTableProps<TData>) {
+  const queryClient = useQueryClient();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
   const [rowSelection, setRowSelection] = useState({});
+  const [refreshing, setRefreshing] = useState(false);
 
   const table = useReactTable({
     columns,
@@ -68,6 +73,19 @@ export function DataTable<TData>({
 
   const selectedCount = useMemo(() => Object.keys(rowSelection).length, [rowSelection]);
 
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+      if (onRefresh) {
+        await onRefresh();
+        return;
+      }
+      await queryClient.refetchQueries({ type: 'active' });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <section className="space-y-3">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -82,6 +100,18 @@ export function DataTable<TData>({
         </div>
         <div className="flex items-center gap-2">
           {selectedCount > 0 ? <span className="text-xs text-muted">{selectedCount} selected</span> : null}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              void handleRefresh();
+            }}
+            loading={refreshing}
+            title="Refresh table data"
+            aria-label="Refresh table data"
+          >
+            {!refreshing ? <RefreshCcw className="h-4 w-4" /> : null}
+          </Button>
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <Button variant="outline" size="sm">

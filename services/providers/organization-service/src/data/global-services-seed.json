@@ -1,0 +1,78 @@
+[
+  {
+    "name": "Pharmacy",
+    "description": "Medication dispensing, pharmaceutical counseling, and prescription support services."
+  },
+  {
+    "name": "Laboratory",
+    "description": "Diagnostic laboratory testing, specimen handling, and result processing services."
+  },
+  {
+    "name": "Radiology",
+    "description": "Imaging and radiology services including scans, X-rays, and diagnostic imaging support."
+  },
+  {
+    "name": "Maternity",
+    "description": "Maternal care services covering pregnancy, delivery, and postnatal support."
+  },
+  {
+    "name": "Antenatal",
+    "description": "Routine antenatal care, pregnancy monitoring, and maternal wellness services."
+  },
+  {
+    "name": "Emergency",
+    "description": "Emergency response, urgent care, stabilization, and emergency treatment services."
+  },
+  {
+    "name": "Dental",
+    "description": "Dental consultation, oral health treatment, and preventive dental care services."
+  },
+  {
+    "name": "Dialysis",
+    "description": "Dialysis treatment and renal support services for patients requiring kidney care."
+  },
+  {
+    "name": "Physiotherapy",
+    "description": "Physical rehabilitation, mobility support, and restorative therapy services."
+  },
+  {
+    "name": "Mental Health",
+    "description": "Mental health assessment, counseling, psychiatric, and psychosocial support services."
+  },
+  {
+    "name": "Immunization",
+    "description": "Routine and targeted immunization, vaccination, and preventive health services."
+  },
+  {
+    "name": "Blood Bank",
+    "description": "Blood collection, screening, storage, and transfusion support services."
+  },
+  {
+    "name": "Surgery",
+    "description": "Surgical consultation, theatre operations, and perioperative care services."
+  },
+  {
+    "name": "Pediatrics",
+    "description": "Child health assessment, treatment, monitoring, and pediatric support services."
+  },
+  {
+    "name": "Cardiology",
+    "description": "Heart and cardiovascular assessment, monitoring, and cardiology support services."
+  },
+  {
+    "name": "Orthopedics",
+    "description": "Bone, joint, and musculoskeletal assessment, treatment, and orthopedic care services."
+  },
+  {
+    "name": "Ophthalmology",
+    "description": "Eye care, vision assessment, treatment, and ophthalmology support services."
+  },
+  {
+    "name": "Oncology",
+    "description": "Cancer screening, oncology consultation, treatment support, and follow-up services."
+  },
+  {
+    "name": "Family Medicine",
+    "description": "Primary care, family medicine consultation, and community health support services."
+  }
+]

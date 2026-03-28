@@ -1,8 +1,10 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useContextStore } from '@/stores/contextStore';
 import { usePermissionsStore, type EffectivePermission } from '@/stores/permissionsStore';
-import { resolveSyntheticContextPermissions } from '@/api/hooks/useSwitchContext';
+import { resolveOrganizationContextPermissions, resolveSyntheticContextPermissions } from '@/api/hooks/useSwitchContext';
+import { getOrganizationIdFromContext } from '@/lib/organizationContext';
+import { getContextFallbackPermissions, mergeContextPermissions } from '@/lib/contextPermissionFallback';
 
 function setsEqual(left: Set<string>, right: Set<string>): boolean {
   if (left.size !== right.size) return false;
@@ -66,11 +68,6 @@ export function usePermissionContextSync() {
   const setOverrides = usePermissionsStore((state) => state.setOverrides);
   const setEffectivePermissions = usePermissionsStore((state) => state.setEffectivePermissions);
 
-  const dependencyKey = useMemo(() => {
-    const ctxPermissions = Array.isArray(activeContext?.permissions) ? activeContext.permissions.join('|') : '';
-    return `${user?.id ?? 'nouser'}::${activeContext?.id ?? 'noctx'}::${activeContext?.name ?? ''}::${ctxPermissions}`;
-  }, [user?.id, activeContext?.id, activeContext?.name, activeContext?.permissions]);
-
   useEffect(() => {
     let cancelled = false;
 
@@ -100,21 +97,62 @@ export function usePermissionContextSync() {
       if (activeContext.id.startsWith('app:') && user?.id) {
         try {
           const resolved = await resolveSyntheticContextPermissions(String(user.id), activeContext.id, activeContext.name);
-          const contextFallbackPermissions = Array.isArray(activeContext.permissions) ? activeContext.permissions : [];
-          const resolvedPermissions =
-            resolved.permissions.length > 0
-              ? resolved.permissions
-              : applyOverridesToPermissions(contextFallbackPermissions, resolved.overrides);
+          const contextFallbackPermissions = mergeContextPermissions(
+            activeContext.permissions,
+            getContextFallbackPermissions(activeContext),
+          );
+          const resolvedPermissions = applyOverridesToPermissions(
+            mergeContextPermissions(contextFallbackPermissions, resolved.permissions),
+            resolved.overrides,
+          );
           applyResolved(resolvedPermissions, resolved.overrides);
           return;
         } catch {
-          const fallbackPermissions = Array.isArray(activeContext.permissions) ? activeContext.permissions : [];
+          const fallbackPermissions = mergeContextPermissions(
+            activeContext.permissions,
+            getContextFallbackPermissions(activeContext),
+          );
           applyResolved(fallbackPermissions, {});
           return;
         }
       }
 
-      const scopedPermissions = Array.isArray(activeContext.permissions) ? activeContext.permissions : [];
+      if (activeContext.type === 'organization' && user?.id) {
+        try {
+          const organizationId = getOrganizationIdFromContext(activeContext);
+          if (organizationId) {
+            const resolved = await resolveOrganizationContextPermissions(
+              String(user.id),
+              organizationId,
+              activeContext.id,
+              activeContext.name,
+              activeContext.roleName,
+            );
+            const contextFallbackPermissions = mergeContextPermissions(
+              activeContext.permissions,
+              getContextFallbackPermissions(activeContext),
+            );
+            const resolvedPermissions = applyOverridesToPermissions(
+              mergeContextPermissions(contextFallbackPermissions, resolved.permissions),
+              resolved.overrides,
+            );
+            applyResolved(resolvedPermissions, resolved.overrides);
+            return;
+          }
+        } catch {
+          const fallbackPermissions = mergeContextPermissions(
+            activeContext.permissions,
+            getContextFallbackPermissions(activeContext),
+          );
+          applyResolved(fallbackPermissions, {});
+          return;
+        }
+      }
+
+      const scopedPermissions = mergeContextPermissions(
+        activeContext.permissions,
+        getContextFallbackPermissions(activeContext),
+      );
       applyResolved(scopedPermissions, {});
     };
 
@@ -123,5 +161,15 @@ export function usePermissionContextSync() {
     return () => {
       cancelled = true;
     };
-  }, [dependencyKey, setOverrides, setEffectivePermissions]);
+  }, [
+    activeContext,
+    activeContext?.id,
+    activeContext?.name,
+    activeContext?.permissions,
+    activeContext?.roleName,
+    activeContext?.type,
+    setEffectivePermissions,
+    setOverrides,
+    user?.id,
+  ]);
 }

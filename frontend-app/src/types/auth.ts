@@ -1,11 +1,18 @@
 export type ScopeType = 'public' | 'platform' | 'organization' | 'state' | 'taskforce';
 export type ThemeScopeType = 'platform' | 'organization' | 'state' | 'taskforce';
 
+export type OrganizationPermissionSummary = {
+  organizationId: string;
+  permissions: string[];
+  roles?: string[];
+};
+
 export type AppContext = {
   id: string;
   type: ScopeType;
   name: string;
   subtitle?: string;
+  roleName?: string;
   logoUrl?: string;
   themeScopeType: ThemeScopeType;
   themeScopeId: string | null;
@@ -35,6 +42,8 @@ export type IdentityResponse = {
   user: UserProfile;
   roles: string[];
   permissions: string[];
+  appPermissions?: string[];
+  orgPermissions?: OrganizationPermissionSummary[];
   availableContexts: AppContext[];
   defaultContextId?: string;
 };
