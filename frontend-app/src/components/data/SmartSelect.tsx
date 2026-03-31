@@ -15,6 +15,7 @@ export function SmartSelect({
   placeholder = 'Select option',
   emptyLabel = 'No result found',
   debounceMs = 2500,
+  selectedLabel,
 }: {
   value: string | null;
   onChange: (value: string) => void;
@@ -22,6 +23,7 @@ export function SmartSelect({
   placeholder?: string;
   emptyLabel?: string;
   debounceMs?: number;
+  selectedLabel?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -45,7 +47,10 @@ export function SmartSelect({
     };
   }, [debouncedQuery, loadOptions]);
 
-  const selectedLabel = useMemo(() => options.find((option) => option.value === value)?.label, [options, value]);
+  const resolvedSelectedLabel = useMemo(
+    () => options.find((option) => option.value === value)?.label ?? selectedLabel ?? undefined,
+    [options, selectedLabel, value],
+  );
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -54,8 +59,8 @@ export function SmartSelect({
           type="button"
           className="flex h-10 w-full items-center justify-between rounded-md border border-border bg-white px-3 text-sm text-foreground"
         >
-          <span className={cn('truncate text-left', !selectedLabel && 'text-muted')}>
-            {selectedLabel ?? placeholder}
+          <span className={cn('truncate text-left', !resolvedSelectedLabel && 'text-muted')}>
+            {resolvedSelectedLabel ?? placeholder}
           </span>
           <ChevronDown className="h-4 w-4 text-muted" />
         </button>

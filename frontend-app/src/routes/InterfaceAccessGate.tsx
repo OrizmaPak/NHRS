@@ -43,6 +43,7 @@ export function InterfaceAccessGate({
   const hasAnyLocal = usePermissionsStore((state) => state.hasAny);
 
   const required = useMemo(() => (Array.isArray(permission) ? permission : [permission]), [permission]);
+  const localAllowed = Array.isArray(permission) ? hasAnyLocal(permission) : hasPermissionLocal(permission);
 
   const isSyntheticAppContext = Boolean(activeContext?.id?.startsWith('app:'));
   const shouldUseOrgScope = Boolean(activeContext?.organizationId || (activeContext?.type === 'organization' && activeContext?.id));
@@ -65,6 +66,10 @@ export function InterfaceAccessGate({
     },
   });
 
+  if (localAllowed) {
+    return <>{children}</>;
+  }
+
   if (query.isLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-muted">
@@ -80,6 +85,5 @@ export function InterfaceAccessGate({
     return <>{allowed ? children : fallback}</>;
   }
 
-  const localAllowed = Array.isArray(permission) ? hasAnyLocal(permission) : hasPermissionLocal(permission);
   return <>{localAllowed ? children : fallback}</>;
 }

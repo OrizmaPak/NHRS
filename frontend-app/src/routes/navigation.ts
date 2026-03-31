@@ -36,11 +36,13 @@ export type NavigationItem = {
   to: string;
   permission?: string | string[];
   contextTypes?: Array<'public' | 'platform' | 'organization' | 'state' | 'taskforce'>;
+  organizationScopes?: Array<'organization' | 'institution' | 'branch'>;
   icon: LucideIcon;
   group:
     | 'Core'
     | 'Public'
     | 'Provider'
+    | 'Care'
     | 'Taskforce'
     | 'Emergency'
     | 'Analytics'
@@ -55,15 +57,24 @@ export const navigationItems: NavigationItem[] = [
   { label: 'Dashboard', to: '/app', permission: 'auth.me.read', icon: LayoutDashboard, group: 'Core' },
   { label: 'Settings', to: '/app/settings', permission: 'auth.me.read', icon: Settings, group: 'Core' },
 
-  { label: 'My Timeline', to: '/app/public/timeline', permission: 'records.me.read', contextTypes: ['public', 'platform'], icon: Activity, group: 'Public' },
+  { label: 'My Timeline', to: '/app/public/timeline', permission: 'records.me.read', contextTypes: ['public'], icon: Activity, group: 'Public' },
   { label: 'Facilities', to: '/app/public/organizations', contextTypes: ['public', 'platform', 'organization'], icon: Building2, group: 'Public' },
-  { label: 'Doctor Registry', to: '/app/public/doctor-registry', permission: 'doctor.search', contextTypes: ['public', 'platform'], icon: UserRoundSearch, group: 'Public' },
-
+  { label: 'Doctor Registry', to: '/app/public/doctor-registry', permission: 'doctor.search', contextTypes: ['public', 'platform', 'organization'], icon: UserRoundSearch, group: 'Public' },
+  {
+    label: 'Patient Intake',
+    to: '/app/provider/intake',
+    permission: 'profile.placeholder.create',
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
+    icon: HeartPulse,
+    group: 'Provider',
+  },
   {
     label: 'Provider Hub',
     to: '/app/provider/dashboard',
     permission: 'profile.search',
-    contextTypes: ['platform'],
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
     icon: Building2,
     group: 'Provider',
   },
@@ -71,7 +82,8 @@ export const navigationItems: NavigationItem[] = [
     label: 'Patient Search',
     to: '/app/provider/patients',
     permission: 'profile.search',
-    contextTypes: ['platform'],
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
     icon: Search,
     group: 'Provider',
   },
@@ -79,7 +91,8 @@ export const navigationItems: NavigationItem[] = [
     label: 'Encounters',
     to: '/app/provider/encounters',
     permission: 'encounters.read',
-    contextTypes: ['platform'],
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
     icon: ClipboardList,
     group: 'Provider',
   },
@@ -87,7 +100,8 @@ export const navigationItems: NavigationItem[] = [
     label: 'Labs',
     to: '/app/provider/labs',
     permission: 'labs.read',
-    contextTypes: ['platform'],
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
     icon: NotebookTabs,
     group: 'Provider',
   },
@@ -95,9 +109,37 @@ export const navigationItems: NavigationItem[] = [
     label: 'Pharmacy',
     to: '/app/provider/pharmacy',
     permission: 'pharmacy.read',
-    contextTypes: ['platform'],
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
     icon: BuildingIcon,
     group: 'Provider',
+  },
+  {
+    label: 'Patient Care',
+    to: '/app/care',
+    permission: 'care.workspace.read',
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
+    icon: HeartPulse,
+    group: 'Care',
+  },
+  {
+    label: 'Patient Search',
+    to: '/app/care/patients',
+    permission: 'profile.search',
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
+    icon: Search,
+    group: 'Care',
+  },
+  {
+    label: 'Patient Intake',
+    to: '/app/care/intake',
+    permission: 'profile.placeholder.create',
+    contextTypes: ['organization'],
+    organizationScopes: ['organization', 'institution', 'branch'],
+    icon: HeartPulse,
+    group: 'Care',
   },
 
   { label: 'Taskforce', to: '/app/taskforce/dashboard', permission: 'governance.case.read', contextTypes: ['platform'], icon: ShieldAlert, group: 'Taskforce' },
@@ -124,14 +166,13 @@ export const navigationItems: NavigationItem[] = [
   { label: 'API Keys', to: '/app/integrations/api-keys', permission: 'api.keys.manage', contextTypes: ['platform', 'organization'], icon: KeyRound, group: 'Integrations' },
   { label: 'Sync Monitor', to: '/app/integrations/sync', permission: 'sync.monitor.view', contextTypes: ['platform'], icon: Workflow, group: 'Integrations' },
 
-  { label: 'App Permissions', to: '/app/admin/access/app-permissions', permission: 'superadmin.only', contextTypes: ['platform'], icon: Shield, group: 'Administration' },
+  { label: 'App Permissions', to: '/app/admin/access/app-permissions', permission: ['rbac.app.manage', 'superadmin.only'], contextTypes: ['platform'], icon: Shield, group: 'Administration' },
   { label: 'App Roles', to: '/app/admin/access/app-roles', permission: 'rbac.app.manage', contextTypes: ['platform'], icon: ShieldAlert, group: 'Administration' },
   { label: 'User Access', to: '/app/admin/access/users/self', permission: 'rbac.app.manage', contextTypes: ['platform'], icon: UserCog, group: 'Administration' },
   { label: 'Geo Mapping', to: '/app/admin/geo-mapping', permission: 'geo.manage', contextTypes: ['platform'], icon: MapPinned, group: 'Administration' },
-  { label: 'Global Services', to: '/app/settings/global-services', permission: 'global.services.manage', contextTypes: ['platform', 'organization'], icon: ClipboardList, group: 'Administration' },
-  { label: 'Org Permissions', to: '/app/org/access/permissions', permission: 'rbac.org.manage', contextTypes: ['organization'], icon: Shield, group: 'Administration' },
-  { label: 'Org Roles', to: '/app/org/access/roles', permission: 'rbac.org.manage', contextTypes: ['organization'], icon: ShieldAlert, group: 'Administration' },
-  { label: 'Org Staff Access', to: '/app/org/access/staff/self', permission: 'rbac.org.manage', contextTypes: ['organization'], icon: UserCog, group: 'Administration' },
+  { label: 'Permissions', to: '/app/org/access/permissions', permission: 'rbac.org.manage', contextTypes: ['organization'], icon: Shield, group: 'Administration' },
+  { label: 'Roles', to: '/app/org/access/roles', permission: 'rbac.org.manage', contextTypes: ['organization'], icon: ShieldAlert, group: 'Administration' },
+  { label: 'Staff Access', to: '/app/org/access/staff/self', permission: 'rbac.org.manage', contextTypes: ['organization'], icon: UserCog, group: 'Administration' },
   { label: 'Organizations', to: '/app/organizations', permission: ['org.list', 'org.read'], contextTypes: ['platform', 'organization'], icon: Building2, group: 'Administration' },
   { label: 'Organization Approvals', to: '/app/organizations/approvals', permission: 'org.update', contextTypes: ['platform'], icon: ShieldCheck, group: 'Administration' },
   { label: 'Deleted Organizations', to: '/app/organizations/deleted', permission: 'org.deleted.read', contextTypes: ['platform'], icon: Archive, group: 'Administration' },

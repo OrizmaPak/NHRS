@@ -106,11 +106,13 @@ export function OrgRolesPage() {
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
+      const allowedPermissionKeys = new Set((permissionsQuery.data ?? []).map((entry) => entry.key));
+      const sanitizedPermissions = Array.from(selectedPermissions).filter((key) => allowedPermissionKeys.has(key));
       await saveRole.mutateAsync({
         id: editing?.id,
         name: values.name,
         description: values.description,
-        permissions: Array.from(selectedPermissions),
+        permissions: sanitizedPermissions,
         organizationId,
       });
       toast.success(editing ? 'Role updated' : 'Role created');
@@ -127,15 +129,15 @@ export function OrgRolesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Organization Roles"
+        title="Roles"
         description="Manage role definitions and permission bundles scoped to the active organization."
         breadcrumbs={[{ label: 'Organization' }, { label: 'Access Control' }, { label: 'Roles' }]}
-        actions={<Button onClick={openCreate}>Create Org Role</Button>}
+        actions={<Button onClick={openCreate}>Create Role</Button>}
       />
 
       <FilterBar>
         <div className="w-full md:max-w-md">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search organization roles" />
+          <SearchInput value={query} onChange={setQuery} placeholder="Search roles" />
         </div>
       </FilterBar>
 
@@ -153,7 +155,7 @@ export function OrgRolesPage() {
         />
       )}
 
-      <Modal open={modalOpen} onOpenChange={setModalOpen} title={editing ? 'Edit Organization Role' : 'Create Organization Role'} description="Assign permissions through the matrix UI.">
+      <Modal open={modalOpen} onOpenChange={setModalOpen} title={editing ? 'Edit Role' : 'Create Role'} description="Assign permissions through the matrix UI.">
         <form className="space-y-3" onSubmit={onSubmit}>
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Role Name</label>
@@ -161,7 +163,7 @@ export function OrgRolesPage() {
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Description</label>
-            <Input {...form.register('description')} placeholder="Organization manager role" />
+            <Input {...form.register('description')} placeholder="Manager role" />
           </div>
           <PermissionMatrix
             permissions={(permissionsQuery.data ?? []).map((entry) => ({ key: entry.key, module: entry.module, description: entry.description }))}

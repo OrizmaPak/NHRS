@@ -3,6 +3,16 @@ import type { AppContext, IdentityResponse, ThemeScopeType, UserProfile } from '
 function normalizePermissionList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
+    .filter((entry) => {
+      if (!entry || typeof entry !== 'object') return true;
+      const row = entry as Record<string, unknown>;
+      const effect = String(row.effect ?? row.value ?? '').trim().toLowerCase();
+      if (effect === 'deny') return false;
+      if (Object.prototype.hasOwnProperty.call(row, 'granted') && row.granted === false) {
+        return false;
+      }
+      return true;
+    })
     .map((entry) => {
       if (typeof entry === 'string') return entry;
       if (entry && typeof entry === 'object') {
@@ -265,6 +275,7 @@ export function toContexts(payload: Record<string, unknown>): AppContext[] {
     const organizationId = context.organizationId
       ? String(context.organizationId)
       : (type === 'organization' ? orgIdFromPattern || contextId : undefined);
+    const institutionId = context.institutionId ? String(context.institutionId) : undefined;
     const branchId = context.branchId ? String(context.branchId) : undefined;
     return {
       id: contextId,
@@ -277,6 +288,7 @@ export function toContexts(payload: Record<string, unknown>): AppContext[] {
       themeScopeId: context.themeScopeId ? String(context.themeScopeId) : null,
       permissions: normalizePermissionList(context.permissions),
       organizationId,
+      institutionId,
       branchId,
     };
   });
@@ -298,7 +310,6 @@ export function toIdentityResponse(payload: unknown): IdentityResponse {
       ? (source.defaultContext as Record<string, unknown>)
       : null;
   const isGlobalAdmin = roles.some(isSuperRole);
-  const basePermissions = collectAppPermissions(source);
   const citizenPermissions = isGlobalAdmin ? [] : getCitizenOnlyPermissions(source, rawUser);
   const withAppContexts = ensureAppLevelContexts(rawContexts, isGlobalAdmin, citizenPermissions);
   const availableContexts = ensureRoleContexts(withAppContexts, appLevelRoles);

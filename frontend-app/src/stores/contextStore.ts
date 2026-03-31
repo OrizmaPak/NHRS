@@ -26,6 +26,7 @@ function contextSignature(context: AppContext): string {
     context.themeScopeType,
     context.themeScopeId ?? '',
     context.organizationId ?? '',
+    context.institutionId ?? '',
     context.branchId ?? '',
     JSON.stringify(
       Array.isArray(context.permissions)

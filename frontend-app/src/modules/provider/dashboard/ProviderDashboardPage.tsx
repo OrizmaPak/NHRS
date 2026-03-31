@@ -10,7 +10,7 @@ import { useEmergencyInventory, useEmergencyRequestsSummary } from '@/api/hooks/
 import { LoadingSkeleton } from '@/components/feedback/LoadingSkeleton';
 
 export function ProviderDashboardPage() {
-  const patientsQuery = usePatientSearch({ page: 1, limit: 1 });
+  const patientsQuery = usePatientSearch({ page: 1, limit: 1, viewMode: 'default' });
   const inventoryQuery = useEmergencyInventory({ page: 1, limit: 1 });
   const emergencySummaryQuery = useEmergencyRequestsSummary();
 
@@ -53,6 +53,9 @@ export function ProviderDashboardPage() {
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline">
               <Link to="/app/provider/patients">Search patient</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/app/provider/intake">Patient intake</Link>
             </Button>
             <PermissionGate permission="encounters.create">
               <Button asChild variant="outline">

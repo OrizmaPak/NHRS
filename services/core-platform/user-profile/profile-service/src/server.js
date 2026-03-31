@@ -8,8 +8,9 @@ const { enforceProductionSecrets } = require('../../../../../libs/shared/src/env
 const { setStandardErrorHandler } = require('../../../../../libs/shared/src/errors');
 const {
   computeOnboarding,
-  pickEditableProfileFields,
-  pickManagedProfileFields,
+  pickSelfEditableProfileFields,
+  pickMissingSelfProfileFields,
+  pickMissingManagedProfileFields,
   buildProfileUpsertFromEnsure,
   mergeProfileView,
 } = require('./profile-logic');
@@ -46,6 +47,7 @@ let outboxTimer = null;
 const collections = {
   profiles: () => db.collection('user_profiles'),
   placeholders: () => db.collection('profile_placeholders'),
+  patientRegistry: () => db.collection('care_patient_registry'),
 };
 
 const errorSchema = {
@@ -160,7 +162,34 @@ function emitAuditEvent(event, req = null) {
 function getPermissionOrganizationId(req) {
   const queryOrgId = req?.query && typeof req.query === 'object' ? req.query.organizationId : null;
   const headerOrgId = req?.headers?.['x-org-id'] || null;
-  return String(queryOrgId || headerOrgId || '').trim() || null;
+  const activeContextId = req?.headers?.['x-active-context-id'] || null;
+  let contextOrgId = null;
+  if (typeof activeContextId === 'string' && activeContextId.startsWith('org:')) {
+    const parts = activeContextId.split(':');
+    if (parts.length >= 2 && parts[1]) {
+      contextOrgId = parts[1];
+    }
+  }
+  return String(queryOrgId || headerOrgId || contextOrgId || '').trim() || null;
+}
+
+function getCareInstitutionId(req) {
+  const queryInstitutionId = req?.query && typeof req.query === 'object' ? req.query.institutionId : null;
+  const bodyInstitutionId = req?.body && typeof req.body === 'object' ? req.body.institutionId : null;
+  const headerInstitutionId = req?.headers?.['x-institution-id'] || null;
+  return String(queryInstitutionId || bodyInstitutionId || headerInstitutionId || '').trim() || null;
+}
+
+function getCareBranchId(req) {
+  const queryBranchId = req?.query && typeof req.query === 'object' ? req.query.branchId : null;
+  const bodyBranchId = req?.body && typeof req.body === 'object' ? req.body.branchId : null;
+  const headerBranchId = req?.headers?.['x-branch-id'] || null;
+  return String(queryBranchId || bodyBranchId || headerBranchId || '').trim() || null;
+}
+
+function isPatientCareProfileRequest(req) {
+  const queryView = req?.query && typeof req.query === 'object' ? req.query.view : null;
+  return String(queryView || '').trim().toLowerCase() === 'patient-care';
 }
 
 function buildForwardHeaders(req) {
@@ -172,6 +201,7 @@ function buildForwardHeaders(req) {
   if (req.headers['x-active-context-name']) headers['x-active-context-name'] = req.headers['x-active-context-name'];
   if (req.headers['x-active-context-type']) headers['x-active-context-type'] = req.headers['x-active-context-type'];
   if (req.headers['x-org-id']) headers['x-org-id'] = req.headers['x-org-id'];
+  if (req.headers['x-institution-id']) headers['x-institution-id'] = req.headers['x-institution-id'];
   if (req.headers['x-branch-id']) headers['x-branch-id'] = req.headers['x-branch-id'];
   return headers;
 }
@@ -220,10 +250,229 @@ function isProfileAllowedInOrganization(profile, memberRefs) {
   return memberRefs.allowedUserIds.has(userId) || memberRefs.allowedNins.has(nin);
 }
 
-async function updateProfileDocument(userId, editable, picker = pickEditableProfileFields) {
+function pickFirstNonEmpty(...values) {
+  for (const value of values) {
+    const normalized = String(value || '').trim();
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function normalizePatientNameCandidate(value, fallbackNin = '') {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+
+  const digits = normalized.replace(/\D/g, '');
+  const fallbackDigits = String(fallbackNin || '').trim().replace(/\D/g, '');
+  const isSyntheticNinLabel =
+    normalized === fallbackDigits
+    || (/^NIN\b/i.test(normalized) && digits.length === 11)
+    || Boolean(fallbackDigits && digits === fallbackDigits);
+
+  return isSyntheticNinLabel ? '' : normalized;
+}
+
+function buildPatientDisplayName(source = {}, fallbackNin = '') {
+  const firstName = pickFirstNonEmpty(source.firstName);
+  const otherName = pickFirstNonEmpty(source.otherName);
+  const lastName = pickFirstNonEmpty(source.lastName);
+  const nameParts = [firstName, otherName, lastName].filter(Boolean);
+  const combinedName = nameParts.join(' ').trim();
+  const strongCombinedName = nameParts.length >= 2 ? combinedName : '';
+  return pickFirstNonEmpty(
+    strongCombinedName,
+    normalizePatientNameCandidate(source.displayName, fallbackNin),
+    normalizePatientNameCandidate(source.fullName, fallbackNin),
+    normalizePatientNameCandidate(source.name, fallbackNin),
+    combinedName,
+    fallbackNin ? `NIN ${fallbackNin}` : '',
+    'Patient',
+  );
+}
+
+function buildPatientRegistrySnapshot({ profile = null, ninSummary = null, fallbackNin = '' }) {
+  const source = profile || ninSummary || {};
+  const nin = pickFirstNonEmpty(source.nin, fallbackNin);
+  const firstName = pickFirstNonEmpty(source.firstName) || null;
+  const otherName = pickFirstNonEmpty(source.otherName) || null;
+  const lastName = pickFirstNonEmpty(source.lastName) || null;
+  const displayName = buildPatientDisplayName(source, nin);
+
+  return {
+    userId: pickFirstNonEmpty(source.userId) || null,
+    nin,
+    displayName,
+    firstName,
+    otherName,
+    lastName,
+    gender: pickFirstNonEmpty(source.gender) || null,
+    dob: pickFirstNonEmpty(source.dob) || null,
+    phone: pickFirstNonEmpty(source.phone) || null,
+    email: pickFirstNonEmpty(source.email).toLowerCase() || null,
+  };
+}
+
+function buildUniqueStringList(...groups) {
+  return Array.from(
+    new Set(
+      groups
+        .flat()
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function toTimestamp(value) {
+  const parsed = new Date(value || 0).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function pickLatestNonEmpty(entries, fieldName) {
+  for (const entry of entries) {
+    const value = entry?.[fieldName];
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function mergePatientRegistryEntries(entries) {
+  const sorted = [...entries].sort((left, right) => {
+    const rightStamp = Math.max(toTimestamp(right?.updatedAt), toTimestamp(right?.createdAt));
+    const leftStamp = Math.max(toTimestamp(left?.updatedAt), toTimestamp(left?.createdAt));
+    return rightStamp - leftStamp;
+  });
+  const primary = sorted[0] || {};
+  const earliestCreatedAt = entries
+    .map((entry) => entry?.createdAt)
+    .filter(Boolean)
+    .sort((left, right) => toTimestamp(left) - toTimestamp(right))[0] || primary.createdAt || new Date();
+  const latestUpdatedAt = entries
+    .map((entry) => entry?.updatedAt || entry?.createdAt)
+    .filter(Boolean)
+    .sort((left, right) => toTimestamp(right) - toTimestamp(left))[0] || primary.updatedAt || primary.createdAt || new Date();
+  const institutionIds = buildUniqueStringList(
+    entries.map((entry) => entry?.institutionId),
+    entries.flatMap((entry) => Array.isArray(entry?.institutionIds) ? entry.institutionIds : []),
+  );
+  const branchIds = buildUniqueStringList(
+    entries.map((entry) => entry?.branchId),
+    entries.flatMap((entry) => Array.isArray(entry?.branchIds) ? entry.branchIds : []),
+  );
+  const nin = pickLatestNonEmpty(sorted, 'nin') || null;
+  const firstName = pickLatestNonEmpty(sorted, 'firstName');
+  const otherName = pickLatestNonEmpty(sorted, 'otherName');
+  const lastName = pickLatestNonEmpty(sorted, 'lastName');
+  const displayName = buildPatientDisplayName({
+    displayName: pickLatestNonEmpty(sorted, 'displayName'),
+    fullName: pickLatestNonEmpty(sorted, 'fullName'),
+    name: pickLatestNonEmpty(sorted, 'name'),
+    firstName,
+    otherName,
+    lastName,
+  }, nin || '');
+
+  return {
+    ...primary,
+    registryId: pickLatestNonEmpty(sorted, 'registryId') || crypto.randomUUID(),
+    organizationId: pickLatestNonEmpty(sorted, 'organizationId') || null,
+    nin,
+    userId: pickLatestNonEmpty(sorted, 'userId'),
+    displayName,
+    firstName,
+    otherName,
+    lastName,
+    gender: pickLatestNonEmpty(sorted, 'gender'),
+    dob: pickLatestNonEmpty(sorted, 'dob'),
+    phone: pickLatestNonEmpty(sorted, 'phone'),
+    email: pickLatestNonEmpty(sorted, 'email'),
+    institutionId: pickLatestNonEmpty(sorted, 'institutionId') || institutionIds[0] || null,
+    institutionIds,
+    branchId: pickLatestNonEmpty(sorted, 'branchId') || branchIds[0] || null,
+    branchIds,
+    registeredByUserId: pickLatestNonEmpty(sorted, 'registeredByUserId'),
+    createdAt: earliestCreatedAt,
+    updatedAt: latestUpdatedAt,
+  };
+}
+
+async function dropIndexIfExists(collection, indexName) {
+  if (!collection || typeof collection.dropIndex !== 'function') return;
+  try {
+    await collection.dropIndex(indexName);
+  } catch (error) {
+    if (!/index not found|ns not found/i.test(String(error?.message || ''))) {
+      throw error;
+    }
+  }
+}
+
+async function normalizePatientRegistryCollection() {
+  const collection = collections.patientRegistry();
+  if (!collection || typeof collection.find !== 'function') return;
+
+  const allEntries = await collection.find({}).toArray();
+  if (!Array.isArray(allEntries) || allEntries.length === 0) return;
+
+  if (typeof collection.replaceOne === 'function' && typeof collection.deleteMany === 'function') {
+    const grouped = new Map();
+    for (const entry of allEntries) {
+      const organizationId = String(entry?.organizationId || '').trim();
+      const nin = String(entry?.nin || '').trim();
+      if (!organizationId || !nin) continue;
+      const key = `${organizationId}::${nin}`;
+      const bucket = grouped.get(key) || [];
+      bucket.push(entry);
+      grouped.set(key, bucket);
+    }
+
+    for (const entries of grouped.values()) {
+      if (!entries.length) continue;
+      const merged = mergePatientRegistryEntries(entries);
+      const [primary, ...duplicates] = [...entries].sort((left, right) => {
+        const rightStamp = Math.max(toTimestamp(right?.updatedAt), toTimestamp(right?.createdAt));
+        const leftStamp = Math.max(toTimestamp(left?.updatedAt), toTimestamp(left?.createdAt));
+        return rightStamp - leftStamp;
+      });
+      if (primary?._id) {
+        await collection.replaceOne({ _id: primary._id }, { ...merged, _id: primary._id });
+      }
+      const duplicateIds = duplicates.map((entry) => entry?._id).filter(Boolean);
+      if (duplicateIds.length > 0) {
+        await collection.deleteMany({ _id: { $in: duplicateIds } });
+      }
+    }
+  }
+
+  await dropIndexIfExists(collection, 'organizationId_1_institutionId_1_nin_1');
+  await dropIndexIfExists(collection, 'organizationId_1_institutionId_1_createdAt_-1');
+}
+
+function flattenUpdateFields(input, prefix = '') {
+  const out = {};
+  if (!input || typeof input !== 'object') return out;
+
+  for (const [key, value] of Object.entries(input)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+      Object.assign(out, flattenUpdateFields(value, path));
+      continue;
+    }
+    out[path] = value;
+  }
+
+  return out;
+}
+
+async function updateProfileDocument(userId, editable, picker = pickSelfEditableProfileFields) {
   const updates = picker(editable || {});
+  if (Object.keys(updates).length === 0) {
+    return { profile: await collections.profiles().findOne({ userId }), updatedKeys: [] };
+  }
   const setDoc = {
-    ...updates,
+    ...flattenUpdateFields(updates),
     'metadata.updatedAt': new Date(),
   };
   await collections.profiles().updateOne({ userId }, { $set: setDoc }, { upsert: true });
@@ -286,6 +535,7 @@ async function connect() {
   }
 
   if (dbReady) {
+    await normalizePatientRegistryCollection();
     await Promise.all([
       collections.profiles().createIndex({ userId: 1 }, { unique: true }),
       collections.profiles().createIndex({ nin: 1 }, { unique: true, sparse: true }),
@@ -293,6 +543,11 @@ async function connect() {
       collections.profiles().createIndex({ email: 1 }, { unique: true, sparse: true }),
       collections.profiles().createIndex({ lastName: 'text', firstName: 'text', displayName: 'text' }),
       collections.placeholders().createIndex({ nin: 1 }),
+      collections.patientRegistry().createIndex({ organizationId: 1, nin: 1 }, { unique: true }),
+      collections.patientRegistry().createIndex({ organizationId: 1, createdAt: -1 }),
+      collections.patientRegistry().createIndex({ organizationId: 1, institutionIds: 1 }),
+      collections.patientRegistry().createIndex({ organizationId: 1, branchIds: 1 }),
+      collections.patientRegistry().createIndex({ displayName: 'text', firstName: 'text', lastName: 'text', otherName: 'text', nin: 'text' }),
       outboxRepo.createIndexes(),
     ]);
   }
@@ -345,15 +600,95 @@ async function fetchNinSummary(nin, authorization) {
     headers: { authorization, 'content-type': 'application/json' },
   });
   if (!res.ok) return null;
+  const body = res.body || {};
   return {
-    nin: res.body?.nin || nin,
-    firstName: res.body?.firstName || null,
-    lastName: res.body?.lastName || null,
-    otherName: res.body?.otherName || null,
-    dob: res.body?.dob || null,
-    gender: res.body?.gender || null,
-    isActive: res.body?.isActive !== false,
-    lastFetchedAt: res.body?.lastFetchedAt || null,
+    nin: body.nin || nin,
+    firstName: body.firstName || null,
+    lastName: body.lastName || null,
+    otherName: body.otherName || null,
+    middleName: body.middleName || body.otherName || null,
+    fullName: body.fullName || null,
+    displayName: body.displayName || body.fullName || null,
+    dob: body.dob || null,
+    gender: body.gender || null,
+    nationality: body.nationality || null,
+    stateOfOrigin: body.stateOfOrigin || body.state || null,
+    state: body.state || body.stateOfOrigin || null,
+    localGovernment: body.localGovernment || body.lga || null,
+    lga: body.lga || body.localGovernment || null,
+    phone: body.phone || null,
+    email: body.email || null,
+    photoUrl: body.photoUrl || null,
+    profilePhotoUrl: body.profilePhotoUrl || body.photoUrl || null,
+    profilePictureUrl: body.profilePictureUrl || body.profilePhotoUrl || body.photoUrl || null,
+    avatarUrl: body.avatarUrl || body.profilePhotoUrl || body.photoUrl || null,
+    imageUrl: body.imageUrl || body.photoUrl || null,
+    passportPhotoUrl: body.passportPhotoUrl || body.photoUrl || null,
+    address: body.address || null,
+    addressText: body.addressText || body.residentialAddress || null,
+    residentialAddress: body.residentialAddress || body.addressText || null,
+    metadata: body.metadata && typeof body.metadata === 'object' ? body.metadata : null,
+    isActive: body.isActive !== false,
+    lastFetchedAt: body.lastFetchedAt || null,
+  };
+}
+
+function shouldFetchNinSummaryForProfile(profile = {}) {
+  if (!profile || typeof profile !== 'object') return true;
+  if (!pickFirstNonEmpty(profile.firstName, profile.lastName, profile.otherName)) return true;
+  if (!pickFirstNonEmpty(
+    normalizePatientNameCandidate(profile.displayName, profile.nin),
+    normalizePatientNameCandidate(profile.fullName, profile.nin),
+    normalizePatientNameCandidate(profile.name, profile.nin),
+  )) return true;
+  if (!pickFirstNonEmpty(
+    profile.dob,
+    profile.gender,
+    profile.nationality,
+    profile.stateOfOrigin,
+    profile.state,
+    profile.localGovernment,
+    profile.lga,
+    profile.addressText,
+    profile.residentialAddress,
+  )) return true;
+  return false;
+}
+
+function mergePatientProfileWithNinSummary(profile = {}, ninSummary = null) {
+  if (!ninSummary) return profile;
+
+  const nin = pickFirstNonEmpty(profile.nin, ninSummary.nin) || null;
+  const firstName = pickFirstNonEmpty(profile.firstName, ninSummary.firstName) || null;
+  const otherName = pickFirstNonEmpty(profile.otherName, profile.middleName, ninSummary.otherName, ninSummary.middleName) || null;
+  const lastName = pickFirstNonEmpty(profile.lastName, ninSummary.lastName) || null;
+
+  return {
+    ...ninSummary,
+    ...profile,
+    nin,
+    firstName,
+    otherName,
+    middleName: otherName,
+    lastName,
+    dob: pickFirstNonEmpty(profile.dob, ninSummary.dob) || null,
+    gender: pickFirstNonEmpty(profile.gender, ninSummary.gender) || null,
+    nationality: pickFirstNonEmpty(profile.nationality, ninSummary.nationality) || null,
+    stateOfOrigin: pickFirstNonEmpty(profile.stateOfOrigin, profile.state, ninSummary.stateOfOrigin, ninSummary.state) || null,
+    state: pickFirstNonEmpty(profile.state, profile.stateOfOrigin, ninSummary.state, ninSummary.stateOfOrigin) || null,
+    localGovernment: pickFirstNonEmpty(profile.localGovernment, profile.lga, ninSummary.localGovernment, ninSummary.lga) || null,
+    lga: pickFirstNonEmpty(profile.lga, profile.localGovernment, ninSummary.lga, ninSummary.localGovernment) || null,
+    phone: pickFirstNonEmpty(profile.phone, ninSummary.phone) || null,
+    email: pickFirstNonEmpty(profile.email, ninSummary.email).toLowerCase() || null,
+    addressText: pickFirstNonEmpty(profile.addressText, profile.residentialAddress, ninSummary.addressText, ninSummary.residentialAddress) || null,
+    residentialAddress: pickFirstNonEmpty(profile.residentialAddress, profile.addressText, ninSummary.residentialAddress, ninSummary.addressText) || null,
+    displayName: buildPatientDisplayName({
+      ...ninSummary,
+      ...profile,
+      firstName,
+      otherName,
+      lastName,
+    }, nin || ''),
   };
 }
 
@@ -515,6 +850,12 @@ fastify.patch('/profile/me', {
       additionalProperties: true,
       properties: {
         displayName: { type: 'string' },
+        otherName: { type: 'string' },
+        dob: { type: 'string' },
+        gender: { type: 'string' },
+        nationality: { type: 'string' },
+        stateOfOrigin: { type: 'string' },
+        localGovernment: { type: 'string' },
         address: { type: 'object', additionalProperties: true },
         preferences: { type: 'object', additionalProperties: true },
       },
@@ -524,7 +865,12 @@ fastify.patch('/profile/me', {
   const denied = await enforcePermission(req, reply, 'profile.me.update');
   if (denied) return;
 
-  const { profile, updatedKeys } = await updateProfileDocument(req.auth.userId, req.body || {}, pickEditableProfileFields);
+  const existing = await collections.profiles().findOne({ userId: req.auth.userId });
+  const { profile, updatedKeys } = await updateProfileDocument(
+    req.auth.userId,
+    pickMissingSelfProfileFields(existing, req.body || {}),
+    (payload) => payload || {},
+  );
 
   emitAuditEvent({
     userId: req.auth.userId,
@@ -535,7 +881,7 @@ fastify.patch('/profile/me', {
     outcome: 'success',
     metadata: { updatedKeys },
   }, req);
-  return reply.send({ message: 'Profile updated', profile });
+  return reply.send({ message: updatedKeys.length > 0 ? 'Profile updated' : 'No missing profile fields were updated', profile });
 });
 
 fastify.post('/profile/me/request-nin-refresh', { preHandler: requireAuth }, async (req, reply) => {
@@ -616,22 +962,24 @@ fastify.get('/profile/search', {
     security: [{ bearerAuth: [] }],
     querystring: {
       type: 'object',
-      properties: {
-        q: { type: 'string' },
-        nin: { type: 'string', pattern: '^\\d{11}$' },
-        phone: { type: 'string' },
-        email: { type: 'string', format: 'email' },
-        name: { type: 'string' },
-        role: { type: 'string' },
-        organizationId: { type: 'string' },
-        branchId: { type: 'string' },
-        page: { type: 'integer', minimum: 1 },
-        limit: { type: 'integer', minimum: 1, maximum: 100 },
-      },
+        properties: {
+          q: { type: 'string' },
+          nin: { type: 'string', pattern: '^\\d{11}$' },
+          phone: { type: 'string' },
+          email: { type: 'string', format: 'email' },
+          name: { type: 'string' },
+          role: { type: 'string' },
+          view: { type: 'string', enum: ['patient-care'] },
+          organizationId: { type: 'string' },
+          branchId: { type: 'string' },
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 100 },
+        },
     },
     response: profileResponses({
       200: {
         type: 'object',
+        additionalProperties: true,
         example: {
           page: 1,
           limit: 20,
@@ -643,8 +991,13 @@ fastify.get('/profile/search', {
   },
 }, async (req, reply) => {
   const organizationId = getPermissionOrganizationId(req);
+  const isPatientCareRequest = isPatientCareProfileRequest(req);
   const denied = await enforcePermission(req, reply, 'profile.search', organizationId);
   if (denied) return;
+  if (isPatientCareRequest) {
+    const careDenied = await enforcePermission(req, reply, 'records.nin.read', organizationId);
+    if (careDenied) return;
+  }
   const limited = await applySearchRateLimit(req, reply);
   if (limited) return;
 
@@ -672,7 +1025,7 @@ fastify.get('/profile/search', {
   let items = [];
   let total = 0;
 
-  if (organizationId) {
+  if (organizationId && !isPatientCareRequest) {
     const memberRefs = await fetchOrganizationMemberRefs(organizationId, req);
     if (!memberRefs) {
       return reply.code(503).send({ message: 'Membership scope unavailable' });
@@ -701,7 +1054,7 @@ fastify.get('/profile/search', {
     ipAddress: getClientIp(req),
     userAgent: req.headers['user-agent'] || null,
     outcome: 'success',
-    metadata: { hasQ: !!q, page: safePage, limit: safeLimit },
+    metadata: { hasQ: !!q, page: safePage, limit: safeLimit, view: isPatientCareRequest ? 'patient-care' : 'default' },
   }, req);
   return reply.send({ page: safePage, limit: safeLimit, total, items });
 });
@@ -729,6 +1082,7 @@ fastify.get('/profile/:userId', {
     response: profileResponses({
       200: {
         type: 'object',
+        additionalProperties: true,
         example: {
           profile: { userId: 'user-1', nin: '90000000001', displayName: 'John Doe', profileStatus: 'active' },
         },
@@ -825,7 +1179,11 @@ fastify.patch('/profile/:userId', {
     }
   }
 
-  const { profile, updatedKeys } = await updateProfileDocument(String(userId), req.body || {}, pickManagedProfileFields);
+  const { profile, updatedKeys } = await updateProfileDocument(
+    String(userId),
+    pickMissingManagedProfileFields(existing, req.body || {}),
+    (payload) => payload || {},
+  );
 
   emitAuditEvent({
     userId: req.auth.userId,
@@ -837,7 +1195,7 @@ fastify.patch('/profile/:userId', {
     metadata: { targetUserId: String(userId), updatedKeys },
   }, req);
 
-  return reply.send({ message: 'Profile updated', profile });
+  return reply.send({ message: updatedKeys.length > 0 ? 'Profile updated' : 'No missing profile fields were updated', profile });
 });
 
 fastify.get('/profile/by-nin/:nin', {
@@ -854,9 +1212,16 @@ fastify.get('/profile/by-nin/:nin', {
         nin: { type: 'string', pattern: '^\\d{11}$' },
       },
     },
+    querystring: {
+      type: 'object',
+      properties: {
+        view: { type: 'string', enum: ['patient-care'] },
+      },
+    },
     response: profileResponses({
       200: {
         type: 'object',
+        additionalProperties: true,
         example: {
           registered: false,
           ninSummary: { nin: '90000000001', firstName: 'John', lastName: 'Doe' },
@@ -866,26 +1231,238 @@ fastify.get('/profile/by-nin/:nin', {
   },
 }, async (req, reply) => {
   const organizationId = getPermissionOrganizationId(req);
+  const isPatientCareRequest = isPatientCareProfileRequest(req);
   const denied = await enforcePermission(req, reply, 'profile.user.read', organizationId);
   if (denied) return;
+  if (isPatientCareRequest) {
+    const careDenied = await enforcePermission(req, reply, 'records.nin.read', organizationId);
+    if (careDenied) return;
+  }
   const { nin } = req.params;
   if (!/^\d{11}$/.test(String(nin))) return reply.code(400).send({ message: 'nin must be 11 digits' });
 
   const profile = await collections.profiles().findOne({ nin: String(nin) });
+  const ninSummary = profile && shouldFetchNinSummaryForProfile(profile)
+    ? await fetchNinSummary(String(nin), req.headers.authorization)
+    : null;
   if (profile) {
-    if (organizationId) {
+    if (organizationId && !isPatientCareRequest) {
       const memberRefs = await fetchOrganizationMemberRefs(organizationId, req);
       if (!memberRefs) {
         return reply.code(503).send({ message: 'Membership scope unavailable' });
       }
       if (!isProfileAllowedInOrganization(profile, memberRefs)) {
-        return reply.send({ registered: false, ninSummary: await fetchNinSummary(String(nin), req.headers.authorization) });
+        return reply.send({ registered: false, ninSummary: ninSummary || await fetchNinSummary(String(nin), req.headers.authorization) });
       }
     }
-    return reply.send({ registered: true, profile });
+    return reply.send({ registered: true, profile: mergePatientProfileWithNinSummary(profile, ninSummary), ...(ninSummary ? { ninSummary } : {}) });
   }
-  const ninSummary = await fetchNinSummary(String(nin), req.headers.authorization);
-  return reply.send({ registered: false, ninSummary });
+  const missingProfileNinSummary = await fetchNinSummary(String(nin), req.headers.authorization);
+  return reply.send({ registered: false, ninSummary: missingProfileNinSummary });
+});
+
+fastify.get('/care/patients', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Patient Care'],
+    summary: 'List registered care patients',
+    description: 'Lists patients already registered into the current organization or institution care workspace.',
+    security: [{ bearerAuth: [] }],
+    querystring: {
+      type: 'object',
+      properties: {
+        q: { type: 'string' },
+        nin: { type: 'string', pattern: '^\\d{11}$' },
+        organizationId: { type: 'string' },
+        page: { type: 'integer', minimum: 1 },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+    },
+    response: profileResponses({
+      200: {
+        type: 'object',
+        additionalProperties: true,
+        example: {
+          page: 1,
+          limit: 20,
+          total: 1,
+          items: [{ nin: '90000000001', displayName: 'John Doe', institutionIds: ['inst-1'], branchIds: ['branch-1'] }],
+        },
+      },
+    }),
+  },
+}, async (req, reply) => {
+  const organizationId = getPermissionOrganizationId(req);
+  const denied = await enforcePermission(req, reply, 'profile.search', organizationId);
+  if (denied) return;
+  const careDenied = await enforcePermission(req, reply, 'records.nin.read', organizationId);
+  if (careDenied) return;
+  if (!organizationId) {
+    return reply.code(400).send({ message: 'organizationId is required for care patient search' });
+  }
+
+  const { q, nin, page = 1, limit = 20 } = req.query || {};
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const safePage = Math.max(Number(page) || 1, 1);
+  const filter = { organizationId };
+  if (nin) {
+    filter.nin = String(nin);
+  }
+  if (q) {
+    const pattern = String(q).trim();
+    if (pattern) {
+      filter.$or = [
+        { displayName: { $regex: pattern, $options: 'i' } },
+        { firstName: { $regex: pattern, $options: 'i' } },
+        { lastName: { $regex: pattern, $options: 'i' } },
+        { otherName: { $regex: pattern, $options: 'i' } },
+        { nin: { $regex: pattern, $options: 'i' } },
+      ];
+    }
+  }
+
+  const projection = {
+    registryId: 1,
+    organizationId: 1,
+    institutionId: 1,
+    institutionIds: 1,
+    branchId: 1,
+    branchIds: 1,
+    userId: 1,
+    nin: 1,
+    displayName: 1,
+    firstName: 1,
+    otherName: 1,
+    lastName: 1,
+    gender: 1,
+    dob: 1,
+    phone: 1,
+    email: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  const [items, total] = await Promise.all([
+    collections.patientRegistry()
+      .find(filter, { projection })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .skip((safePage - 1) * safeLimit)
+      .limit(safeLimit)
+      .toArray(),
+    collections.patientRegistry().countDocuments(filter),
+  ]);
+
+  return reply.send({ page: safePage, limit: safeLimit, total, items });
+});
+
+fastify.post('/care/patients', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Patient Care'],
+    summary: 'Register patient into organization care search',
+    description: 'Looks up a patient by NIN and adds the patient into the organization-wide care register, with optional institution and branch attribution.',
+    security: [{ bearerAuth: [] }],
+    body: {
+      type: 'object',
+      required: ['nin'],
+      properties: {
+        nin: { type: 'string', pattern: '^\\d{11}$' },
+        institutionId: { type: 'string' },
+        branchId: { type: 'string' },
+      },
+    },
+    response: profileResponses({
+      200: { type: 'object', additionalProperties: true },
+      201: { type: 'object', additionalProperties: true },
+    }),
+  },
+}, async (req, reply) => {
+  const organizationId = getPermissionOrganizationId(req);
+  const institutionId = getCareInstitutionId(req);
+  const branchId = getCareBranchId(req);
+  const denied = await enforcePermission(req, reply, 'profile.placeholder.create', organizationId);
+  if (denied) return;
+  const careDenied = await enforcePermission(req, reply, 'records.nin.read', organizationId);
+  if (careDenied) return;
+  if (!organizationId) {
+    return reply.code(400).send({ message: 'organizationId is required for patient intake' });
+  }
+
+  const nin = String(req.body?.nin || '').trim();
+  let profile = await collections.profiles().findOne({ nin });
+  const needsNinSummary = !profile || shouldFetchNinSummaryForProfile(profile);
+  const ninSummary = needsNinSummary ? await fetchNinSummary(nin, req.headers.authorization) : null;
+  const mergedProfile = profile ? mergePatientProfileWithNinSummary(profile, ninSummary) : null;
+
+  if (!mergedProfile && !ninSummary) {
+    return reply.code(503).send({ message: 'Fetching patient details by NIN is currently not available.' });
+  }
+
+  const snapshot = buildPatientRegistrySnapshot({ profile: mergedProfile, ninSummary, fallbackNin: nin });
+  const existing = await collections.patientRegistry().findOne({ organizationId, nin });
+  const now = new Date();
+  const registryId = existing?.registryId ? String(existing.registryId) : crypto.randomUUID();
+  const nextInstitutionIds = buildUniqueStringList(
+    existing?.institutionId,
+    Array.isArray(existing?.institutionIds) ? existing.institutionIds : [],
+    institutionId,
+  );
+  const nextBranchIds = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(existing?.branchIds) ? existing.branchIds.map((entry) => String(entry || '').trim()).filter(Boolean) : []),
+        branchId,
+      ].filter(Boolean),
+    ),
+  );
+  const primaryInstitutionId = String(existing?.institutionId || '').trim()
+    || institutionId
+    || nextInstitutionIds[0]
+    || null;
+  const primaryBranchId = branchId
+    || String(existing?.branchId || '').trim()
+    || nextBranchIds[0]
+    || null;
+
+  await collections.patientRegistry().updateOne(
+    { organizationId, nin },
+    {
+      $set: {
+        registryId,
+        organizationId,
+        institutionId: primaryInstitutionId,
+        institutionIds: nextInstitutionIds,
+        branchId: primaryBranchId,
+        branchIds: nextBranchIds,
+        ...snapshot,
+        updatedAt: now,
+        registeredByUserId: existing?.registeredByUserId || req.auth.userId,
+      },
+      $setOnInsert: {
+        createdAt: now,
+      },
+    },
+    { upsert: true },
+  );
+
+  const patient = await collections.patientRegistry().findOne({ organizationId, nin });
+
+  emitAuditEvent({
+    userId: req.auth.userId,
+    organizationId,
+    eventType: existing ? 'CARE_PATIENT_REFRESHED' : 'CARE_PATIENT_REGISTERED',
+    action: 'profile.placeholder.create',
+    ipAddress: getClientIp(req),
+    userAgent: req.headers['user-agent'] || null,
+    outcome: 'success',
+    metadata: { institutionId: primaryInstitutionId, branchId: primaryBranchId, nin, registryId },
+  }, req);
+
+  return reply.code(existing ? 200 : 201).send({
+    registryId,
+    alreadyRegistered: Boolean(existing),
+    patient,
+  });
 });
 
 fastify.post('/profile/create-placeholder', {

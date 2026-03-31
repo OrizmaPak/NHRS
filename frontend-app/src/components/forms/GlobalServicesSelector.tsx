@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { CheckCircle2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
+import { usePermissionsStore } from '@/stores/permissionsStore';
 import {
   getGlobalServiceKey,
   mergeGlobalServiceNames,
@@ -32,27 +33,49 @@ export function GlobalServicesSelector({
   entityLabel,
 }: Props) {
   const createGlobalService = useCreateGlobalService();
+  const hasPermission = usePermissionsStore((state) => state.hasPermission);
   const [addOpen, setAddOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [draftName, setDraftName] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [error, setError] = useState('');
+  const canCreateGlobalService = hasPermission('global.services.manage') || hasPermission('global.services.create');
 
   const optionKeys = useMemo(
     () => new Set(options.map((option) => getGlobalServiceKey(option.value))),
     [options],
   );
+  const selectedValueKeys = useMemo(
+    () => new Set(values.map((value) => getGlobalServiceKey(value))),
+    [values],
+  );
+  const selectedOptionMeta = useMemo(() => {
+    const byKey = new Map<string, GlobalServiceOption>();
+    for (const option of options) {
+      byKey.set(getGlobalServiceKey(option.value), option);
+    }
+    for (const value of values) {
+      const key = getGlobalServiceKey(value);
+      if (!byKey.has(key)) {
+        byKey.set(key, { value, label: value });
+      }
+    }
+    return byKey;
+  }, [options, values]);
   const normalizedSearch = normalizeGlobalServiceName(searchTerm);
   const normalizedSearchKey = getGlobalServiceKey(normalizedSearch);
   const filteredOptions = useMemo(() => {
     const needle = String(searchTerm || '').trim().toLowerCase();
-    if (!needle) return options;
     return options.filter((option) => {
+      if (selectedValueKeys.has(getGlobalServiceKey(option.value))) {
+        return false;
+      }
+      if (!needle) return true;
       const label = String(option.label || '').toLowerCase();
       const description = String(option.description || '').toLowerCase();
       return label.includes(needle) || description.includes(needle);
     });
-  }, [options, searchTerm]);
+  }, [options, searchTerm, selectedValueKeys]);
   const hasExactMatch = normalizedSearchKey ? optionKeys.has(normalizedSearchKey) : false;
 
   async function handleAddService() {
@@ -95,27 +118,44 @@ export function GlobalServicesSelector({
   return (
     <div className="space-y-3">
       {values.length > 0 ? (
-        <div className="rounded-md border border-border bg-surface/40 p-3">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Selected Services</p>
+        <div className="rounded-xl border border-primary/15 bg-gradient-to-br from-primary/10 via-surface to-surface p-4 shadow-subtle">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-primary">
+                <CheckCircle2 className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-foreground">Selected Services</p>
+                <p className="text-xs text-muted">These services will be attached to this {entityLabel}.</p>
+              </div>
+            </div>
+            <span className="rounded-full border border-primary/20 bg-white/80 px-2.5 py-1 text-xs font-medium text-primary shadow-sm">
+              {values.length}
+            </span>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {values.map((value) => (
+            {values.map((value) => {
+              const meta = selectedOptionMeta.get(getGlobalServiceKey(value));
+              const hoverDescription = String(meta?.description || '').trim();
+              return (
               <span
                 key={getGlobalServiceKey(value)}
-                className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm text-foreground"
+                className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-white/90 px-3 py-1.5 text-sm text-foreground shadow-sm transition-transform hover:-translate-y-0.5"
+                title={hoverDescription || undefined}
               >
-                <span>{value}</span>
+                <span className="font-medium">{value}</span>
                 <button
                   type="button"
-                  className="text-danger transition-colors hover:brightness-90"
+                  className="rounded-full bg-danger/10 p-1 text-danger transition-colors hover:bg-danger/15"
                   aria-label={`Remove ${value}`}
                   onClick={() => {
                     onChange(values.filter((entry) => getGlobalServiceKey(entry) !== getGlobalServiceKey(value)));
                   }}
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </span>
-            ))}
+            );})}
           </div>
         </div>
       ) : null}
@@ -126,7 +166,7 @@ export function GlobalServicesSelector({
           onChange={(event) => setSearchTerm(event.target.value)}
           placeholder={`Search ${entityLabel} services`}
         />
-        {normalizedSearch ? (
+        {normalizedSearch && canCreateGlobalService ? (
           <Button
             type="button"
             variant="outline"
@@ -177,19 +217,21 @@ export function GlobalServicesSelector({
         <p className="text-xs text-muted">
           Missing a service? Add it here and it will be saved globally for future institution and branch setup.
         </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setDraftName(normalizedSearch || '');
-            setDraftDescription('');
-            setError('');
-            setAddOpen(true);
-          }}
-        >
-          Add Service
-        </Button>
+        {canCreateGlobalService ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setDraftName(normalizedSearch || '');
+              setDraftDescription('');
+              setError('');
+              setAddOpen(true);
+            }}
+          >
+            Add Service
+          </Button>
+        ) : null}
       </div>
 
       <Modal open={addOpen} onOpenChange={setAddOpen} title="Add Global Service">

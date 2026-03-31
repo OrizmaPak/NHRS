@@ -354,11 +354,16 @@ function openRemovalModal(target: RemoveTarget) {
     {
       id: 'actions',
       header: 'Actions',
-      cell: ({ row }) => (
+      cell: ({ row }) => {
+        const displayName = memberNameQuery.data?.get(row.original.nin) || row.original.nin;
+        const accessHref = row.original.userId
+          ? `/app/org/access/staff/${row.original.userId}?scopeType=organization&memberId=${encodeURIComponent(row.original.membershipId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`
+          : null;
+        return (
         <div className="flex gap-2">
-          {row.original.userId ? (
+          {row.original.userId && accessHref ? (
             <Button asChild size="sm" variant="outline">
-              <Link to={`/app/org/access/staff/${row.original.userId}`}>Access</Link>
+              <Link to={accessHref}>Access</Link>
             </Button>
           ) : (
             <Button size="sm" variant="outline" disabled>Access</Button>
@@ -384,7 +389,7 @@ function openRemovalModal(target: RemoveTarget) {
             </Button>
           </PermissionGate>
         </div>
-      ),
+      );},
     },
   ], [branchLabelById, institutionLabelById, memberNameQuery.data, orgId, removeMember.isPending, removeMemberScope.isPending]);
 
@@ -463,15 +468,19 @@ function openRemovalModal(target: RemoveTarget) {
     {
       id: 'actions',
       header: 'Actions',
-      cell: ({ row }) => (
-        row.original.userId ? (
+      cell: ({ row }) => {
+        const displayName = memberNameQuery.data?.get(row.original.nin) || row.original.nin;
+        const accessHref = row.original.userId
+          ? `/app/org/access/staff/${row.original.userId}?scopeType=organization&memberId=${encodeURIComponent(row.original.membershipId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`
+          : null;
+        return row.original.userId && accessHref ? (
           <Button asChild size="sm" variant="outline">
-            <Link to={`/app/org/access/staff/${row.original.userId}`}>Access</Link>
+            <Link to={accessHref}>Access</Link>
           </Button>
         ) : (
           <Button size="sm" variant="outline" disabled>Access</Button>
-        )
-      ),
+        );
+      },
     },
   ], [branchLabelById, institutionLabelById, memberNameQuery.data, removeMemberScope.isPending]);
 

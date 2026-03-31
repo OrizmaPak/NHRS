@@ -167,6 +167,214 @@ test('runtime gateway enforcement for org/membership routes', async () => {
   assert.equal(branchScoped.branchId, 'branch-9');
 });
 
+test('runtime gateway accepts global service writes through manage fallback', async () => {
+  const calls = [];
+  const allowToken = makeJwt('user-allow');
+
+  const app = await buildApp({
+    dbReady: true,
+    fetchImpl: async (url, options = {}) => {
+      const target = String(url);
+      calls.push({ target, options });
+
+      if (target.includes('/rbac/check')) {
+        const body = JSON.parse(String(options.body || '{}'));
+        const allowed = body.permissionKey === 'global.services.manage';
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            allowed,
+            userId: 'user-allow',
+            reason: allowed ? null : 'Permission denied',
+          }),
+          headers: { get: () => 'application/json' },
+        };
+      }
+
+      if (target.includes('/memberships/me?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ allowed: true, membership: { membershipId: 'm1' }, assignments: [] }),
+        };
+      }
+
+      if (target.includes('/global-services/service-1') && options.method === 'PATCH') {
+        return downstreamResponse(200, { service: { serviceId: 'service-1', name: 'Imaging' } });
+      }
+
+      if (target.includes('/global-services/service-1') && options.method === 'DELETE') {
+        return downstreamResponse(200, { message: 'deleted' });
+      }
+
+      if (target.includes('/internal/audit/events')) {
+        return downstreamResponse(202, { accepted: true });
+      }
+
+      return downstreamResponse(200, {});
+    },
+  });
+
+  const update = await app.inject({
+    method: 'PATCH',
+    url: '/global-services/service-1',
+    headers: {
+      authorization: `Bearer ${allowToken}`,
+      'x-org-id': 'org-1',
+    },
+    payload: {
+      name: 'Imaging',
+      description: 'Diagnostic imaging and scan support.',
+    },
+  });
+  assert.equal(update.statusCode, 200);
+
+  const remove = await app.inject({
+    method: 'DELETE',
+    url: '/global-services/service-1',
+    headers: {
+      authorization: `Bearer ${allowToken}`,
+      'x-org-id': 'org-1',
+    },
+    payload: {},
+  });
+  assert.equal(remove.statusCode, 200);
+
+  const rbacChecks = calls
+    .filter((entry) => entry.target.includes('/rbac/check'))
+    .map((entry) => JSON.parse(String(entry.options.body || '{}')).permissionKey);
+
+  assert.deepEqual(rbacChecks, [
+    'global.services.update',
+    'global.services.manage',
+    'global.services.delete',
+    'global.services.manage',
+  ]);
+});
+
+test('runtime gateway accepts theme listing through write fallback', async () => {
+  const calls = [];
+  const allowToken = makeJwt('user-allow');
+
+  const app = await buildApp({
+    dbReady: true,
+    fetchImpl: async (url, options = {}) => {
+      const target = String(url);
+      calls.push({ target, options });
+
+      if (target.includes('/rbac/check')) {
+        const body = JSON.parse(String(options.body || '{}'));
+        const allowed = body.permissionKey === 'ui.theme.write';
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            allowed,
+            userId: 'user-allow',
+            reason: allowed ? null : 'Permission denied',
+          }),
+          headers: { get: () => 'application/json' },
+        };
+      }
+
+      if (target.includes('/memberships/me?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ allowed: true, membership: { membershipId: 'm1' }, assignments: [] }),
+        };
+      }
+
+      if (target.includes('/ui/theme') && options.method === 'GET') {
+        return downstreamResponse(200, [{ id: 'theme-1', scopeType: 'organization', scopeId: 'org-1', themeTokens: {} }]);
+      }
+
+      if (target.includes('/internal/audit/events')) {
+        return downstreamResponse(202, { accepted: true });
+      }
+
+      return downstreamResponse(200, {});
+    },
+  });
+
+  const res = await app.inject({
+    method: 'GET',
+    url: '/ui/theme?scope_type=organization&scope_id=org-1',
+    headers: {
+      authorization: `Bearer ${allowToken}`,
+      'x-org-id': 'org-1',
+    },
+  });
+
+  assert.equal(res.statusCode, 200);
+  const rbacChecks = calls
+    .filter((entry) => entry.target.includes('/rbac/check'))
+    .map((entry) => JSON.parse(String(entry.options.body || '{}')).permissionKey);
+
+  assert.deepEqual(rbacChecks, ['ui.theme.read', 'ui.theme.write']);
+});
+
+test('runtime gateway proxies org permission delete route', async () => {
+  const calls = [];
+  const allowToken = makeJwt('user-allow');
+
+  const app = await buildApp({
+    dbReady: true,
+    fetchImpl: async (url, options = {}) => {
+      const target = String(url);
+      calls.push({ target, options });
+
+      if (target.includes('/rbac/check')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            allowed: true,
+            userId: 'user-allow',
+            reason: null,
+          }),
+          headers: { get: () => 'application/json' },
+        };
+      }
+
+      if (target.includes('/memberships/me?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ allowed: true, membership: { membershipId: 'm1' }, assignments: [] }),
+        };
+      }
+
+      if (target.includes('/rbac/org/org-1/permissions/custom.permission') && options.method === 'DELETE') {
+        return downstreamResponse(200, { message: 'Org permission deleted' });
+      }
+
+      if (target.includes('/internal/audit/events')) {
+        return downstreamResponse(202, { accepted: true });
+      }
+
+      return downstreamResponse(200, {});
+    },
+  });
+
+  const res = await app.inject({
+    method: 'DELETE',
+    url: '/rbac/org/org-1/permissions/custom.permission',
+    headers: {
+      authorization: `Bearer ${allowToken}`,
+      'x-org-id': 'org-1',
+    },
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(
+    calls.some((entry) =>
+      entry.target.includes('/rbac/org/org-1/permissions/custom.permission') && entry.options.method === 'DELETE'),
+    true,
+  );
+});
+
 test('spoofed super context header does not bypass gateway authorization', async () => {
   const deniedToken = makeJwt('user-denied');
   const app = await buildApp({

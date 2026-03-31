@@ -13,10 +13,10 @@ type HistoryItem = {
   date: string;
 };
 
-export function usePatientHistory(nin: string) {
-  const encountersQuery = useEncounters(nin, { page: 1, limit: 50 });
-  const labsQuery = useLabs(nin, { page: 1, limit: 50 });
-  const pharmacyQuery = usePharmacyRecords(nin, { page: 1, limit: 50 });
+export function usePatientHistory(nin: string, enabled = true) {
+  const encountersQuery = useEncounters(nin, { page: 1, limit: 50 }, enabled);
+  const labsQuery = useLabs(nin, { page: 1, limit: 50 }, enabled);
+  const pharmacyQuery = usePharmacyRecords(nin, { page: 1, limit: 50 }, enabled);
 
   const history = useMemo<HistoryItem[]>(() => {
     const encounters = (encountersQuery.data?.rows ?? []).map((row) => ({

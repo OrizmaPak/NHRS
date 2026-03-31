@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { ColumnDef, PaginationState } from '@tanstack/react-table';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { FilterBar } from '@/components/data/FilterBar';
@@ -8,31 +8,52 @@ import { SmartSelect } from '@/components/data/SmartSelect';
 import { ActionBar } from '@/components/data/ActionBar';
 import { DataTable } from '@/components/data/DataTable';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { ErrorState } from '@/components/feedback/ErrorState';
-import { usePatientSearch, type PatientSearchRow } from '@/api/hooks/usePatientSearch';
+import { EmptyState } from '@/components/feedback/EmptyState';
+import { usePatientSearch } from '@/api/hooks/usePatientSearch';
+import { useCarePatients, type CarePatientRow } from '@/api/hooks/useCarePatients';
+import { useContextStore } from '@/stores/contextStore';
+import { getOrganizationIdFromContext, getOrganizationWorkspaceBasePath } from '@/lib/organizationContext';
 
 export function PatientSearchPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const activeContext = useContextStore((state) => state.activeContext);
   const [search, setSearch] = useState('');
   const [nin, setNin] = useState<string | null>(null);
-  const [dob, setDob] = useState('');
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
 
-  const query = usePatientSearch({
+  const careBasePath = getOrganizationWorkspaceBasePath(location.pathname, activeContext);
+  const isCareWorkspace = careBasePath === '/app/care';
+  const organizationId = getOrganizationIdFromContext(activeContext);
+  const usesRegisteredSearch = activeContext?.type === 'organization';
+  const resolvedPageDescription = usesRegisteredSearch
+    ? 'Search patients already added into the organization patient register. Patients added anywhere in this organization appear here. If a patient is missing here, use Patient Intake first.'
+    : 'Search patients by NIN or name.';
+
+  const registeredQuery = useCarePatients({
     q: search || undefined,
     nin: nin || undefined,
-    dob: dob || undefined,
     page: pagination.pageIndex + 1,
     limit: pagination.pageSize,
+    organizationId,
+  }, usesRegisteredSearch);
+  const platformQuery = usePatientSearch({
+    q: search || undefined,
+    nin: nin || undefined,
+    page: pagination.pageIndex + 1,
+    limit: pagination.pageSize,
+    viewMode: 'default',
+    enabled: !usesRegisteredSearch,
   });
+  const query = usesRegisteredSearch ? registeredQuery : platformQuery;
 
   const ninSuggestions = useMemo(
     () => (query.data?.rows ?? []).map((row) => ({ value: row.nin, label: row.nin })),
     [query.data?.rows],
   );
 
-  const columns = useMemo<ColumnDef<PatientSearchRow>[]>(
+  const columns = useMemo<ColumnDef<CarePatientRow>[]>(
     () => [
       { accessorKey: 'nin', header: 'NIN' },
       { accessorKey: 'patientName', header: 'Patient Name' },
@@ -47,21 +68,26 @@ export function PatientSearchPage() {
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => (
-          <Button size="sm" variant="outline" onClick={() => navigate(`/app/provider/patient/${row.original.nin}`)}>
+          <Button size="sm" variant="outline" onClick={() => navigate(`${careBasePath}/patient/${row.original.nin}`)}>
             View profile
           </Button>
         ),
       },
     ],
-    [navigate],
+    [careBasePath, navigate],
   );
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Patient Search"
-        description="Search patients by NIN, name, and date of birth."
-        breadcrumbs={[{ label: 'Provider' }, { label: 'Patient Search' }]}
+        description={resolvedPageDescription}
+        breadcrumbs={[{ label: isCareWorkspace ? 'Patient Care' : 'Provider' }, { label: 'Patient Search' }]}
+        actions={usesRegisteredSearch ? (
+          <Button variant="outline" onClick={() => navigate(`${careBasePath}/intake`)}>
+            Patient Intake
+          </Button>
+        ) : null}
       />
 
       <FilterBar>
@@ -79,24 +105,29 @@ export function PatientSearchPage() {
           />
         </div>
         <div className="w-full md:max-w-xs">
-          <Input type="date" value={dob} onChange={(event) => setDob(event.target.value)} aria-label="Date of birth" />
+          <ActionBar>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSearch('');
+                setNin(null);
+              }}
+            >
+              Clear filters
+            </Button>
+          </ActionBar>
         </div>
-        <ActionBar>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setSearch('');
-              setNin(null);
-              setDob('');
-            }}
-          >
-            Clear filters
-          </Button>
-        </ActionBar>
       </FilterBar>
 
       {query.isError ? (
         <ErrorState title="Unable to load patients" description="Please retry." onRetry={() => query.refetch()} />
+      ) : usesRegisteredSearch && !query.isLoading && (query.data?.rows.length ?? 0) === 0 ? (
+        <EmptyState
+          title="No registered patients found"
+          description="This search only shows patients already added into the organization patient register through Patient Intake. Add the patient first, then come back here."
+          actionLabel="Open Patient Intake"
+          onAction={() => navigate(`${careBasePath}/intake`)}
+        />
       ) : (
         <DataTable
           columns={columns}
@@ -111,3 +142,4 @@ export function PatientSearchPage() {
     </div>
   );
 }
+

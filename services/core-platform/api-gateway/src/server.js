@@ -8,7 +8,7 @@ const swagger = require('@fastify/swagger');
 const swaggerUi = require('@fastify/swagger-ui');
 const cors = require('@fastify/cors');
 const { findPermissionRule } = require('./permissions/registry');
-const { evaluateAuthzResponse } = require('./authz');
+const { evaluateAuthzResponse, getRequiredPermissionKeys } = require('./authz');
 const { buildAuditPayload } = require('./audit-utils');
 const { setStandardErrorHandler } = require('../../../../libs/shared/src/errors');
 const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
@@ -99,6 +99,7 @@ function authHeaderSchema(_required) {
     properties: {
       authorization: { type: 'string', pattern: '^Bearer\\s.+' },
       'x-org-id': { type: 'string' },
+      'x-institution-id': { type: 'string' },
       'x-branch-id': { type: 'string' },
     },
   };
@@ -545,6 +546,9 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
   if (req.headers['x-org-id']) {
     headers['x-org-id'] = req.headers['x-org-id'];
   }
+  if (req.headers['x-institution-id']) {
+    headers['x-institution-id'] = req.headers['x-institution-id'];
+  }
   if (req.headers['x-branch-id']) {
     headers['x-branch-id'] = req.headers['x-branch-id'];
   }
@@ -566,7 +570,9 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
     roles: authContext.roles || [],
     orgId: authContext.organizationId || null,
     branchId: authContext.branchId || null,
-    permissionsChecked: authContext.permissionKey ? [authContext.permissionKey] : [],
+    permissionsChecked: Array.isArray(authContext.permissionKeys)
+      ? authContext.permissionKeys
+      : (authContext.permissionKey ? [authContext.permissionKey] : []),
     membershipChecked: !!authContext.membershipChecked,
     ttlSeconds: nhrsContextTtlSeconds,
   });
@@ -601,15 +607,18 @@ async function forwardRequest(baseUrl, req, reply, targetPath) {
 async function enforcePermission(req, reply) {
   const routePath = req.routeOptions?.url || req.url.split('?')[0];
   const rule = findPermissionRule(req.method, routePath);
+  const requiredPermissionKeys = getRequiredPermissionKeys(rule);
+  const primaryPermissionKey = requiredPermissionKeys[0] || null;
   const isExplicitPublicRoute = Boolean(req.routeOptions?.config?.publicRoute);
   const ipAddress = getClientIp(req);
   const userAgent = req.headers['user-agent'] || null;
 
-  if (isExplicitPublicRoute || !rule || rule.public || !rule.permissionKey) {
+  if (isExplicitPublicRoute || !rule || rule.public || requiredPermissionKeys.length === 0) {
     req.authzContext = {
       userId: null,
       roles: [],
       permissionKey: null,
+      permissionKeys: [],
       organizationId: null,
       branchId: null,
       membershipChecked: false,
@@ -625,12 +634,12 @@ async function enforcePermission(req, reply) {
       organizationId: req.headers['x-org-id'] || null,
       eventType: 'RBAC_ACCESS_DENIED',
       action: 'gateway.permission_check',
-      permissionKey: rule.permissionKey,
+      permissionKey: primaryPermissionKey,
       ipAddress,
       userAgent,
       outcome: 'failure',
       failureReason: 'MISSING_BEARER_TOKEN',
-      metadata: { method: req.method, path: routePath },
+      metadata: { method: req.method, path: routePath, requiredPermissions: requiredPermissionKeys },
     });
     const decision = evaluateAuthzResponse({ rule, hasBearerToken, checkStatus: 401, checkBody: null });
     return reply.code(decision.statusCode).send(decision.body);
@@ -653,6 +662,7 @@ async function enforcePermission(req, reply) {
         userId: tokenUserId || null,
         roles: tokenRoles,
         permissionKey: null,
+        permissionKeys: [],
         organizationId,
         branchId,
         membershipChecked: false,
@@ -678,7 +688,7 @@ async function enforcePermission(req, reply) {
           organizationId,
           eventType: 'RBAC_ACCESS_DENIED',
           action: 'gateway.membership_scope_check',
-          permissionKey: rule.permissionKey,
+          permissionKey: primaryPermissionKey,
           ipAddress,
           userAgent,
           outcome: 'failure',
@@ -687,6 +697,7 @@ async function enforcePermission(req, reply) {
             method: req.method,
             path: routePath,
             branchId,
+            requiredPermissions: requiredPermissionKeys,
           },
         });
         return reply.code(403).send({ message: 'Not a member of this organization' });
@@ -716,7 +727,7 @@ async function enforcePermission(req, reply) {
             organizationId,
             eventType: 'RBAC_ACCESS_DENIED',
             action: 'gateway.org_operational_check',
-            permissionKey: rule.permissionKey,
+            permissionKey: primaryPermissionKey,
             ipAddress,
             userAgent,
             outcome: 'failure',
@@ -726,6 +737,7 @@ async function enforcePermission(req, reply) {
               path: routePath,
               branchId,
               institutionId: inferredInstitutionId,
+              requiredPermissions: requiredPermissionKeys,
             },
           });
           return reply.code(403).send({
@@ -737,37 +749,54 @@ async function enforcePermission(req, reply) {
       }
     }
 
-    const checkResponse = await fetchClient(`${rbacApiBaseUrl}/rbac/check`, {
-      method: 'POST',
-      headers: {
-        authorization,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        permissionKey: rule.permissionKey,
-        organizationId,
-        branchId,
-        activeContextId: activeContextIdForCheck,
-        activeContextName: activeContextNameForCheck,
-        activeContextType: activeContextTypeForCheck,
-      }),
-    });
-
+    let checkStatus = 403;
     let checkBody = null;
-    try {
-      if (typeof checkResponse.text === 'function') {
-        const raw = await checkResponse.text();
-        checkBody = raw ? JSON.parse(raw) : null;
-      } else if (typeof checkResponse.json === 'function') {
-        checkBody = await checkResponse.json();
-      }
-    } catch (_err) {
+    let grantedPermissionKey = null;
+
+    for (const permissionKey of requiredPermissionKeys) {
+      const checkResponse = await fetchClient(`${rbacApiBaseUrl}/rbac/check`, {
+        method: 'POST',
+        headers: {
+          authorization,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          permissionKey,
+          organizationId,
+          branchId,
+          activeContextId: activeContextIdForCheck,
+          activeContextName: activeContextNameForCheck,
+          activeContextType: activeContextTypeForCheck,
+        }),
+      });
+
+      checkStatus = checkResponse.status;
       checkBody = null;
+      try {
+        if (typeof checkResponse.text === 'function') {
+          const raw = await checkResponse.text();
+          checkBody = raw ? JSON.parse(raw) : null;
+        } else if (typeof checkResponse.json === 'function') {
+          checkBody = await checkResponse.json();
+        }
+      } catch (_err) {
+        checkBody = null;
+      }
+
+      if (checkStatus === 401 || checkStatus === 503) {
+        break;
+      }
+
+      if (checkResponse.ok && checkBody?.allowed) {
+        grantedPermissionKey = permissionKey;
+        break;
+      }
     }
+
     const decision = evaluateAuthzResponse({
       rule,
       hasBearerToken,
-      checkStatus: checkResponse.status,
+      checkStatus,
       checkBody,
     });
 
@@ -776,7 +805,7 @@ async function enforcePermission(req, reply) {
       organizationId,
       eventType: decision.proceed ? 'RBAC_ACCESS_GRANTED' : 'RBAC_ACCESS_DENIED',
       action: 'gateway.permission_check',
-      permissionKey: rule.permissionKey,
+      permissionKey: grantedPermissionKey || primaryPermissionKey,
       ipAddress,
       userAgent,
       outcome: decision.proceed ? 'success' : 'failure',
@@ -785,6 +814,8 @@ async function enforcePermission(req, reply) {
         method: req.method,
         path: routePath,
         reason: checkBody?.reason || null,
+        grantedPermissionKey,
+        requiredPermissions: requiredPermissionKeys,
       },
     });
 
@@ -795,20 +826,22 @@ async function enforcePermission(req, reply) {
     req.authzContext = {
       userId: tokenUserId || null,
       roles: tokenRoles,
-      permissionKey: rule.permissionKey,
+      permissionKey: grantedPermissionKey || primaryPermissionKey,
+      permissionKeys: grantedPermissionKey ? [grantedPermissionKey] : requiredPermissionKeys,
       organizationId,
       branchId,
       membershipChecked: !!organizationId,
     };
   } catch (err) {
-    req.log.error({ err, routePath, permissionKey: rule.permissionKey }, 'RBAC enforcement failed');
+    req.log.error({ err, routePath, permissionKey: primaryPermissionKey }, 'RBAC enforcement failed');
     return reply.code(503).send({ message: 'Authorization service unavailable' });
   }
 }
 
 function registerProxyRoute({ method, publicRoute = false, url, targetBase, targetPath, schema }) {
   const routeSchema = schema ? { ...schema } : undefined;
-  if (routeSchema && String(method).toUpperCase() === 'GET') {
+  const normalizedMethod = String(method).toUpperCase();
+  if (routeSchema && ['GET', 'HEAD', 'DELETE'].includes(normalizedMethod)) {
     delete routeSchema.body;
   }
 
@@ -1000,6 +1033,7 @@ function registerRbacRoutes() {
     ['GET', '/rbac/app/users/:userId/access', '/rbac/app/users/:userId/access'],
     ['POST', '/rbac/org/:organizationId/permissions', '/rbac/org/:organizationId/permissions'],
     ['GET', '/rbac/org/:organizationId/permissions', '/rbac/org/:organizationId/permissions'],
+    ['DELETE', '/rbac/org/:organizationId/permissions/:permissionKey', '/rbac/org/:organizationId/permissions/:permissionKey'],
     ['POST', '/rbac/org/:organizationId/roles', '/rbac/org/:organizationId/roles'],
     ['GET', '/rbac/org/:organizationId/roles', '/rbac/org/:organizationId/roles'],
     ['PATCH', '/rbac/org/:organizationId/roles/:roleId', '/rbac/org/:organizationId/roles/:roleId'],
@@ -1152,7 +1186,7 @@ function registerProfileRoutes() {
       security: [{ bearerAuth: [] }],
       headers: authHeaderSchema(true),
       querystring: { type: 'object', additionalProperties: true },
-      response: standardResponses({ 200: { type: 'object' } }),
+      response: standardResponses({ 200: { type: 'object', additionalProperties: true } }),
     },
   });
 
@@ -1167,7 +1201,7 @@ function registerProfileRoutes() {
       security: [{ bearerAuth: [] }],
       headers: authHeaderSchema(true),
       params: { type: 'object', required: ['userId'], properties: { userId: { type: 'string' } } },
-      response: standardResponses({ 200: { type: 'object' }, 404: errorMessageSchema }),
+      response: standardResponses({ 200: { type: 'object', additionalProperties: true }, 404: errorMessageSchema }),
     },
   });
 
@@ -1184,7 +1218,7 @@ function registerProfileRoutes() {
       params: { type: 'object', required: ['userId'], properties: { userId: { type: 'string' } } },
       querystring: { type: 'object', additionalProperties: true },
       body: { type: 'object', additionalProperties: true },
-      response: standardResponses({ 200: { type: 'object' }, 404: errorMessageSchema }),
+      response: standardResponses({ 200: { type: 'object', additionalProperties: true }, 404: errorMessageSchema }),
     },
   });
 
@@ -1199,7 +1233,7 @@ function registerProfileRoutes() {
       security: [{ bearerAuth: [] }],
       headers: authHeaderSchema(true),
       params: { type: 'object', required: ['nin'], properties: { nin: { type: 'string', pattern: '^\\d{11}$' } } },
-      response: standardResponses({ 200: { type: 'object' } }),
+      response: standardResponses({ 200: { type: 'object', additionalProperties: true } }),
     },
   });
 
@@ -1222,6 +1256,44 @@ function registerProfileRoutes() {
         },
       },
       response: standardResponses({ 201: { type: 'object' } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'GET',
+    url: '/care/patients',
+    targetBase: profileApiBaseUrl,
+    targetPath: '/care/patients',
+    schema: {
+      tags: ['Patient Care'],
+      summary: 'List registered care patients',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      querystring: { type: 'object', additionalProperties: true },
+      response: standardResponses({ 200: { type: 'object', additionalProperties: true } }),
+    },
+  });
+
+  registerProxyRoute({
+    method: 'POST',
+    url: '/care/patients',
+    targetBase: profileApiBaseUrl,
+    targetPath: '/care/patients',
+    schema: {
+      tags: ['Patient Care'],
+      summary: 'Register patient into organization care search',
+      security: [{ bearerAuth: [] }],
+      headers: authHeaderSchema(true),
+      body: {
+        type: 'object',
+        required: ['nin'],
+        properties: {
+          nin: { type: 'string', pattern: '^\\d{11}$' },
+          institutionId: { type: 'string' },
+          branchId: { type: 'string' },
+        },
+      },
+      response: standardResponses({ 200: { type: 'object', additionalProperties: true }, 201: { type: 'object', additionalProperties: true } }),
     },
   });
 }
@@ -1288,6 +1360,7 @@ function registerOrganizationMembershipRoutes() {
     ['GET', '/orgs/search', '/orgs/search'],
     ['GET', '/global-services', '/global-services'],
     ['POST', '/global-services', '/global-services'],
+    ['PATCH', '/global-services/:serviceId', '/global-services/:serviceId'],
     ['DELETE', '/global-services/:serviceId', '/global-services/:serviceId'],
     ['GET', '/institutions', '/institutions'],
     ['GET', '/institutions/:institutionId', '/institutions/:institutionId'],
@@ -1752,6 +1825,7 @@ async function registerCors() {
       'x-active-context-name',
       'x-active-context-type',
       'x-org-id',
+      'x-institution-id',
       'x-branch-id',
       'idempotency-key',
     ],

@@ -209,12 +209,13 @@ export function InstitutionStaffPage() {
         );
         const institutionOnlyAssignment = matchingAssignments.find((entry) => !String(entry.branchId || '').trim());
         const branchScopedAssignment = !institutionOnlyAssignment && matchingAssignments.length === 1 ? matchingAssignments[0] : null;
+        const displayName = memberNameQuery.data?.get(row.original.nin) || row.original.nin;
         const accessHref = row.original.userId
           ? institutionOnlyAssignment
-            ? `/app/org/access/staff/${row.original.userId}?scopeType=institution&scopeId=${encodeURIComponent(institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&assignmentId=${encodeURIComponent(institutionOnlyAssignment.assignmentId)}`
+            ? `/app/org/access/staff/${row.original.userId}?scopeType=institution&scopeId=${encodeURIComponent(institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&assignmentId=${encodeURIComponent(institutionOnlyAssignment.assignmentId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`
             : branchScopedAssignment
-              ? `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(String(branchScopedAssignment.branchId || ''))}&institutionId=${encodeURIComponent(institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&assignmentId=${encodeURIComponent(branchScopedAssignment.assignmentId)}`
-              : `/app/org/access/staff/${row.original.userId}?scopeType=institution&scopeId=${encodeURIComponent(institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}`
+              ? `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(String(branchScopedAssignment.branchId || ''))}&institutionId=${encodeURIComponent(institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&assignmentId=${encodeURIComponent(branchScopedAssignment.assignmentId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`
+              : `/app/org/access/staff/${row.original.userId}?scopeType=institution&scopeId=${encodeURIComponent(institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`
           : null;
         return (
         <div className="flex gap-2">

@@ -1,6 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/apiClient';
 import { endpoints } from '@/api/endpoints';
+import { resolvePatientDisplayName } from '@/lib/patientDisplay';
+
+const PATIENT_CARE_VIEW = 'patient-care';
+type PatientProfileViewMode = 'default' | typeof PATIENT_CARE_VIEW;
+
+type PatientProfileOptions = {
+  viewMode?: PatientProfileViewMode;
+  organizationId?: string;
+};
 
 export type PatientProfile = {
   nin: string;
@@ -20,20 +29,26 @@ function toAge(dob?: string): number | null {
   return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / (1000 * 60 * 60 * 24 * 365.25)));
 }
 
-export function usePatientProfile(nin: string) {
+export function usePatientProfile(nin: string, options: PatientProfileOptions = {}) {
+  const { viewMode = 'default', organizationId } = options;
+
   return useQuery({
-    queryKey: ['provider', 'patient-profile', nin],
+    queryKey: ['provider', 'patient-profile', nin, viewMode, organizationId],
     enabled: Boolean(nin),
     queryFn: async (): Promise<PatientProfile> => {
-      const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.patientProfileByNin(nin));
+      const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.patientProfileByNin(nin), {
+        query: {
+          ...(viewMode === PATIENT_CARE_VIEW ? { view: PATIENT_CARE_VIEW } : {}),
+          ...(organizationId ? { organizationId } : {}),
+        },
+      });
       const profile =
         (response.profile as Record<string, unknown> | undefined) ??
+        (response.ninSummary as Record<string, unknown> | undefined) ??
         (response.data as Record<string, unknown> | undefined) ??
         response;
 
-      const firstName = String(profile.firstName ?? '');
-      const lastName = String(profile.lastName ?? '');
-      const displayName = String(profile.displayName ?? [firstName, lastName].filter(Boolean).join(' ') ?? 'Patient');
+      const displayName = resolvePatientDisplayName(profile, nin);
       const gender = String(profile.gender ?? response.gender ?? 'N/A');
       const dob = String(profile.dob ?? '');
 

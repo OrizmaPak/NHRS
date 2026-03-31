@@ -44,9 +44,72 @@ function pickEditableProfileFields(payload) {
   return out;
 }
 
+function pickSelfEditableProfileFields(payload) {
+  const out = pickEditableProfileFields(payload);
+
+  if (typeof payload?.otherName === 'string') {
+    out.otherName = payload.otherName.trim() || null;
+  }
+  if (typeof payload?.dob === 'string') {
+    out.dob = payload.dob.trim() || null;
+  }
+  if (typeof payload?.gender === 'string') {
+    out.gender = payload.gender.trim() || null;
+  }
+  if (typeof payload?.nationality === 'string') {
+    out.nationality = payload.nationality.trim() || null;
+  }
+  if (typeof payload?.stateOfOrigin === 'string') {
+    out.stateOfOrigin = payload.stateOfOrigin.trim() || null;
+  }
+  if (typeof payload?.localGovernment === 'string') {
+    out.localGovernment = payload.localGovernment.trim() || null;
+  }
+
+  return out;
+}
+
 function sanitizeStringArray(input) {
   if (!Array.isArray(input)) return [];
   return Array.from(new Set(input.map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function hasMeaningfulString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function hasMeaningfulArray(value) {
+  return Array.isArray(value) && sanitizeStringArray(value).length > 0;
+}
+
+function pickMissingFields(existing, incoming) {
+  const out = {};
+  if (!incoming || typeof incoming !== 'object') return out;
+
+  for (const [key, value] of Object.entries(incoming)) {
+    const current = existing && typeof existing === 'object' ? existing[key] : undefined;
+
+    if (Array.isArray(value)) {
+      if (!hasMeaningfulArray(current) && hasMeaningfulArray(value)) {
+        out[key] = sanitizeStringArray(value);
+      }
+      continue;
+    }
+
+    if (value && typeof value === 'object') {
+      const nested = pickMissingFields(current && typeof current === 'object' ? current : {}, value);
+      if (Object.keys(nested).length > 0) {
+        out[key] = nested;
+      }
+      continue;
+    }
+
+    if (!hasMeaningfulString(current) && hasMeaningfulString(value)) {
+      out[key] = String(value).trim();
+    }
+  }
+
+  return out;
 }
 
 function pickManagedProfileFields(payload) {
@@ -78,6 +141,14 @@ function pickManagedProfileFields(payload) {
   }
 
   return out;
+}
+
+function pickMissingManagedProfileFields(existing, payload) {
+  return pickMissingFields(existing || {}, pickManagedProfileFields(payload));
+}
+
+function pickMissingSelfProfileFields(existing, payload) {
+  return pickMissingFields(existing || {}, pickSelfEditableProfileFields(payload));
 }
 
 function buildProfileUpsertFromEnsure(input, existing) {
@@ -146,7 +217,10 @@ function mergeProfileView({ profile, ninSummary, rolesSummary, membershipSummary
 module.exports = {
   computeOnboarding,
   pickEditableProfileFields,
+  pickSelfEditableProfileFields,
   pickManagedProfileFields,
+  pickMissingSelfProfileFields,
+  pickMissingManagedProfileFields,
   buildProfileUpsertFromEnsure,
   mergeProfileView,
 };

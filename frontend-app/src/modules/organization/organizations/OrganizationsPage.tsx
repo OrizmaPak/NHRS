@@ -212,6 +212,7 @@ export function OrganizationsPage() {
     return query.data?.rows ?? [];
   }, [activeOrgDetailsQuery.data?.organization, inOrganizationContext, query.data?.rows]);
   const totalRows = rows.length;
+  const activeOrganizationRow = activeOrgDetailsQuery.data?.organization ?? null;
 
   const openCreateModal = useCallback(() => {
     setEditing(null);
@@ -397,20 +398,35 @@ export function OrganizationsPage() {
         actions={(
           <div className="flex flex-wrap gap-2">
             {inOrganizationContext ? (
-              <PermissionGate permission="org.member.read">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    if (activeOrganizationId) {
-                      navigate(`/app/organizations/${activeOrganizationId}/staff`);
-                    }
-                  }}
-                  disabled={!activeOrganizationId}
-                >
-                  <UserCog className="h-4 w-4" />
-                  Manage Staff
-                </Button>
-              </PermissionGate>
+              <>
+                <PermissionGate permission="org.member.read">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (activeOrganizationId) {
+                        navigate(`/app/organizations/${activeOrganizationId}/staff`);
+                      }
+                    }}
+                    disabled={!activeOrganizationId}
+                  >
+                    <UserCog className="h-4 w-4" />
+                    Manage Staff
+                  </Button>
+                </PermissionGate>
+                <PermissionGate permission="org.update">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (activeOrganizationRow) {
+                        openEditModal(activeOrganizationRow);
+                      }
+                    }}
+                    disabled={!activeOrganizationRow}
+                  >
+                    Edit Organization
+                  </Button>
+                </PermissionGate>
+              </>
             ) : (
               <>
                 <PermissionGate permission="org.update">
@@ -519,6 +535,11 @@ export function OrganizationsPage() {
                       </Button>
                     </PermissionGate>
                   ) : null}
+                  <PermissionGate permission="org.update">
+                    <Button size="sm" variant="outline" onClick={() => openEditModal(row)}>
+                      Edit
+                    </Button>
+                  </PermissionGate>
                 </div>
               </CardHeader>
             </Card>

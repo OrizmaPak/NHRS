@@ -71,7 +71,6 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     const activeContext = useContextStore.getState().activeContext;
     const isSuperActive = isSuperContext(activeContext?.id, activeContext?.name);
 
-    if (permission === 'superadmin.only') return isSuperActive;
     if (isSuperActive) return true;
 
     const effectiveEntries = Object.values(get().effective)

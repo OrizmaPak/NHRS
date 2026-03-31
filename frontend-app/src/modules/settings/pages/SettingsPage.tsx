@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Palette, Settings2, ShieldCheck, UserRoundCog } from 'lucide-react';
+import { Palette, Settings2, ShieldCheck, UserRound, UserRoundCog } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { usePermissionsStore } from '@/stores/permissionsStore';
@@ -7,6 +7,13 @@ import { useContextStore } from '@/stores/contextStore';
 import { StatusBadge } from '@/components/feedback/StatusBadge';
 
 const items = [
+  {
+    to: '/app/settings/my-profile',
+    title: 'My profile',
+    description: 'View your profile details, your current context, and every context available to your account.',
+    icon: UserRound,
+    adminOnly: false,
+  },
   {
     to: '/app/settings/appearance',
     title: 'Appearance settings',
@@ -34,19 +41,19 @@ const items = [
   },
   {
     to: '/app/settings/users',
-    title: 'User settings',
-    description: 'Search for a user from app settings and update the person from there.',
+    title: 'Profile management',
+    description: 'Search for a person and complete profile details that are still missing.',
     icon: Settings2,
     permissions: ['profile.user.update'],
     adminOnly: true,
-    contexts: ['platform'],
+    contexts: ['platform', 'organization'],
   },
   {
     to: '/app/settings/global-services',
     title: 'Global services',
     description: 'Manage the shared service catalog used by institution and branch additional-service fields.',
     icon: Settings2,
-    permissions: ['global.services.manage'],
+    permissions: ['global.services.manage', 'global.services.create', 'global.services.update', 'global.services.delete'],
     adminOnly: true,
     contexts: ['platform', 'organization'],
   },

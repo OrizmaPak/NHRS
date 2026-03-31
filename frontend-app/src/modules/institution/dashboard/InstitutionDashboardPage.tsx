@@ -98,26 +98,6 @@ export function InstitutionDashboardPage() {
             <StatCard label="Compliance Status" value={query.data.complianceStatus} delta="Governance posture" trend="down" />
           </KpiGrid>
 
-          <Card>
-            <CardHeader>
-              <div>
-                <CardTitle>Quick Actions</CardTitle>
-                <CardDescription>Direct access to core clinical workflows.</CardDescription>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <PermissionGate permission="encounters.create">
-                  <Button asChild variant="outline"><Link to="/app/provider/encounters/new">Create Encounter</Link></Button>
-                </PermissionGate>
-                <PermissionGate permission="labs.create">
-                  <Button asChild variant="outline"><Link to="/app/provider/labs/new">Create Lab Request</Link></Button>
-                </PermissionGate>
-                <PermissionGate permission="pharmacy.create">
-                  <Button asChild variant="outline"><Link to="/app/provider/pharmacy/new">Create Prescription</Link></Button>
-                </PermissionGate>
-              </div>
-            </CardHeader>
-          </Card>
-
           <div className="space-y-4">
             <Card>
               <CardHeader><CardTitle>Recent Encounters</CardTitle></CardHeader>

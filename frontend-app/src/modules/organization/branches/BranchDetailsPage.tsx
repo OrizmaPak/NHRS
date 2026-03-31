@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/feedback/StatusBadge';
 import { ErrorState } from '@/components/feedback/ErrorState';
 import { EmptyState } from '@/components/feedback/EmptyState';
+import { LoadingSkeleton } from '@/components/feedback/LoadingSkeleton';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
 import { FormField } from '@/components/forms/FormField';
 import { GlobalServicesSelector } from '@/components/forms/GlobalServicesSelector';
@@ -45,6 +46,11 @@ const branchTypeOptions: Array<{ value: BranchType; label: string }> = [
   { value: 'pharmacy', label: 'Pharmacy' },
 ];
 
+function cap(value: string) {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 export function BranchDetailsPage() {
   const { branchId = '' } = useParams();
   const navigate = useNavigate();
@@ -57,10 +63,16 @@ export function BranchDetailsPage() {
 
   const detailsQuery = useBranchById(branchId);
   const updateBranch = useUpdateBranch();
-  const globalServicesQuery = useGlobalServices({ limit: 500 });
   const branch = detailsQuery.data?.branch ?? null;
-  const institutionQuery = useInstitutionById(branch?.institutionId);
-  const organizationQuery = useOrgDetails(branch?.organizationId);
+  const shouldResolveInstitutionName = Boolean(branch?.institutionId && !branch?.institutionName);
+  const shouldResolveOrganizationName = Boolean(
+    branch?.organizationId
+    && !branch?.organizationName
+    && !(branch.organizationId === contextOrganizationId && activeContext?.name),
+  );
+  const institutionQuery = useInstitutionById(shouldResolveInstitutionName ? branch?.institutionId : undefined);
+  const organizationQuery = useOrgDetails(shouldResolveOrganizationName ? branch?.organizationId : undefined);
+  const globalServicesQuery = useGlobalServices({ limit: 500, enabled: editOpen });
 
   const form = useForm<Values>({
     resolver: zodResolver(schema),
@@ -81,26 +93,32 @@ export function BranchDetailsPage() {
   });
   const selectedType = form.watch('type');
   const selectedAdditionalServices = form.watch('additionalServices') || [];
-  const globalServiceOptions = (globalServicesQuery.data?.rows ?? [])
-    .map((entry) => ({ value: entry.name, label: entry.name }))
-    .concat(
-      mergeGlobalServiceNames(selectedAdditionalServices)
-        .filter((entry) => !(globalServicesQuery.data?.rows ?? []).some((row) => getGlobalServiceKey(row.name) === getGlobalServiceKey(entry)))
-        .map((entry) => ({ value: entry, label: entry })),
-    )
-    .filter((entry, index, all) =>
-      getGlobalServiceKey(entry.value) !== getGlobalServiceKey(selectedType)
-      && all.findIndex((candidate) => getGlobalServiceKey(candidate.value) === getGlobalServiceKey(entry.value)) === index,
-    );
+  const globalServiceOptions = useMemo(() => {
+    const catalogRows = globalServicesQuery.data?.rows ?? [];
+    const mergedNames = mergeGlobalServiceNames([
+      ...catalogRows.map((entry) => entry.name),
+      ...selectedAdditionalServices,
+    ]);
+    return mergedNames
+      .filter((entry) => getGlobalServiceKey(entry) !== getGlobalServiceKey(selectedType))
+      .map((entry) => {
+        const catalogMatch = catalogRows.find((row) => getGlobalServiceKey(row.name) === getGlobalServiceKey(entry));
+        return {
+          value: entry,
+          label: entry,
+          description: catalogMatch?.description || undefined,
+        };
+      });
+  }, [globalServicesQuery.data?.rows, selectedAdditionalServices, selectedType]);
   const selectedStateName = form.watch('state') || '';
   const selectedLgaName = form.watch('lga') || '';
-  const geoStatesQuery = useGeoStates();
+  const geoStatesQuery = useGeoStates({ enabled: editOpen });
   const geoStates = geoStatesQuery.data ?? [];
   const selectedState = geoStates.find((entry) => entry.name.toLowerCase() === selectedStateName.toLowerCase()) ?? null;
   const geoLgasQuery = useGeoLgas({
     stateId: selectedState?.stateId,
     includeInactive: false,
-    enabled: Boolean(selectedState?.stateId),
+    enabled: editOpen && Boolean(selectedState?.stateId),
   });
   const geoLgas = geoLgasQuery.data ?? [];
   const stateOptions = geoStates.map((entry) => ({ value: entry.name, label: entry.name }));
@@ -113,6 +131,26 @@ export function BranchDetailsPage() {
   }
 
   if (!branchId) return <ErrorState title="Branch not found" description="Invalid branch identifier." />;
+  if ((detailsQuery.isLoading || detailsQuery.isFetching) && !branch) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-3">
+          <LoadingSkeleton className="h-8 w-56" />
+          <LoadingSkeleton className="h-4 w-80" />
+        </div>
+        <div className="rounded-xl border border-border p-6">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 12 }).map((_, index) => (
+              <div key={index} className="space-y-2">
+                <LoadingSkeleton className="h-3 w-20" />
+                <LoadingSkeleton className="h-4 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (detailsQuery.isError) return <ErrorState title="Unable to load branch details" description="Retry loading branch profile." onRetry={() => detailsQuery.refetch()} />;
   if (!branch) return <EmptyState title="Branch not found" description="You may not have access to this branch." />;
   if (inOrganizationContext && contextOrganizationId && branch.organizationId !== contextOrganizationId) {
@@ -224,27 +262,35 @@ export function BranchDetailsPage() {
         </div>
       </Card>
 
-      <Modal open={editOpen} onOpenChange={setEditOpen} title="Edit Branch">
+      <Modal
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        title="Edit Branch"
+        description="Update branch profile, services, contact details, and operating information."
+        contentClassName="w-[min(760px,96vw)]"
+      >
         <form className="space-y-3" onSubmit={onSubmit}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <FormField label="Organization">
+              <Input value={organizationName} readOnly />
+            </FormField>
+            <FormField label="Institution">
+              <Input value={institutionName} readOnly />
+            </FormField>
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
             <FormField label="Branch Name"><Input {...form.register('name')} /></FormField>
             <FormField label="Code"><Input {...form.register('code')} /></FormField>
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <FormField label="Type">
-              <select className="h-10 w-full rounded-md border border-border px-3 text-sm" {...form.register('type')}>
-                {branchTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Address Line"><Input {...form.register('addressLine1')} /></FormField>
-            <FormField label="Postal Code"><Input {...form.register('postalCode')} /></FormField>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <FormField label="Phone"><Input {...form.register('phone')} /></FormField>
-            <FormField label="Email"><Input type="email" {...form.register('email')} /></FormField>
-          </div>
+          <FormField label="Additional Services">
+            <GlobalServicesSelector
+              options={globalServiceOptions}
+              values={selectedAdditionalServices}
+              excludeValue={selectedType}
+              entityLabel="branch"
+              onChange={(next) => form.setValue('additionalServices', next, { shouldDirty: true, shouldValidate: true })}
+            />
+          </FormField>
           <FormField label="Opening Hours / More Details">
             <textarea
               className="min-h-24 w-full rounded-md border border-border px-3 py-2 text-sm"
@@ -252,15 +298,13 @@ export function BranchDetailsPage() {
               {...form.register('openingHours')}
             />
           </FormField>
-          <div className="grid gap-3 md:grid-cols-3">
-            <FormField label="Additional Services">
-              <GlobalServicesSelector
-                options={globalServiceOptions}
-                values={selectedAdditionalServices}
-                excludeValue={selectedType}
-                entityLabel="branch"
-                onChange={(next) => form.setValue('additionalServices', next, { shouldDirty: true, shouldValidate: true })}
-              />
+          <div className="grid gap-3 md:grid-cols-2">
+            <FormField label="Type">
+              <select className="h-10 w-full rounded-md border border-border px-3 text-sm" {...form.register('type')}>
+                {branchTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </FormField>
             <FormField label="Status">
               <select className="h-10 w-full rounded-md border border-border px-3 text-sm" {...form.register('status')}>
@@ -270,6 +314,7 @@ export function BranchDetailsPage() {
               </select>
             </FormField>
           </div>
+          <FormField label="Address Line"><Input {...form.register('addressLine1')} /></FormField>
           <div className="grid gap-3 md:grid-cols-2">
             <FormField label="State">
               <SmartSelect
@@ -300,6 +345,11 @@ export function BranchDetailsPage() {
                 <Input value="" readOnly placeholder="Select state first" />
               )}
             </FormField>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <FormField label="Postal Code"><Input {...form.register('postalCode')} /></FormField>
+            <FormField label="Phone"><Input {...form.register('phone')} /></FormField>
+            <FormField label="Email"><Input type="email" {...form.register('email')} /></FormField>
           </div>
           <ModalFooter>
             <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>

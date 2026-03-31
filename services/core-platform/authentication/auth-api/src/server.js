@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { buildEventEnvelope, createOutboxRepository, deliverOutboxBatch } = require('../../../../../libs/shared/src/outbox');
 const { enforceProductionSecrets } = require('../../../../../libs/shared/src/env');
 const { setStandardErrorHandler } = require('../../../../../libs/shared/src/errors');
+const { normalizeAllowedPermissionKeys } = require('./rbac-scope');
 
 const serviceName = 'auth-api';
 const port = Number(process.env.PORT) || 8081;
@@ -522,7 +523,7 @@ function buildAuthMeCacheKey(user, authorization = '', rbacCacheVersion = '0') {
   if (!user?._id) return null;
   const userId = String(user._id);
   const versionPayload = {
-    version: 4,
+    version: 5,
     updatedAt: toTimestamp(user.updatedAt),
     passwordSetAt: toTimestamp(user.passwordSetAt),
     lockUntil: toTimestamp(user.lockUntil),
@@ -534,12 +535,12 @@ function buildAuthMeCacheKey(user, authorization = '', rbacCacheVersion = '0') {
     tokenType: authorization ? String(authorization).slice(0, 20) : '',
     rbacCacheVersion: String(rbacCacheVersion || '0'),
   };
-  return `auth:me:v4:${userId}:${stableHash(JSON.stringify(versionPayload))}`;
+  return `auth:me:v5:${userId}:${stableHash(JSON.stringify(versionPayload))}`;
 }
 
 function buildRbacScopeCacheKey(userId, rbacCacheVersion = '0') {
   if (!userId) return null;
-  return `auth:rbac-scope:v3:${String(userId)}:${String(rbacCacheVersion || '0')}`;
+  return `auth:rbac-scope:v4:${String(userId)}:${String(rbacCacheVersion || '0')}`;
 }
 
 function buildContextsCacheKey(userId, rbacScopeSummary = null, rbacCacheVersion = '0') {
@@ -557,7 +558,7 @@ function buildContextsCacheKey(userId, rbacScopeSummary = null, rbacCacheVersion
         }))
       : [],
   }));
-  return `auth:contexts:v3:${String(userId)}:${scopeFingerprint}`;
+  return `auth:contexts:v4:${String(userId)}:${scopeFingerprint}`;
 }
 
 async function fetchMembershipContexts(userId, authorization) {
@@ -753,25 +754,14 @@ async function fetchRbacScopeSummary(authorization) {
 
     const body = await response.json();
     const cacheVersion = String(body?.cacheVersion ?? body?.version ?? '0');
-    const normalizePermissionKeys = (items = []) => (
-      (Array.isArray(items) ? items : [])
-        .map((item) => {
-          if (typeof item === 'string') return item;
-          if (item && typeof item === 'object') {
-            return String(item.permissionKey || item.key || item.permission || '');
-          }
-          return '';
-        })
-        .filter(Boolean)
-    );
 
-    const appPermissions = Array.from(new Set(normalizePermissionKeys(body?.appScopePermissions).map((item) => String(item))));
+    const appPermissions = Array.from(new Set(normalizeAllowedPermissionKeys(body?.appScopePermissions).map((item) => String(item))));
     const orgScopePermissions = Array.isArray(body?.orgScopePermissions)
       ? body.orgScopePermissions
         .map((entry) => {
           const organizationId = String(entry?.organizationId || '').trim();
           if (!organizationId) return null;
-          const permissions = Array.from(new Set(normalizePermissionKeys(entry?.permissions).map((item) => String(item))));
+          const permissions = Array.from(new Set(normalizeAllowedPermissionKeys(entry?.permissions).map((item) => String(item))));
           const roles = Array.isArray(entry?.roles)
             ? Array.from(new Set(
               entry.roles
@@ -2497,5 +2487,11 @@ process.on('uncaughtException', (err) => {
 
 setStandardErrorHandler(fastify);
 
-start();
+if (require.main === module) {
+  start();
+}
+
+module.exports = {
+  fetchRbacScopeSummary,
+};
 

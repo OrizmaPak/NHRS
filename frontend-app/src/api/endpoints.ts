@@ -4,6 +4,10 @@ export const endpoints = {
     logout: '/auth/logout',
     refresh: '/auth/token/refresh',
     passwordSet: '/auth/password/set',
+    contactPhone: '/auth/contact/phone',
+    contactPhoneVerify: '/auth/contact/phone/verify',
+    contactEmail: '/auth/contact/email',
+    contactEmailVerify: '/auth/contact/email/verify',
     meFallback: '/auth/me',
     userSearch: '/auth/users/search',
     ninLookup: (nin: string) => `/nin/${nin}`,
@@ -190,5 +194,9 @@ export const endpoints = {
     createPharmacyByNin: (nin: string) => `/pharmacy/${nin}/dispenses`,
     updatePharmacyById: (id: string) => `/pharmacy/dispenses/id/${id}`,
     dispensePharmacyById: (id: string) => `/pharmacy/dispenses/id/${id}/dispense`,
+  },
+  care: {
+    patients: '/care/patients',
+    registerPatient: '/care/patients',
   },
 };

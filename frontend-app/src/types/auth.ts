@@ -18,6 +18,7 @@ export type AppContext = {
   themeScopeId: string | null;
   permissions: string[];
   organizationId?: string;
+  institutionId?: string;
   branchId?: string;
 };
 

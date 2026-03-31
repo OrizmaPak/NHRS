@@ -22,10 +22,10 @@ type LabResult = {
   total: number;
 };
 
-export function useLabs(nin: string, params: ProviderRecordParams) {
+export function useLabs(nin: string, params: ProviderRecordParams, enabled = true) {
   return useQuery({
     queryKey: ['provider', 'labs', nin, params],
-    enabled: Boolean(nin),
+    enabled: Boolean(nin) && enabled,
     queryFn: async (): Promise<LabResult> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.labsByNin(nin), {
         query: { page: params.page, limit: params.limit, from: params.from, to: params.to },

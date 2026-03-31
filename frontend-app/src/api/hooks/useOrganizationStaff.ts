@@ -41,6 +41,24 @@ type MembersParams = {
   assignmentStatus?: 'active' | 'inactive';
 };
 
+async function fetchOrganizationMembers(orgId: string, params?: Partial<MembersParams>) {
+  const response = await apiClient.get<Record<string, unknown>>(endpoints.org.members(orgId), {
+    query: {
+      page: params?.page ?? 1,
+      limit: params?.limit ?? 20,
+      q: params?.q || undefined,
+      status: params?.status || undefined,
+      branchId: params?.branchId || undefined,
+      institutionId: params?.institutionId || undefined,
+      assignmentStatus: params?.assignmentStatus || undefined,
+      includeAssignments: true,
+    },
+  });
+  const items = Array.isArray(response.items) ? response.items : [];
+  const rows = items.map(toMember).filter((entry): entry is OrganizationMemberRow => Boolean(entry));
+  return { rows, total: Number(response.total ?? rows.length) };
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
@@ -95,23 +113,13 @@ export function useOrganizationMembers(orgId?: string, params?: MembersParams) {
     enabled: Boolean(orgId),
     queryFn: async (): Promise<{ rows: OrganizationMemberRow[]; total: number }> => {
       if (!orgId) return { rows: [], total: 0 };
-      const response = await apiClient.get<Record<string, unknown>>(endpoints.org.members(orgId), {
-        query: {
-          page: params?.page ?? 1,
-          limit: params?.limit ?? 20,
-          q: params?.q || undefined,
-          status: params?.status || undefined,
-          branchId: params?.branchId || undefined,
-          institutionId: params?.institutionId || undefined,
-          assignmentStatus: params?.assignmentStatus || undefined,
-          includeAssignments: true,
-        },
-      });
-      const items = Array.isArray(response.items) ? response.items : [];
-      const rows = items.map(toMember).filter((entry): entry is OrganizationMemberRow => Boolean(entry));
-      return { rows, total: Number(response.total ?? rows.length) };
+      return fetchOrganizationMembers(orgId, params);
     },
   });
+}
+
+export async function searchOrganizationMembers(orgId: string, params?: Partial<MembersParams>) {
+  return fetchOrganizationMembers(orgId, params);
 }
 
 export function useOrganizationMember(orgId?: string, memberId?: string) {

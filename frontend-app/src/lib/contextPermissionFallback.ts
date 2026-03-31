@@ -1,7 +1,26 @@
 import type { AppContext } from '@/types/auth';
+import { normalizeOrganizationRoleName } from '@/lib/organizationContext';
+
+export const SCOPED_CARE_FOUNDATION_PERMISSION_KEYS = [
+  'auth.me.read',
+  'care.workspace.read',
+  'profile.search',
+  'profile.user.read',
+  'profile.placeholder.create',
+  'records.nin.read',
+] as const;
 
 export const ORG_WORKSPACE_PERMISSION_KEYS = [
   'auth.me.read',
+  'care.workspace.read',
+  'profile.search',
+  'profile.user.read',
+  'profile.user.update',
+  'profile.placeholder.create',
+  'records.nin.read',
+  'encounters.read',
+  'labs.read',
+  'pharmacy.read',
   'ui.theme.write',
   'integrations.view',
   'api.keys.manage',
@@ -11,6 +30,9 @@ export const ORG_WORKSPACE_PERMISSION_KEYS = [
   'org.update',
   'org.owner.assign',
   'global.services.manage',
+  'global.services.create',
+  'global.services.update',
+  'global.services.delete',
   'org.branch.create',
   'org.branch.read',
   'org.branch.update',
@@ -30,8 +52,8 @@ export const ORG_WORKSPACE_PERMISSION_KEYS = [
   'org.member.history.read',
 ] as const;
 
-function normalizeRoleName(value: string | undefined): string {
-  return String(value || '').trim().toLowerCase();
+function isScopedOrganizationContext(context: AppContext): boolean {
+  return context.type === 'organization' && Boolean(context.institutionId || context.branchId);
 }
 
 export function getContextFallbackPermissions(context: AppContext | null | undefined): string[] {
@@ -44,12 +66,20 @@ export function getContextFallbackPermissions(context: AppContext | null | undef
     return Array.isArray(context.permissions) ? context.permissions : [];
   }
 
-  const roleName = normalizeRoleName(context.roleName);
+  const roleName = normalizeOrganizationRoleName(context.roleName);
   if (roleName === 'owner') {
     return Array.from(new Set(['auth.me.read', ...ORG_WORKSPACE_PERMISSION_KEYS]));
   }
   if (roleName === 'super_staff') {
     return Array.from(new Set(['auth.me.read', ...ORG_WORKSPACE_PERMISSION_KEYS]));
+  }
+  if (isScopedOrganizationContext(context)) {
+    return Array.from(
+      new Set([
+        ...SCOPED_CARE_FOUNDATION_PERMISSION_KEYS,
+        ...(Array.isArray(context.permissions) ? context.permissions : []),
+      ]),
+    );
   }
 
   return Array.isArray(context.permissions) ? context.permissions : [];

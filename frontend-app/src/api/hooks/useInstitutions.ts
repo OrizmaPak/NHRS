@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiClientError, apiClient } from '@/api/apiClient';
 import { endpoints } from '@/api/endpoints';
 import { mergeGlobalServiceNames, normalizeGlobalServiceName } from '@/api/hooks/useGlobalServices';
@@ -431,6 +431,7 @@ export function useOrgDetails(orgId?: string) {
   return useQuery({
     queryKey: ['org', 'organization', orgId ?? 'none'],
     enabled: Boolean(orgId),
+    staleTime: 60_000,
     queryFn: async (): Promise<{ organization: OrganizationRow | null; viewerScope?: ViewerScope }> => {
       if (!orgId) return { organization: null };
       const response = await apiClient.get<Record<string, unknown>>(endpoints.org.byId(orgId));
@@ -831,6 +832,36 @@ export function useScopedInstitutions(params: ScopedInstitutionsParams) {
   return useQuery({
     queryKey: ['org', 'scoped-institutions', params],
     queryFn: async (): Promise<{ rows: InstitutionRow[]; total: number }> => {
+      if (params.orgId) {
+        const response = await apiClient.get<Record<string, unknown>>(endpoints.org.institutions(params.orgId));
+        const items = Array.isArray(response.items) ? response.items : [];
+        const normalizedQuery = params.q?.trim().toLowerCase() || '';
+        const normalizedStatus = params.status?.trim().toLowerCase() || '';
+        const normalizedType = params.type?.trim().toLowerCase() || '';
+        const normalizedState = params.state?.trim().toLowerCase() || '';
+        const normalizedLga = params.lga?.trim().toLowerCase() || '';
+        const filteredRows = items
+          .map(mapInstitutionRow)
+          .filter((row): row is InstitutionRow => Boolean(row))
+          .filter((row) => {
+            if (normalizedQuery) {
+              const searchTarget = `${row.name} ${row.code} ${row.institutionId} ${row.organizationId}`.toLowerCase();
+              if (!searchTarget.includes(normalizedQuery)) return false;
+            }
+            if (normalizedStatus && String(row.status || '').toLowerCase() !== normalizedStatus) return false;
+            if (normalizedType && String(row.type || '').toLowerCase() !== normalizedType) return false;
+            if (normalizedState && String(row.state || '').toLowerCase() !== normalizedState) return false;
+            if (normalizedLga && String(row.lga || '').toLowerCase() !== normalizedLga) return false;
+            return true;
+          });
+        const total = filteredRows.length;
+        const start = Math.max(params.page - 1, 0) * params.limit;
+        return {
+          rows: filteredRows.slice(start, start + params.limit),
+          total,
+        };
+      }
+
       const response = await apiClient.get<Record<string, unknown>>(endpoints.org.globalInstitutions, {
         query: {
           page: params.page,
@@ -904,10 +935,51 @@ export function useScopedBranches(params: ScopedBranchesParams) {
   });
 }
 
+function extractCachedBranchRows(value: unknown): BranchRow[] {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is BranchRow => Boolean(asRecord(entry)));
+  }
+  const record = asRecord(value);
+  if (!record) return [];
+  if (Array.isArray(record.rows)) {
+    return record.rows.filter((entry): entry is BranchRow => Boolean(asRecord(entry)));
+  }
+  if (Array.isArray(record.branches)) {
+    return record.branches.filter((entry): entry is BranchRow => Boolean(asRecord(entry)));
+  }
+  return [];
+}
+
+function findCachedBranchRow(queryClient: QueryClient, branchId: string): BranchRow | null {
+  const cachedBranch = queryClient.getQueryData<{ branch: BranchRow | null }>(['org', 'branch', branchId])?.branch;
+  if (cachedBranch) return cachedBranch;
+
+  const cachedSources = [
+    ...queryClient.getQueriesData({ queryKey: ['org', 'scoped-branches'] }),
+    ...queryClient.getQueriesData({ queryKey: ['org', 'branches'] }),
+    ...queryClient.getQueriesData({ queryKey: ['org', 'public-organization'] }),
+    ...queryClient.getQueriesData({ queryKey: ['org', 'deleted-organizations'] }),
+  ];
+
+  for (const [, cachedValue] of cachedSources) {
+    const match = extractCachedBranchRows(cachedValue).find((entry) => entry.branchId === branchId || entry.id === branchId);
+    if (match) return match;
+  }
+
+  return null;
+}
+
 export function useBranchById(branchId?: string) {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['org', 'branch', branchId ?? 'none'],
     enabled: Boolean(branchId),
+    staleTime: 60_000,
+    placeholderData: () => {
+      if (!branchId) return undefined;
+      const cachedBranch = findCachedBranchRow(queryClient, branchId);
+      return cachedBranch ? { branch: cachedBranch } : undefined;
+    },
     queryFn: async (): Promise<{ branch: BranchRow | null; viewerScope?: ViewerScope }> => {
       if (!branchId) return { branch: null };
       const response = await apiClient.get<Record<string, unknown>>(endpoints.org.globalBranchById(branchId));

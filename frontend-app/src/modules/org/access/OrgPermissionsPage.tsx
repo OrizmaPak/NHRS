@@ -87,7 +87,15 @@ export function OrgPermissionsPage() {
             : meta.interfaceSummary;
         },
       },
-      { accessorKey: 'description', header: 'Description' },
+      {
+        id: 'description',
+        header: 'Description',
+        cell: ({ row }) => (
+          <div className="max-w-[360px] text-sm text-foreground">
+            {getPermissionDisplayMeta(row.original).helperText}
+          </div>
+        ),
+      },
       {
         accessorKey: 'isSystem',
         header: 'Type',
@@ -155,8 +163,8 @@ export function OrgPermissionsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Organization Permissions"
-        description="Define and maintain organization-scoped permission keys."
+        title="Permissions"
+        description="Define and maintain permission keys scoped to the active organization."
         breadcrumbs={[{ label: 'Organization' }, { label: 'Access Control' }, { label: 'Permissions' }]}
         actions={
           <Button
@@ -166,7 +174,7 @@ export function OrgPermissionsPage() {
               setModalOpen(true);
             }}
           >
-            Create Org Permission
+            Create Permission
           </Button>
         }
       />
@@ -191,7 +199,7 @@ export function OrgPermissionsPage() {
         />
       )}
 
-      <Modal open={modalOpen} onOpenChange={setModalOpen} title={editing ? 'Edit Org Permission' : 'Create Org Permission'} description="These permissions apply only within this organization scope.">
+      <Modal open={modalOpen} onOpenChange={setModalOpen} title={editing ? 'Edit Permission' : 'Create Permission'} description="These permissions apply only within this organization scope.">
         <form className="space-y-3" onSubmit={onSubmit}>
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Permission Key</label>

@@ -309,9 +309,21 @@ export async function resolveSyntheticContextPermissions(userId: string, context
 }
 
 function normalizeScopedRoleName(value: string | null | undefined): string | null {
-  const raw = String(value ?? '').trim().toLowerCase();
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
   if (!raw) return null;
-  if (raw === 'org_owner') return 'owner';
+  if (raw === 'org_owner' || raw === 'organization_owner') return 'owner';
+  if (
+    raw === 'superstaff'
+    || raw === 'org_superstaff'
+    || raw === 'org_super_staff'
+    || raw === 'organization_superstaff'
+    || raw === 'organization_super_staff'
+  ) {
+    return 'super_staff';
+  }
   return raw;
 }
 

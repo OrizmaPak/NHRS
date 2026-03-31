@@ -113,9 +113,12 @@ export function useGeoStates(params?: {
   regionId?: string;
   regionCode?: string;
   includeInactive?: boolean;
+  enabled?: boolean;
 }) {
   return useQuery({
     queryKey: ['geo', 'states', params ?? {}],
+    enabled: params?.enabled ?? true,
+    staleTime: 5 * 60_000,
     queryFn: async (): Promise<GeoStateRow[]> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.geo.states, {
         query: {
@@ -142,6 +145,7 @@ export function useGeoLgas(params?: {
   return useQuery({
     queryKey: ['geo', 'lgas', params ?? {}],
     enabled: params?.enabled ?? true,
+    staleTime: 5 * 60_000,
     queryFn: async (): Promise<GeoLgaRow[]> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.geo.lgas, {
         query: {

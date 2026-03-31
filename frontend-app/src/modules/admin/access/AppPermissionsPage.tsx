@@ -70,7 +70,15 @@ export function AppPermissionsPage() {
         header: 'Area',
         cell: ({ row }) => getPermissionDisplayMeta(row.original).groupLabel,
       },
-      { accessorKey: 'description', header: 'Description' },
+      {
+        id: 'description',
+        header: 'Description',
+        cell: ({ row }) => (
+          <div className="max-w-[360px] text-sm text-foreground">
+            {getPermissionDisplayMeta(row.original).helperText}
+          </div>
+        ),
+      },
       {
         id: 'interface',
         header: 'Used In',

@@ -21,10 +21,10 @@ type PharmacyResult = {
   total: number;
 };
 
-export function usePharmacyRecords(nin: string, params: ProviderRecordParams) {
+export function usePharmacyRecords(nin: string, params: ProviderRecordParams, enabled = true) {
   return useQuery({
     queryKey: ['provider', 'pharmacy', nin, params],
-    enabled: Boolean(nin),
+    enabled: Boolean(nin) && enabled,
     queryFn: async (): Promise<PharmacyResult> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.pharmacyByNin(nin), {
         query: { page: params.page, limit: params.limit, from: params.from, to: params.to },

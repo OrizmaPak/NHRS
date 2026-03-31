@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import * as Tabs from '@radix-ui/react-tabs';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -14,11 +15,15 @@ import { ErrorState } from '@/components/feedback/ErrorState';
 import { Modal, ModalFooter } from '@/components/overlays/Modal';
 import { FormField } from '@/components/forms/FormField';
 import { Input } from '@/components/ui/Input';
+import { CollapsiblePermissionSection } from '@/components/access/CollapsiblePermissionSection';
 import { PermissionMatrix } from '@/components/access/PermissionMatrix';
+import { apiClient } from '@/api/apiClient';
+import { endpoints } from '@/api/endpoints';
 import { useContextStore } from '@/stores/contextStore';
 import { useAuthStore } from '@/stores/authStore';
 import { getOrganizationIdFromContext } from '@/lib/organizationContext';
 import { findInterfacePermissions, getPermissionDisplayMeta, groupPermissionsByDisplay } from '@/lib/interfacePermissions';
+import { useInstitutionBranches, useOrgInstitutions } from '@/api/hooks/useInstitutions';
 import {
   searchAccessUsers,
   useOrgPermissions,
@@ -29,16 +34,44 @@ import {
   useUserAccess,
   type UserSearchResult,
 } from '@/api/hooks/useAccessControl';
-import { useOrganizationMember, useUpdateMemberScopeAssignment } from '@/api/hooks/useOrganizationStaff';
+import {
+  searchOrganizationMembers,
+  useOrganizationMember,
+  useUpdateMemberScopeAssignment,
+  type OrganizationMemberRow,
+  type StaffAssignment,
+} from '@/api/hooks/useOrganizationStaff';
 
 type OverrideEffect = 'allow' | 'deny';
-type ScopedOverrideRule = { permissionKey: string; effect: OverrideEffect; roleName?: string };
+type ScopedOverrideRule = {
+  permissionKey: string;
+  effect: OverrideEffect;
+  roleName?: string;
+  scopeType?: AccessScopeType;
+  institutionId?: string;
+  branchId?: string;
+};
 type AccessScopeType = 'organization' | 'institution' | 'branch';
 const createRoleSchema = z.object({
   name: z.string().min(2, 'Role name is required'),
   description: z.string().min(3, 'Description is required'),
 });
 type CreateRoleValues = z.infer<typeof createRoleSchema>;
+type StaffAccessCandidate = UserSearchResult & {
+  memberId?: string;
+  assignmentId?: string;
+  member?: OrganizationMemberRow;
+  status?: string;
+};
+type NinLookupItem = {
+  fullName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  otherName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  bvn?: string | null;
+};
 
 const ALL_ROLES_SCOPE = '__all__';
 
@@ -59,6 +92,92 @@ function looksLikeOpaqueIdentifier(value?: string | null) {
   return false;
 }
 
+function normalizeScopeId(value?: string | null) {
+  const normalized = String(value || '').trim();
+  return normalized || undefined;
+}
+
+function overrideMatchesCurrentScope(
+  entry: Pick<ScopedOverrideRule, 'scopeType' | 'institutionId' | 'branchId'>,
+  scopeType: AccessScopeType,
+  institutionId?: string | null,
+  branchId?: string | null,
+) {
+  const targetInstitutionId = normalizeScopeId(institutionId);
+  const targetBranchId = normalizeScopeId(branchId);
+  const entryScopeType = entry.scopeType ?? 'organization';
+  const entryInstitutionId = normalizeScopeId(entry.institutionId);
+  const entryBranchId = normalizeScopeId(entry.branchId);
+
+  if (entryScopeType === 'organization') return scopeType === 'organization';
+  if (entryScopeType === 'institution') {
+    if (!entryInstitutionId) return false;
+    return scopeType === 'institution' && entryInstitutionId === targetInstitutionId;
+  }
+  if (entryScopeType === 'branch') {
+    if (!entryBranchId) return false;
+    return scopeType === 'branch' && entryBranchId === targetBranchId;
+  }
+  return false;
+}
+
+function buildScopedOverrideRule(
+  permissionKey: string,
+  effect: OverrideEffect,
+  roleName: string,
+  scopeType: AccessScopeType,
+  institutionId?: string | null,
+  branchId?: string | null,
+): ScopedOverrideRule {
+  return {
+    permissionKey,
+    effect,
+    ...(roleName ? { roleName } : {}),
+    ...(scopeType === 'organization' ? { scopeType: 'organization' as const } : {}),
+    ...(scopeType === 'institution' ? { scopeType: 'institution' as const, institutionId: normalizeScopeId(institutionId) } : {}),
+    ...(scopeType === 'branch'
+      ? {
+          scopeType: 'branch' as const,
+          institutionId: normalizeScopeId(institutionId),
+          branchId: normalizeScopeId(branchId),
+        }
+      : {}),
+  };
+}
+
+function getScopedAssignments(
+  assignments: StaffAssignment[],
+  scopeType: AccessScopeType,
+  institutionId?: string | null,
+  branchId?: string | null,
+) {
+  if (scopeType === 'branch') {
+    return assignments.filter((assignment) => String(assignment.branchId || '').trim() === String(branchId || '').trim());
+  }
+  if (scopeType === 'institution') {
+    return assignments.filter((assignment) => (
+      String(assignment.institutionId || '').trim() === String(institutionId || '').trim()
+      && !String(assignment.branchId || '').trim()
+    ));
+  }
+  return [];
+}
+
+function getPreferredScopedAssignment(
+  assignments: StaffAssignment[],
+  scopeType: AccessScopeType,
+  institutionId?: string | null,
+  branchId?: string | null,
+  assignmentId?: string | null,
+) {
+  const scopedAssignments = getScopedAssignments(assignments, scopeType, institutionId, branchId);
+  if (assignmentId) {
+    return scopedAssignments.find((assignment) => String(assignment.assignmentId || '').trim() === String(assignmentId || '').trim()) ?? null;
+  }
+  if (scopedAssignments.length === 1) return scopedAssignments[0];
+  return null;
+}
+
 export function OrgStaffAccessPage() {
   const { userId = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -66,19 +185,42 @@ export function OrgStaffAccessPage() {
   const activeContext = useContextStore((state) => state.activeContext);
   const organizationId = getOrganizationIdFromContext(activeContext);
   const initialUserId = userId === 'self' ? String(authUser?.id ?? '') : userId;
-  const scopeType = normalizeAccessScopeType(searchParams.get('scopeType'));
+  const initialDisplayName = String(searchParams.get('displayName') || '').trim();
+  const initialNin = String(searchParams.get('nin') || '').trim();
+  const initialScopeType = normalizeAccessScopeType(searchParams.get('scopeType'));
   const scopeId = String(searchParams.get('scopeId') || '').trim();
-  const scopedInstitutionId = scopeType === 'branch'
+  const initialScopedInstitutionId = initialScopeType === 'branch'
     ? String(searchParams.get('institutionId') || '').trim() || null
-    : (scopeType === 'institution' ? scopeId || null : null);
-  const scopedBranchId = scopeType === 'branch' ? scopeId || null : null;
-  const scopedMemberId = String(searchParams.get('memberId') || '').trim();
-  const scopedAssignmentId = String(searchParams.get('assignmentId') || '').trim();
-  const isScopedAccess = scopeType !== 'organization';
+    : (initialScopeType === 'institution' ? scopeId || null : null);
+  const initialScopedBranchId = initialScopeType === 'branch' ? scopeId || null : null;
+  const initialScopedMemberId = String(searchParams.get('memberId') || '').trim();
+  const initialScopedAssignmentId = String(searchParams.get('assignmentId') || '').trim();
+  const initialCandidate = initialUserId
+    ? {
+        id: initialUserId,
+        displayName: initialDisplayName || initialUserId,
+        nin: initialNin || undefined,
+        memberId: initialScopedMemberId || undefined,
+        assignmentId: initialScopedAssignmentId || undefined,
+      }
+    : null;
 
-  const [userLookup, setUserLookup] = useState<Record<string, UserSearchResult>>({});
+  const [activeScopeType, setActiveScopeType] = useState<AccessScopeType>(initialScopeType);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | null>(initialScopedInstitutionId);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(initialScopedBranchId);
+  const [selectedMemberId, setSelectedMemberId] = useState(initialScopedMemberId || '');
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(initialScopedAssignmentId || '');
+  const effectiveInstitutionId = activeScopeType === 'branch'
+    ? selectedInstitutionId
+    : (activeScopeType === 'institution' ? selectedInstitutionId : null);
+  const effectiveBranchId = activeScopeType === 'branch' ? selectedBranchId : null;
+  const isScopedAccess = activeScopeType !== 'organization';
+
+  const [userLookup, setUserLookup] = useState<Record<string, StaffAccessCandidate>>(
+    initialCandidate ? { [initialCandidate.id]: initialCandidate } : {},
+  );
   const [selectedUserValue, setSelectedUserValue] = useState<string | null>(initialUserId || null);
-  const [selectedCandidate, setSelectedCandidate] = useState<UserSearchResult | null>(null);
+  const [selectedCandidate, setSelectedCandidate] = useState<StaffAccessCandidate | null>(initialCandidate);
   const [targetUserId, setTargetUserId] = useState(initialUserId || '');
   const [roleSearch, setRoleSearch] = useState('');
   const [permissionSearch, setPermissionSearch] = useState('');
@@ -87,14 +229,26 @@ export function OrgStaffAccessPage() {
   const [overrideRoleScope, setOverrideRoleScope] = useState<string | null>(null);
   const [showCreateRoleModal, setShowCreateRoleModal] = useState(false);
   const [selectedRolePermissionKeys, setSelectedRolePermissionKeys] = useState<Set<string>>(new Set());
+  const clearSelectedStaff = useCallback(() => {
+    setSelectedUserValue(null);
+    setSelectedCandidate(null);
+    setTargetUserId('');
+    setSelectedMemberId('');
+    setSelectedAssignmentId('');
+    setManualRoleSelection(null);
+    setManualOverrideRules(null);
+    setOverrideRoleScope(null);
+  }, []);
 
+  const institutionsQuery = useOrgInstitutions(organizationId);
+  const institutionBranchesQuery = useInstitutionBranches(organizationId, selectedInstitutionId || undefined);
   const rolesQuery = useOrgRoles(organizationId);
   const permissionsQuery = useOrgPermissions(organizationId);
-  const scopedMemberQuery = useOrganizationMember(organizationId, isScopedAccess ? scopedMemberId : undefined);
+  const memberQuery = useOrganizationMember(organizationId, selectedMemberId || undefined);
   const userAccessQuery = useUserAccess(targetUserId, organizationId, {
-    scopeType,
-    institutionId: scopedInstitutionId ?? undefined,
-    branchId: scopedBranchId ?? undefined,
+    scopeType: activeScopeType,
+    institutionId: effectiveInstitutionId ?? undefined,
+    branchId: effectiveBranchId ?? undefined,
   });
   const replaceRoles = useReplaceUserRoles('organization');
   const replaceOverrides = useReplaceUserOverrides('organization');
@@ -106,44 +260,51 @@ export function OrgStaffAccessPage() {
     defaultValues: { name: '', description: '' },
   });
 
+  const institutionOptions = useMemo(
+    () =>
+      (institutionsQuery.data?.rows ?? []).map((row) => ({
+        value: row.institutionId,
+        label: `${row.name}${row.code ? ` (${row.code})` : ''}`,
+      })),
+    [institutionsQuery.data?.rows],
+  );
+  const branchOptions = useMemo(
+    () =>
+      (institutionBranchesQuery.data ?? []).map((row) => ({
+        value: row.branchId,
+        label: `${row.name}${row.code ? ` (${row.code})` : ''}`,
+      })),
+    [institutionBranchesQuery.data],
+  );
+  const selectedInstitutionLabel = institutionOptions.find((entry) => entry.value === selectedInstitutionId)?.label || null;
+  const selectedBranchLabel = branchOptions.find((entry) => entry.value === selectedBranchId)?.label || null;
+  const activeMember = memberQuery.data ?? selectedCandidate?.member ?? null;
+
   const scopedAssignments = useMemo(() => {
-    const assignments = scopedMemberQuery.data?.assignments ?? [];
-    if (scopeType === 'branch') {
-      return assignments.filter((assignment) => String(assignment.branchId || '').trim() === String(scopedBranchId || '').trim());
-    }
-    if (scopeType === 'institution') {
-      return assignments.filter((assignment) =>
-        String(assignment.institutionId || '').trim() === String(scopedInstitutionId || '').trim()
-        && !String(assignment.branchId || '').trim(),
-      );
-    }
-    return [];
-  }, [scopeType, scopedBranchId, scopedInstitutionId, scopedMemberQuery.data?.assignments]);
+    return getScopedAssignments(activeMember?.assignments ?? [], activeScopeType, effectiveInstitutionId, effectiveBranchId);
+  }, [activeMember?.assignments, activeScopeType, effectiveBranchId, effectiveInstitutionId]);
 
   const editableScopedAssignment = useMemo(() => {
     if (!isScopedAccess) return null;
-    if (scopedAssignmentId) {
-      return scopedAssignments.find((assignment) => String(assignment.assignmentId || '').trim() === scopedAssignmentId) ?? null;
-    }
-    if (scopedAssignments.length === 1) return scopedAssignments[0];
-    return null;
-  }, [isScopedAccess, scopedAssignmentId, scopedAssignments]);
+    return getPreferredScopedAssignment(
+      activeMember?.assignments ?? [],
+      activeScopeType,
+      effectiveInstitutionId,
+      effectiveBranchId,
+      selectedAssignmentId,
+    );
+  }, [activeMember?.assignments, activeScopeType, effectiveBranchId, effectiveInstitutionId, isScopedAccess, selectedAssignmentId]);
 
-  const scopeTitle = scopeType === 'branch'
-    ? 'Branch Staff Access'
-    : scopeType === 'institution'
-      ? 'Institution Staff Access'
-      : 'Organization Staff Access';
-  const scopeDescription = scopeType === 'branch'
-    ? 'Manage the selected user role within this branch scope.'
-    : scopeType === 'institution'
-      ? 'Manage the selected user role within this institution scope.'
-      : 'Search staff, assign organization roles, and set role-specific can/cannot overrides.';
-  const scopeRoleDescription = scopeType === 'branch'
+  const pageDescription = activeScopeType === 'branch'
+    ? 'Search branch staff and manage branch-scoped roles and permissions.'
+    : activeScopeType === 'institution'
+      ? 'Search institution staff and manage institution-scoped roles and permissions.'
+      : 'Search staff and manage roles and specific permissions.';
+  const scopeRoleDescription = activeScopeType === 'branch'
     ? 'Assigned branch roles are preselected and can be updated.'
-    : scopeType === 'institution'
+    : activeScopeType === 'institution'
       ? 'Assigned institution roles are preselected and can be updated.'
-      : 'Assigned organization roles are preselected and can be updated.';
+      : 'Assigned roles are preselected and can be updated.';
 
   const displayedCandidate = selectedCandidate ?? (targetUserId ? userLookup[targetUserId] ?? null : null);
   const apiReportedName = userAccessQuery.data?.userName?.trim() ?? '';
@@ -153,7 +314,7 @@ export function OrgStaffAccessPage() {
     (initialUserId && authUser?.id === initialUserId ? authUser.fullName : null) ??
     'Loading...';
   const displayedNin =
-    scopedMemberQuery.data?.nin ??
+    activeMember?.nin ??
     displayedCandidate?.nin ??
     (initialUserId && authUser?.id === initialUserId ? authUser.nin : undefined) ??
     'Not available';
@@ -188,13 +349,17 @@ export function OrgStaffAccessPage() {
   );
 
   const assignedOverrideRules = useMemo(() => {
-    if (isScopedAccess) return [];
-    return (userAccessQuery.data?.overrides ?? []).map((override) => ({
+    return (userAccessQuery.data?.overrides ?? [])
+      .filter((override) => overrideMatchesCurrentScope(override, activeScopeType, effectiveInstitutionId, effectiveBranchId))
+      .map((override) => ({
       permissionKey: override.key,
       effect: override.effect,
       roleName: override.roleName ? String(override.roleName).trim().toLowerCase() : undefined,
+      scopeType: override.scopeType,
+      institutionId: override.institutionId ?? undefined,
+      branchId: override.branchId ?? undefined,
     }));
-  }, [isScopedAccess, userAccessQuery.data?.overrides]);
+  }, [activeScopeType, effectiveBranchId, effectiveInstitutionId, userAccessQuery.data?.overrides]);
 
   const overrideRules = manualOverrideRules ?? assignedOverrideRules;
 
@@ -211,9 +376,9 @@ export function OrgStaffAccessPage() {
     organizationId,
     {
       activeRoleName: resolvedOverrideRoleScope === ALL_ROLES_SCOPE ? undefined : resolvedOverrideRoleScope,
-      scopeType,
-      institutionId: scopedInstitutionId ?? undefined,
-      branchId: scopedBranchId ?? undefined,
+      scopeType: activeScopeType,
+      institutionId: effectiveInstitutionId ?? undefined,
+      branchId: effectiveBranchId ?? undefined,
     },
   );
 
@@ -228,6 +393,7 @@ export function OrgStaffAccessPage() {
     }
     return mapped;
   }, [overrideRules, resolvedOverrideRoleScope]);
+  const activeScopedOverrideCount = Object.keys(scopedOverrideMap).length;
 
   const permissionRows = useMemo(() => {
     const rows = permissionsQuery.data ?? [];
@@ -305,92 +471,296 @@ export function OrgStaffAccessPage() {
       const filtered = base.filter((entry) => {
         if (entry.permissionKey !== permissionKey) return true;
         const entryRole = entry.roleName ? String(entry.roleName).trim().toLowerCase() : '';
-        return entryRole !== targetRole;
+        return entryRole !== targetRole
+          || !overrideMatchesCurrentScope(entry, activeScopeType, effectiveInstitutionId, effectiveBranchId);
       });
       if (!effect) return filtered;
-      if (targetRole) return [...filtered, { permissionKey, effect, roleName: targetRole }];
-      return [...filtered, { permissionKey, effect }];
+      return [
+        ...filtered,
+        buildScopedOverrideRule(permissionKey, effect, targetRole, activeScopeType, effectiveInstitutionId, effectiveBranchId),
+      ];
     });
   };
 
+  const buildCandidateFromMember = useCallback(async (
+    member: OrganizationMemberRow,
+    preferred?: UserSearchResult,
+  ): Promise<StaffAccessCandidate | null> => {
+    const userIdValue = String(member.userId || '').trim();
+    if (!userIdValue) return null;
+
+    let displayName = String(preferred?.displayName || '').trim();
+    let email = preferred?.email;
+    let phone = preferred?.phone;
+    let bvn = preferred?.bvn;
+
+    if (!displayName) {
+      try {
+        const response = await apiClient.get<NinLookupItem>(endpoints.auth.ninLookup(member.nin), {
+          suppressGlobalErrors: true,
+        });
+        displayName = String(
+          response.fullName
+          || [response.firstName, response.otherName, response.lastName].filter(Boolean).join(' ')
+          || member.nin,
+        ).trim();
+        email = email || (response.email ? String(response.email) : undefined);
+        phone = phone || (response.phone ? String(response.phone) : undefined);
+        bvn = bvn || (response.bvn ? String(response.bvn) : undefined);
+      } catch {
+        displayName = member.nin;
+      }
+    }
+
+    const preferredAssignment = getPreferredScopedAssignment(
+      member.assignments,
+      activeScopeType,
+      effectiveInstitutionId,
+      effectiveBranchId,
+      selectedAssignmentId,
+    );
+
+    return {
+      id: userIdValue,
+      displayName: displayName || member.nin,
+      nin: member.nin || preferred?.nin,
+      email,
+      phone,
+      bvn,
+      memberId: member.membershipId,
+      assignmentId: preferredAssignment?.assignmentId,
+      member,
+      status: member.status,
+    };
+  }, [activeScopeType, effectiveBranchId, effectiveInstitutionId, selectedAssignmentId]);
+
   const loadUserOptions = useCallback(async (term: string) => {
-    const users = await searchAccessUsers(term);
-    if (users.length > 0) {
+    if (!organizationId) return [];
+    if (activeScopeType === 'institution' && !effectiveInstitutionId) return [];
+    if (activeScopeType === 'branch' && (!effectiveInstitutionId || !effectiveBranchId)) return [];
+
+    const scopeFilter = {
+      institutionId: activeScopeType === 'organization' ? undefined : (effectiveInstitutionId ?? undefined),
+      branchId: activeScopeType === 'branch' ? (effectiveBranchId ?? undefined) : undefined,
+    };
+
+    const [directScopedSearch, globalMatches] = await Promise.all([
+      searchOrganizationMembers(organizationId, {
+        page: 1,
+        limit: 20,
+        q: term,
+        ...scopeFilter,
+      }),
+      searchAccessUsers(term),
+    ]);
+
+    const candidates = new Map<string, StaffAccessCandidate>();
+    const directCandidates = await Promise.all(
+      directScopedSearch.rows.map((member) => buildCandidateFromMember(member)),
+    );
+    directCandidates
+      .filter((candidate): candidate is StaffAccessCandidate => Boolean(candidate))
+      .forEach((candidate) => {
+        candidates.set(candidate.id, candidate);
+      });
+
+    const scopedGlobalCandidates = await Promise.all(
+      globalMatches.slice(0, 10).map(async (entry) => {
+        const lookupTerm = String(entry.nin || entry.id || '').trim();
+        if (!lookupTerm) return null;
+        const scopedSearch = await searchOrganizationMembers(organizationId, {
+          page: 1,
+          limit: 10,
+          q: lookupTerm,
+          ...scopeFilter,
+        });
+        const matchedMember = scopedSearch.rows.find((member) =>
+          String(member.userId || '').trim() === entry.id || member.nin === entry.nin,
+        );
+        if (!matchedMember) return null;
+        return buildCandidateFromMember(matchedMember, entry);
+      }),
+    );
+
+    scopedGlobalCandidates
+      .filter((candidate): candidate is StaffAccessCandidate => Boolean(candidate))
+      .forEach((candidate) => {
+        candidates.set(candidate.id, candidate);
+      });
+
+    if (candidates.size > 0) {
       setUserLookup((prev) => {
         const next = { ...prev };
-        users.forEach((entry) => {
+        Array.from(candidates.values()).forEach((entry) => {
           next[entry.id] = entry;
         });
         return next;
       });
     }
-    return users.map((entry) => ({
+
+    return Array.from(candidates.values()).map((entry) => ({
       value: entry.id,
       label: entry.displayName,
-      description: [entry.nin, entry.bvn ? `BVN:${entry.bvn}` : undefined, entry.email, entry.phone].filter(Boolean).join(' | ') || entry.id,
+      description: [
+        entry.nin,
+        entry.status ? `Status:${entry.status}` : undefined,
+        entry.bvn ? `BVN:${entry.bvn}` : undefined,
+        entry.email,
+        entry.phone,
+      ].filter(Boolean).join(' | ') || entry.id,
     }));
-  }, []);
+  }, [activeScopeType, buildCandidateFromMember, effectiveBranchId, effectiveInstitutionId, organizationId]);
+
+  const scopeSearchReady = activeScopeType === 'organization'
+    || (activeScopeType === 'institution' && Boolean(effectiveInstitutionId))
+    || (activeScopeType === 'branch' && Boolean(effectiveInstitutionId && effectiveBranchId));
+  const scopeSearchEmptyLabel = activeScopeType === 'institution' && !effectiveInstitutionId
+    ? 'Select an institution first'
+    : activeScopeType === 'branch' && !effectiveInstitutionId
+      ? 'Select an institution first'
+      : activeScopeType === 'branch' && !effectiveBranchId
+        ? 'Select a branch first'
+        : 'No matching staff found in this scope';
+  const scopeSearchPlaceholder = activeScopeType === 'organization'
+    ? 'Search staff'
+    : activeScopeType === 'institution'
+      ? 'Search institution staff'
+      : 'Search branch staff';
+  const selectedScopeSummary = activeScopeType === 'branch'
+    ? `Branch${selectedBranchLabel ? ` - ${selectedBranchLabel}` : ''}`
+    : activeScopeType === 'institution'
+      ? `Institution${selectedInstitutionLabel ? ` - ${selectedInstitutionLabel}` : ''}`
+      : 'Organization';
 
   if (!organizationId) {
     return <ErrorState title="Organization context required" description="Switch to an organization context to manage staff access." />;
-  }
-
-  if (isScopedAccess && !scopedMemberId) {
-    return <ErrorState title="Scoped access target required" description="Open this page from the institution or branch staff table." />;
   }
 
   if (userId === 'self' && !authUser?.id) {
     return <ErrorState title="Loading user context" description="Fetching your account context..." />;
   }
 
-  if (isScopedAccess && scopedMemberQuery.isError) {
-    return <ErrorState title="Unable to load scoped access" description="Retry loading the selected staff scope." onRetry={() => scopedMemberQuery.refetch()} />;
+  if (selectedMemberId && memberQuery.isError) {
+    return <ErrorState title="Unable to load staff access" description="Retry loading the selected staff scope." onRetry={() => memberQuery.refetch()} />;
   }
 
-  if (isScopedAccess && !scopedMemberQuery.isLoading && !scopedMemberQuery.data) {
-    return <ErrorState title="Scoped staff record not found" description="The selected institution or branch assignment could not be found." />;
+  if (selectedMemberId && !memberQuery.isLoading && !activeMember) {
+    return <ErrorState title="Staff record not found" description="The selected staff scope could not be found." />;
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title={scopeTitle}
-        description={scopeDescription}
+        title="Staff Access"
+        description={pageDescription}
         breadcrumbs={[{ label: 'Organization' }, { label: 'Access Control' }, { label: 'Staff Access' }]}
       />
 
-      {!isScopedAccess ? (
       <Card>
         <CardHeader>
           <div>
-            <CardTitle>Find User</CardTitle>
-            <CardDescription>Search by NIN, BVN, email, phone, or name.</CardDescription>
+            <CardTitle>Find Staff</CardTitle>
+            <CardDescription>Search within the selected organization, institution, or branch scope.</CardDescription>
           </div>
         </CardHeader>
-        <div className="w-full md:max-w-xl">
-          <SmartSelect
-            value={selectedUserValue}
-            onChange={(value) => {
-              setSelectedUserValue(value);
-              const candidate = userLookup[value] ?? null;
-              if (!candidate) {
-                toast.error('Unable to resolve selected user. Please try again.');
-                return;
+        <div className="space-y-4">
+          <Tabs.Root
+            value={activeScopeType}
+            onValueChange={(next) => {
+              const normalized = normalizeAccessScopeType(next);
+              setActiveScopeType(normalized);
+              if (normalized === 'organization') {
+                setSelectedInstitutionId(null);
+                setSelectedBranchId(null);
               }
-              setSelectedCandidate(candidate);
-              setTargetUserId(candidate.id);
-              setManualRoleSelection(null);
-              setManualOverrideRules(null);
-              setOverrideRoleScope(null);
+              if (normalized === 'institution') {
+                setSelectedBranchId(null);
+              }
+              clearSelectedStaff();
             }}
-            placeholder="Search by NIN, email, phone, or name"
-            emptyLabel="No matching user found"
-            debounceMs={1250}
-            loadOptions={loadUserOptions}
-          />
+          >
+            <Tabs.List className="inline-flex flex-wrap rounded-md border border-border bg-surface p-1">
+              <Tabs.Trigger value="organization" className="rounded px-3 py-1.5 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Organization</Tabs.Trigger>
+              <Tabs.Trigger value="institution" className="rounded px-3 py-1.5 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Institution</Tabs.Trigger>
+              <Tabs.Trigger value="branch" className="rounded px-3 py-1.5 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Branch</Tabs.Trigger>
+            </Tabs.List>
+          </Tabs.Root>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {activeScopeType !== 'organization' ? (
+              <div className="w-full">
+                <FormField label="Institution">
+                  <SmartSelect
+                    value={selectedInstitutionId}
+                    selectedLabel={selectedInstitutionLabel}
+                    onChange={(value) => {
+                      setSelectedInstitutionId(value);
+                      setSelectedBranchId(null);
+                      clearSelectedStaff();
+                    }}
+                    placeholder="Select institution"
+                    emptyLabel="No institution found"
+                    loadOptions={async (input) =>
+                      institutionOptions.filter((entry) => entry.label.toLowerCase().includes(input.toLowerCase()))
+                    }
+                  />
+                </FormField>
+              </div>
+            ) : null}
+            {activeScopeType === 'branch' ? (
+              <div className="w-full">
+                <FormField label="Branch">
+                  <SmartSelect
+                    value={selectedBranchId}
+                    selectedLabel={selectedBranchLabel}
+                    onChange={(value) => {
+                      setSelectedBranchId(value);
+                      clearSelectedStaff();
+                    }}
+                    placeholder="Select branch"
+                    emptyLabel={selectedInstitutionId ? 'No branch found' : 'Select institution first'}
+                    loadOptions={async (input) =>
+                      selectedInstitutionId
+                        ? branchOptions.filter((entry) => entry.label.toLowerCase().includes(input.toLowerCase()))
+                        : []
+                    }
+                  />
+                </FormField>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="w-full md:max-w-xl">
+            <SmartSelect
+              value={selectedUserValue}
+              selectedLabel={displayedCandidate?.displayName || (displayedName !== 'Loading...' ? displayedName : null)}
+              onChange={(value) => {
+                if (!value) {
+                  clearSelectedStaff();
+                  return;
+                }
+                setSelectedUserValue(value);
+                const candidate = userLookup[value] ?? null;
+                if (!candidate) {
+                  toast.error('Unable to resolve selected staff. Please try again.');
+                  return;
+                }
+                setSelectedCandidate(candidate);
+                setSelectedMemberId(candidate.memberId || '');
+                setSelectedAssignmentId(candidate.assignmentId || '');
+                setTargetUserId(candidate.id);
+                setManualRoleSelection(null);
+                setManualOverrideRules(null);
+                setOverrideRoleScope(null);
+              }}
+              placeholder={scopeSearchPlaceholder}
+              emptyLabel={scopeSearchEmptyLabel}
+              debounceMs={1000}
+              loadOptions={scopeSearchReady ? loadUserOptions : async () => []}
+            />
+          </div>
         </div>
       </Card>
-      ) : null}
 
       {targetUserId ? (
         <>
@@ -406,13 +776,7 @@ export function OrgStaffAccessPage() {
                   </div>
                 </CardHeader>
                 <p className="text-sm text-foreground">Name: {displayedName}</p>
-                {isScopedAccess ? (
-                  <p className="mt-2 text-sm text-muted">
-                    Scope: {scopeType === 'branch'
-                      ? `Branch${editableScopedAssignment?.branchName ? ` - ${editableScopedAssignment.branchName}` : ''}`
-                      : `Institution${editableScopedAssignment?.institutionName ? ` - ${editableScopedAssignment.institutionName}` : ''}`}
-                  </p>
-                ) : null}
+                <p className="mt-2 text-sm text-muted">Scope: {selectedScopeSummary}</p>
               </Card>
 
               <Card>
@@ -465,7 +829,7 @@ export function OrgStaffAccessPage() {
                     );
                   })}
                   {filteredRoles.length === 0 ? (
-                    <div className="rounded border border-border p-3 text-sm text-muted">No organization roles found.</div>
+                    <div className="rounded border border-border p-3 text-sm text-muted">No roles found.</div>
                   ) : null}
                 </div>
                 <div className="mt-3">
@@ -475,13 +839,13 @@ export function OrgStaffAccessPage() {
                     disabled={isScopedAccess && !editableScopedAssignment}
                     onClick={async () => {
                       if (isScopedAccess) {
-                        if (!editableScopedAssignment || !scopedMemberId) {
-                          toast.error('Open a specific institution or branch assignment to edit scoped roles.');
+                        if (!editableScopedAssignment || !selectedMemberId) {
+                          toast.error('Select a staff record with a direct assignment in the active scope.');
                           return;
                         }
                         await updateMemberScopeAssignment.mutateAsync({
                           orgId: organizationId,
-                          memberId: scopedMemberId,
+                          memberId: selectedMemberId,
                           assignmentId: editableScopedAssignment.assignmentId,
                           roles: Array.from(selectedRoleIds)
                             .map((roleId) => roleRowsById.get(roleId)?.name)
@@ -503,19 +867,18 @@ export function OrgStaffAccessPage() {
                   </Button>
                   {isScopedAccess && !editableScopedAssignment ? (
                     <p className="mt-2 text-xs text-muted">
-                      This staff record has more than one scope under the selected view. Open access from the exact branch row to edit one assignment.
+                      This staff record does not have a single direct assignment in the selected scope. Select the exact scope row or switch tabs.
                     </p>
                   ) : null}
                 </div>
               </Card>
 
-              {!isScopedAccess ? (
               <Card>
                 <CardHeader>
                   <div>
                     <CardTitle>Specific Permissions (Can / Cannot)</CardTitle>
                     <CardDescription>
-                      Cannot override takes precedence over role permissions. Role scope selection applies overrides to a specific role.
+                      Cannot override takes precedence over role permissions. Role scope selection applies overrides to a specific role in the active {activeScopeType} scope.
                     </CardDescription>
                   </div>
                 </CardHeader>
@@ -529,7 +892,9 @@ export function OrgStaffAccessPage() {
                     value={resolvedOverrideRoleScope}
                     onChange={(event) => setOverrideRoleScope(event.target.value)}
                   >
-                    <option value={ALL_ROLES_SCOPE}>All assigned roles (global override)</option>
+                    <option value={ALL_ROLES_SCOPE}>
+                      {isScopedAccess ? 'All assigned roles in this scope' : 'All assigned roles (global override)'}
+                    </option>
                     {selectedRoleNames.map((roleName) => (
                       <option key={roleName} value={roleName}>
                         {roleName}
@@ -537,15 +902,26 @@ export function OrgStaffAccessPage() {
                     ))}
                   </select>
                 </div>
+                {activeScopedOverrideCount > 0 ? (
+                  <div className="mb-3 rounded-md border border-warning/30 bg-warning/5 p-3">
+                    <p className="text-sm font-medium text-foreground">Specific permission overrides are active in this scope.</p>
+                    <p className="mt-1 text-xs text-muted">
+                      {activeScopedOverrideCount} override{activeScopedOverrideCount === 1 ? '' : 's'} currently change what this staff member can do.
+                      These overrides take precedence over the role and can hide or expose interfaces even after you update the role.
+                    </p>
+                  </div>
+                ) : null}
                 <div className="space-y-4">
                   <section className="space-y-2">
                     <h4 className="text-sm font-semibold text-foreground">Interface Access Permissions</h4>
                     {groupedInterfacePermissionRows.map((group) => (
-                      <section key={group.label} className="rounded-lg border border-border p-3">
-                        <div className="mb-3 flex items-center justify-between">
-                          <h5 className="text-sm font-semibold text-foreground">{group.label}</h5>
-                          <Badge variant="info">{group.items.length} permissions</Badge>
-                        </div>
+                      <CollapsiblePermissionSection
+                        key={group.label}
+                        title={group.label}
+                        totalCount={group.items.length}
+                        activeCount={group.items.filter((permission) => Boolean(scopedOverrideMap[permission.key])).length}
+                        contentClassName="space-y-2"
+                      >
                         <div className="space-y-2">
                           {group.items.map((permission) => {
                             const meta = getPermissionDisplayMeta(permission);
@@ -596,7 +972,7 @@ export function OrgStaffAccessPage() {
                             );
                           })}
                         </div>
-                      </section>
+                      </CollapsiblePermissionSection>
                     ))}
                   </section>
 
@@ -604,11 +980,13 @@ export function OrgStaffAccessPage() {
                     <section className="space-y-2">
                       <h4 className="text-sm font-semibold text-foreground">Other Action Permissions</h4>
                       {groupedOtherPermissionRows.map((group) => (
-                        <section key={group.label} className="rounded-lg border border-border p-3">
-                          <div className="mb-3 flex items-center justify-between">
-                            <h5 className="text-sm font-semibold text-foreground">{group.label}</h5>
-                            <Badge variant="info">{group.items.length} permissions</Badge>
-                          </div>
+                        <CollapsiblePermissionSection
+                          key={group.label}
+                          title={group.label}
+                          totalCount={group.items.length}
+                          activeCount={group.items.filter((permission) => Boolean(scopedOverrideMap[permission.key])).length}
+                          contentClassName="space-y-2"
+                        >
                           <div className="space-y-2">
                             {group.items.map((permission) => {
                               const meta = getPermissionDisplayMeta(permission);
@@ -652,7 +1030,7 @@ export function OrgStaffAccessPage() {
                               );
                             })}
                           </div>
-                        </section>
+                        </CollapsiblePermissionSection>
                       ))}
                     </section>
                   ) : null}
@@ -661,77 +1039,79 @@ export function OrgStaffAccessPage() {
                     <div className="rounded border border-border p-3 text-sm text-muted">No permissions matched your search.</div>
                   ) : null}
                 </div>
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     loading={replaceOverrides.isPending}
                     loadingText="Saving permissions..."
+                    disabled={isScopedAccess && !editableScopedAssignment}
                     onClick={async () => {
                       const overrides = overrideRules
                         .filter((entry) => entry.permissionKey && (entry.effect === 'allow' || entry.effect === 'deny'))
                         .map((entry) =>
                           entry.roleName
-                            ? { permissionKey: entry.permissionKey, effect: entry.effect, roleName: entry.roleName }
-                            : { permissionKey: entry.permissionKey, effect: entry.effect });
-                      await replaceOverrides.mutateAsync({ userId: targetUserId, overrides, organizationId });
+                            ? {
+                                permissionKey: entry.permissionKey,
+                                effect: entry.effect,
+                                roleName: entry.roleName,
+                                ...(entry.scopeType ? { scopeType: entry.scopeType } : {}),
+                                ...(entry.institutionId ? { institutionId: entry.institutionId } : {}),
+                                ...(entry.branchId ? { branchId: entry.branchId } : {}),
+                              }
+                            : {
+                                permissionKey: entry.permissionKey,
+                                effect: entry.effect,
+                                ...(entry.scopeType ? { scopeType: entry.scopeType } : {}),
+                                ...(entry.institutionId ? { institutionId: entry.institutionId } : {}),
+                                ...(entry.branchId ? { branchId: entry.branchId } : {}),
+                              });
+                      await replaceOverrides.mutateAsync({
+                        userId: targetUserId,
+                        overrides,
+                        organizationId,
+                        scopeType: activeScopeType,
+                        institutionId: effectiveInstitutionId ?? undefined,
+                        branchId: effectiveBranchId ?? undefined,
+                      });
                       setManualOverrideRules(null);
                       toast.success('Specific permissions updated');
                     }}
                   >
                     Save Specific Permissions
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={(isScopedAccess && !editableScopedAssignment) || activeScopedOverrideCount === 0 || replaceOverrides.isPending}
+                    onClick={async () => {
+                      await replaceOverrides.mutateAsync({
+                        userId: targetUserId,
+                        overrides: [],
+                        organizationId,
+                        scopeType: activeScopeType,
+                        institutionId: effectiveInstitutionId ?? undefined,
+                        branchId: effectiveBranchId ?? undefined,
+                      });
+                      setManualOverrideRules(null);
+                      toast.success('Specific permissions reset to the role defaults');
+                    }}
+                  >
+                    Reset To Role Defaults
+                  </Button>
+                </div>
+                <div className="mt-2">
+                  {isScopedAccess && !editableScopedAssignment ? (
+                    <p className="text-xs text-muted">
+                      Select a staff record with a direct assignment in the active scope to save scoped can/cannot overrides.
+                    </p>
+                  ) : null}
                 </div>
               </Card>
-              ) : (
-                <Card>
-                  <CardHeader>
-                    <div>
-                      <CardTitle>Specific Permissions</CardTitle>
-                      <CardDescription>
-                        Institution and branch access currently inherit permissions from the selected scoped role. Direct can/cannot overrides remain organization-wide only.
-                      </CardDescription>
-                    </div>
-                  </CardHeader>
-                  <div className="space-y-4">
-                    <section className="space-y-2">
-                      <h4 className="text-sm font-semibold text-foreground">Effective Permissions</h4>
-                      {groupedInterfacePermissionRows.map((group) => (
-                        <section key={group.label} className="rounded-lg border border-border p-3">
-                          <div className="mb-3 flex items-center justify-between">
-                            <h5 className="text-sm font-semibold text-foreground">{group.label}</h5>
-                            <Badge variant="info">{group.items.length} permissions</Badge>
-                          </div>
-                          <div className="space-y-2">
-                            {group.items.map((permission) => {
-                              const meta = getPermissionDisplayMeta(permission);
-                              const state = effectivePermissionState(permission.key);
-                              return (
-                                <div key={permission.key} className="rounded border border-border p-3">
-                                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                                    <div>
-                                      <p className="text-sm font-medium text-foreground">{meta.title}</p>
-                                      <p className="text-[11px] text-muted">{permission.key}</p>
-                                    </div>
-                                    <Badge variant={state === 'deny' ? 'danger' : state === 'allow' ? 'success' : 'outline'}>
-                                      {state.toUpperCase()}
-                                    </Badge>
-                                  </div>
-                                  <p className="text-xs text-muted">{meta.helperText}</p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </section>
-                      ))}
-                    </section>
-                  </div>
-                </Card>
-              )}
             </>
           )}
         </>
       ) : null}
 
-      <Modal open={showCreateRoleModal} onOpenChange={setShowCreateRoleModal} title="Create Organization Role">
+      <Modal open={showCreateRoleModal} onOpenChange={setShowCreateRoleModal} title="Create Role">
         <form
           className="space-y-3"
           onSubmit={createRoleForm.handleSubmit(async (values) => {
@@ -766,7 +1146,7 @@ export function OrgStaffAccessPage() {
             <Input {...createRoleForm.register('name')} placeholder="operations_manager" />
           </FormField>
           <FormField label="Description">
-            <Input {...createRoleForm.register('description')} placeholder="Organization operations manager" />
+            <Input {...createRoleForm.register('description')} placeholder="Operations manager" />
           </FormField>
           <PermissionMatrix
             permissions={(permissionsQuery.data ?? []).map((entry) => ({

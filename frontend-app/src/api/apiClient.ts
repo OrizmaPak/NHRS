@@ -50,6 +50,9 @@ function getContextHeaders(): Record<string, string> {
   if (orgId) {
     headers['x-org-id'] = orgId;
   }
+  if (activeContext?.institutionId) {
+    headers['x-institution-id'] = activeContext.institutionId;
+  }
   if (activeContext?.branchId) {
     headers['x-branch-id'] = activeContext.branchId;
   }

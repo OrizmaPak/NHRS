@@ -52,4 +52,42 @@ describe('toIdentityResponse', () => {
       },
     ]);
   });
+
+  it('ignores denied permission entries from structured scope payloads', () => {
+    const identity = toIdentityResponse({
+      user: {
+        id: 'user-2',
+        firstName: 'Ben',
+        lastName: 'Manager',
+        email: 'ben@example.com',
+        roles: ['manager'],
+      },
+      rbacScope: {
+        appScopePermissions: [
+          { permissionKey: 'dashboard.read', effect: 'allow' },
+          { permissionKey: 'reports.view', effect: 'deny' },
+        ],
+        orgScopePermissions: [
+          {
+            organizationId: 'org-1',
+            permissions: [
+              { permissionKey: 'integrations.view', effect: 'allow' },
+              { permissionKey: 'global.services.manage', effect: 'deny' },
+            ],
+            roles: ['manager'],
+          },
+        ],
+      },
+    });
+
+    expect(identity.permissions).toContain('dashboard.read');
+    expect(identity.permissions).not.toContain('reports.view');
+    expect(identity.orgPermissions).toEqual([
+      {
+        organizationId: 'org-1',
+        permissions: ['integrations.view'],
+        roles: ['manager'],
+      },
+    ]);
+  });
 });

@@ -178,8 +178,8 @@ function emitNotificationEvent(event, req = null) {
   });
 }
 
-async function enforcePermission(req, reply, permissionKey, organizationId = null) {
-  const checked = await callJson(`${rbacApiBaseUrl}/rbac/check`, {
+async function checkPermission(req, permissionKey, organizationId = null) {
+  return callJson(`${rbacApiBaseUrl}/rbac/check`, {
     method: 'POST',
     headers: {
       authorization: req.headers.authorization,
@@ -193,24 +193,54 @@ async function enforcePermission(req, reply, permissionKey, organizationId = nul
       activeContextType: req.headers['x-active-context-type'] || null,
     }),
   });
+}
 
-  if (!checked.ok || !checked.body?.allowed) {
-    reply.code(checked.status === 401 ? 401 : 403).send({ message: 'Forbidden' });
-    emitAuditEvent({
-      userId: req.auth?.userId || null,
-      organizationId,
-      eventType: 'RBAC_ACCESS_DENIED',
-      action: 'organization.permission.check',
-      permissionKey,
-      ipAddress: getClientIp(req),
-      userAgent: req.headers['user-agent'] || null,
-      outcome: 'failure',
-      failureReason: checked.body?.reason || 'PERMISSION_DENIED',
-      metadata: { path: req.routeOptions?.url || req.url, method: req.method },
-    });
-    return true;
+async function enforceAnyPermission(req, reply, permissionKeys, organizationId = null) {
+  const requiredPermissions = Array.from(new Set(
+    (Array.isArray(permissionKeys) ? permissionKeys : [permissionKeys])
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean),
+  ));
+  const primaryPermissionKey = requiredPermissions[0] || null;
+
+  let checked = { ok: false, status: 403, body: null };
+  for (const permissionKey of requiredPermissions) {
+    checked = await checkPermission(req, permissionKey, organizationId);
+    if (checked.ok && checked.body?.allowed) {
+      return false;
+    }
+    if (checked.status === 401) {
+      break;
+    }
   }
-  return false;
+
+  reply.code(checked.status === 401 ? 401 : 403).send({ message: 'Forbidden' });
+  emitAuditEvent({
+    userId: req.auth?.userId || null,
+    organizationId,
+    eventType: 'RBAC_ACCESS_DENIED',
+    action: 'organization.permission.check',
+    permissionKey: primaryPermissionKey,
+    ipAddress: getClientIp(req),
+    userAgent: req.headers['user-agent'] || null,
+    outcome: 'failure',
+    failureReason: checked.body?.reason || 'PERMISSION_DENIED',
+    metadata: {
+      path: req.routeOptions?.url || req.url,
+      method: req.method,
+      requiredPermissions,
+    },
+  });
+  return true;
+}
+
+async function enforcePermission(req, reply, permissionKey, organizationId = null) {
+  return enforceAnyPermission(req, reply, [permissionKey], organizationId);
+}
+
+function getPermissionOrgId(req) {
+  const orgIdHeader = req?.headers?.['x-org-id'];
+  return orgIdHeader ? String(orgIdHeader).trim() || null : null;
 }
 
 const INSTITUTION_TYPES = ['hospital', 'laboratory', 'pharmacy', 'clinic', 'government', 'emergency', 'catalog'];
@@ -2066,7 +2096,12 @@ fastify.post('/global-services', {
     },
   },
 }, async (req, reply) => {
-  const denied = await enforcePermission(req, reply, 'global.services.manage');
+  const denied = await enforceAnyPermission(
+    req,
+    reply,
+    ['global.services.create', 'global.services.manage'],
+    getPermissionOrgId(req),
+  );
   if (denied) return;
 
   const name = normalizeGlobalServiceName(req.body?.name);
@@ -2099,6 +2134,84 @@ fastify.post('/global-services', {
   return reply.code(201).send({ service: decorateGlobalService(record) });
 });
 
+fastify.patch('/global-services/:serviceId', {
+  preHandler: requireAuth,
+  schema: {
+    tags: ['Organization'],
+    summary: 'Update global service catalog entry',
+    security: [{ bearerAuth: [] }],
+    params: {
+      type: 'object',
+      required: ['serviceId'],
+      properties: {
+        serviceId: { type: 'string' },
+      },
+    },
+    body: {
+      type: 'object',
+      required: ['name', 'description'],
+      properties: {
+        name: { type: 'string', minLength: 2 },
+        description: { type: 'string', minLength: 8 },
+      },
+      additionalProperties: false,
+    },
+    response: {
+      200: { type: 'object', additionalProperties: true },
+      400: { type: 'object', additionalProperties: true },
+      401: { type: 'object', additionalProperties: true },
+      403: { type: 'object', additionalProperties: true },
+      404: { type: 'object', additionalProperties: true },
+      409: { type: 'object', additionalProperties: true },
+    },
+  },
+}, async (req, reply) => {
+  const denied = await enforceAnyPermission(
+    req,
+    reply,
+    ['global.services.update', 'global.services.manage'],
+    getPermissionOrgId(req),
+  );
+  if (denied) return;
+
+  const name = normalizeGlobalServiceName(req.body?.name);
+  const description = normalizeGlobalServiceDescription(req.body?.description);
+  if (!name) {
+    return reply.code(400).send({ message: 'Service name is required' });
+  }
+  if (description.length < 8) {
+    return reply.code(400).send({ message: 'Service description is required' });
+  }
+
+  let updated;
+  try {
+    const result = await collections.globalServices().findOneAndUpdate(
+      { serviceId: req.params.serviceId },
+      {
+        $set: {
+          name,
+          description,
+          normalizedName: normalizeGlobalServiceLookup(name),
+          updatedAt: now(),
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    updated = unwrapFindOneAndUpdateResult(result);
+  } catch (err) {
+    if (err?.code === 11000) {
+      return reply.code(409).send({ message: 'A global service with this name already exists' });
+    }
+    throw err;
+  }
+
+  if (!updated) {
+    return reply.code(404).send({ message: 'Global service not found' });
+  }
+
+  return reply.send({ service: decorateGlobalService(updated) });
+});
+
 fastify.delete('/global-services/:serviceId', {
   preHandler: requireAuth,
   schema: {
@@ -2120,7 +2233,12 @@ fastify.delete('/global-services/:serviceId', {
     },
   },
 }, async (req, reply) => {
-  const denied = await enforcePermission(req, reply, 'global.services.manage');
+  const denied = await enforceAnyPermission(
+    req,
+    reply,
+    ['global.services.delete', 'global.services.manage'],
+    getPermissionOrgId(req),
+  );
   if (denied) return;
 
   const service = await collections.globalServices().findOneAndDelete({ serviceId: req.params.serviceId });
@@ -4851,6 +4969,7 @@ fastify.post('/orgs/:orgId/institutions/:institutionId/branches', {
         address: { type: 'object', additionalProperties: true },
         location: { type: 'object', additionalProperties: true },
         contact: { type: 'object', additionalProperties: true },
+        metadata: { type: 'object', additionalProperties: true },
       },
     },
     response: {
@@ -4897,6 +5016,7 @@ fastify.post('/orgs/:orgId/institutions/:institutionId/branches', {
     address: req.body.address || null,
     location: req.body.location || null,
     contact: req.body.contact || null,
+    metadata: req.body.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {},
     status: 'active',
     createdAt: now(),
     updatedAt: now(),
@@ -5013,6 +5133,7 @@ fastify.patch('/orgs/:orgId/institutions/:institutionId/branches/:branchId', {
         address: { type: 'object', additionalProperties: true },
         location: { type: 'object', additionalProperties: true },
         contact: { type: 'object', additionalProperties: true },
+        metadata: { type: 'object', additionalProperties: true },
         status: { type: 'string', enum: BRANCH_STATUSES.filter((entry) => entry !== 'deleted') },
       },
     },
@@ -5045,6 +5166,7 @@ fastify.patch('/orgs/:orgId/institutions/:institutionId/branches/:branchId', {
   if (req.body?.address !== undefined) update.address = req.body.address;
   if (req.body?.location !== undefined) update.location = req.body.location;
   if (req.body?.contact !== undefined) update.contact = req.body.contact;
+  if (req.body?.metadata !== undefined) update.metadata = req.body.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {};
   if (req.body?.status) {
     const normalized = String(req.body.status).trim().toLowerCase();
     if (BRANCH_STATUSES.includes(normalized)) {

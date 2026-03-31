@@ -3,6 +3,7 @@ const { MongoClient, ObjectId, ServerApiVersion } = require('mongodb');
 const { createClient } = require('redis');
 const jwt = require('jsonwebtoken');
 const { evaluatePermission, mergeRules } = require('./engine');
+const { buildScopedPermissionCatalog, filterRulesToAllowedKeys } = require('./permission-catalog');
 const { buildEventEnvelope, createOutboxRepository, deliverOutboxBatch } = require('../../../../libs/shared/src/outbox');
 const { enforceProductionSecrets } = require('../../../../libs/shared/src/env');
 const { setStandardErrorHandler } = require('../../../../libs/shared/src/errors');
@@ -34,6 +35,7 @@ let db;
 let outboxRepo = null;
 let outboxTimer = null;
 let mongoConnectPromise = null;
+let mongoWritableRecoveryPromise = null;
 let mongoReconnectTimer = null;
 let orgLeadershipAuditStarted = false;
 
@@ -50,7 +52,18 @@ const membershipCollections = {
 
 const orgWorkspacePermissionTemplates = [
   { key: 'auth.me.read', name: 'Read own profile', module: 'auth', actions: ['read'] },
+  { key: 'care.workspace.read', name: 'Access patient care workspace', module: 'care', actions: ['read'] },
+  { key: 'profile.search', name: 'Search patient profiles', module: 'profile', actions: ['read'] },
+  { key: 'profile.user.read', name: 'Read patient profile', module: 'profile', actions: ['read'] },
+  { key: 'profile.user.update', name: 'Update user profile', module: 'profile', actions: ['update'] },
+  { key: 'profile.placeholder.create', name: 'Register patient into organization care register', module: 'care', actions: ['create'] },
+  { key: 'records.nin.read', name: 'Read patient timeline by NIN', module: 'records', actions: ['read'] },
+  { key: 'encounters.read', name: 'Read encounters', module: 'encounters', actions: ['read'] },
+  { key: 'labs.read', name: 'Read lab workflows', module: 'labs', actions: ['read'] },
+  { key: 'pharmacy.read', name: 'Read pharmacy workflows', module: 'pharmacy', actions: ['read'] },
+  { key: 'ui.theme.read', name: 'Read UI themes', module: 'ui-theme', actions: ['read'] },
   { key: 'ui.theme.write', name: 'Write UI themes', module: 'ui-theme', actions: ['create', 'update'] },
+  { key: 'ui.theme.delete', name: 'Delete UI themes', module: 'ui-theme', actions: ['delete'] },
   { key: 'integrations.view', name: 'View integrations', module: 'integrations', actions: ['read'] },
   { key: 'api.keys.manage', name: 'Manage API keys', module: 'integrations', actions: ['create', 'read', 'update', 'delete'] },
   { key: 'rbac.org.manage', name: 'Manage org RBAC', module: 'rbac', actions: ['create', 'read', 'update', 'delete'] },
@@ -59,6 +72,9 @@ const orgWorkspacePermissionTemplates = [
   { key: 'org.update', name: 'Update organization', module: 'organization', actions: ['update'] },
   { key: 'org.owner.assign', name: 'Assign organization owner', module: 'organization', actions: ['update'] },
   { key: 'global.services.manage', name: 'Manage global services catalog', module: 'catalog', actions: ['create', 'read', 'update', 'delete'] },
+  { key: 'global.services.create', name: 'Create global service', module: 'catalog', actions: ['create'] },
+  { key: 'global.services.update', name: 'Update global service', module: 'catalog', actions: ['update'] },
+  { key: 'global.services.delete', name: 'Delete global service', module: 'catalog', actions: ['delete'] },
   { key: 'org.branch.create', name: 'Create branch', module: 'organization', actions: ['create'] },
   { key: 'org.branch.read', name: 'Read branch', module: 'organization', actions: ['read'] },
   { key: 'org.branch.update', name: 'Update branch', module: 'organization', actions: ['update'] },
@@ -79,6 +95,14 @@ const orgWorkspacePermissionTemplates = [
 ];
 
 const orgWorkspacePermissionKeys = orgWorkspacePermissionTemplates.map((entry) => entry.key);
+const scopedCareFoundationPermissionKeys = [
+  'auth.me.read',
+  'care.workspace.read',
+  'profile.search',
+  'profile.user.read',
+  'profile.placeholder.create',
+  'records.nin.read',
+];
 
 const systemPermissions = [
   { key: 'nin.profile.read', name: 'Read NIN profile', scope: 'app', module: 'auth', actions: ['read'], isSystem: true },
@@ -91,15 +115,19 @@ const systemPermissions = [
   { key: 'lab.results.write', name: 'Write lab results', scope: 'org', module: 'lab', actions: ['create', 'update'], isSystem: true },
   { key: 'audit.read', name: 'Read audit logs', scope: 'app', module: 'audit', actions: ['read'], isSystem: true },
   { key: 'auth.me.read', name: 'Read own profile', scope: 'app', module: 'auth', actions: ['read'], isSystem: true },
+  { key: 'care.workspace.read', name: 'Access patient care workspace', scope: 'org', module: 'care', actions: ['read'], isSystem: true },
   { key: 'profile.me.read', name: 'Read own profile record', scope: 'app', module: 'profile', actions: ['read'], isSystem: true },
   { key: 'profile.me.update', name: 'Update own profile record', scope: 'app', module: 'profile', actions: ['update'], isSystem: true },
   { key: 'profile.search', name: 'Search profiles', scope: 'app', module: 'profile', actions: ['read'], isSystem: true },
   { key: 'profile.user.read', name: 'Read user profile', scope: 'app', module: 'profile', actions: ['read'], isSystem: true },
   { key: 'profile.user.update', name: 'Update user profile', scope: 'app', module: 'profile', actions: ['update'], isSystem: true },
+  { key: 'ui.theme.read', name: 'Read UI themes', scope: 'app', module: 'ui-theme', actions: ['read'], isSystem: true },
+  { key: 'ui.theme.write', name: 'Write UI themes', scope: 'app', module: 'ui-theme', actions: ['create', 'update'], isSystem: true },
+  { key: 'ui.theme.delete', name: 'Delete UI themes', scope: 'app', module: 'ui-theme', actions: ['delete'], isSystem: true },
   { key: 'profile.search', name: 'Search profiles', scope: 'org', module: 'profile', actions: ['read'], isSystem: true },
   { key: 'profile.user.read', name: 'Read user profile', scope: 'org', module: 'profile', actions: ['read'], isSystem: true },
   { key: 'profile.user.update', name: 'Update user profile', scope: 'org', module: 'profile', actions: ['update'], isSystem: true },
-  { key: 'profile.placeholder.create', name: 'Create profile placeholder', scope: 'org', module: 'profile', actions: ['create'], isSystem: true },
+  { key: 'profile.placeholder.create', name: 'Register patient into organization care register', scope: 'org', module: 'care', actions: ['create'], isSystem: true },
   { key: 'profile.nin.refresh.request', name: 'Request NIN refresh for profile', scope: 'app', module: 'profile', actions: ['create'], isSystem: true },
   { key: 'org.create', name: 'Create organization', scope: 'app', module: 'organization', actions: ['create'], isSystem: true },
   { key: 'org.list', name: 'List organizations', scope: 'app', module: 'organization', actions: ['read'], isSystem: true },
@@ -110,7 +138,26 @@ const systemPermissions = [
   { key: 'org.owner.assign', name: 'Assign organization owner', scope: 'app', module: 'organization', actions: ['update'], isSystem: true },
   { key: 'org.search', name: 'Search organizations', scope: 'app', module: 'organization', actions: ['read'], isSystem: true },
   { key: 'geo.manage', name: 'Manage geo mapping (regions/states/lgas)', scope: 'app', module: 'geography', actions: ['create', 'read', 'update', 'delete'], isSystem: true },
+  { key: 'integrations.view', name: 'View integrations', scope: 'app', module: 'integrations', actions: ['read'], isSystem: true },
+  { key: 'api.keys.manage', name: 'Manage API keys', scope: 'app', module: 'integrations', actions: ['create', 'read', 'update', 'delete'], isSystem: true },
   { key: 'global.services.manage', name: 'Manage global services catalog', scope: 'app', module: 'catalog', actions: ['create', 'read', 'update', 'delete'], isSystem: true },
+  { key: 'global.services.create', name: 'Create global service', scope: 'app', module: 'catalog', actions: ['create'], isSystem: true },
+  { key: 'global.services.update', name: 'Update global service', scope: 'app', module: 'catalog', actions: ['update'], isSystem: true },
+  { key: 'global.services.delete', name: 'Delete global service', scope: 'app', module: 'catalog', actions: ['delete'], isSystem: true },
+  { key: 'admin.settings.manage', name: 'Manage admin system settings', scope: 'app', module: 'admin', actions: ['read', 'update'], isSystem: true },
+  { key: 'analytics.view', name: 'View analytics dashboards', scope: 'app', module: 'analytics', actions: ['read'], isSystem: true },
+  { key: 'reports.view', name: 'View reports', scope: 'app', module: 'reports', actions: ['read'], isSystem: true },
+  { key: 'compliance.view', name: 'View compliance dashboards', scope: 'app', module: 'compliance', actions: ['read'], isSystem: true },
+  { key: 'institution.dashboard.view', name: 'View institution dashboard', scope: 'app', module: 'institution', actions: ['read'], isSystem: true },
+  { key: 'sync.monitor.view', name: 'View sync monitor', scope: 'app', module: 'integrations', actions: ['read'], isSystem: true },
+  { key: 'notifications.view', name: 'View notifications', scope: 'app', module: 'system', actions: ['read'], isSystem: true },
+  { key: 'alerts.view', name: 'View alerts', scope: 'app', module: 'system', actions: ['read'], isSystem: true },
+  { key: 'system.activity.view', name: 'View system activity', scope: 'app', module: 'system', actions: ['read'], isSystem: true },
+  { key: 'system.monitoring.view', name: 'View system monitoring', scope: 'app', module: 'system', actions: ['read'], isSystem: true },
+  { key: 'system.configuration.manage', name: 'Manage system configuration', scope: 'app', module: 'system', actions: ['read', 'update'], isSystem: true },
+  { key: 'system.observability.view', name: 'View system observability', scope: 'app', module: 'system', actions: ['read'], isSystem: true },
+  { key: 'system.health.view', name: 'View system health', scope: 'app', module: 'system', actions: ['read'], isSystem: true },
+  { key: 'dev.tools.view', name: 'View developer tools', scope: 'app', module: 'system', actions: ['read'], isSystem: true },
   { key: 'org.branch.create', name: 'Create branch', scope: 'org', module: 'organization', actions: ['create'], isSystem: true },
   { key: 'org.branch.read', name: 'Read branch', scope: 'org', module: 'organization', actions: ['read'], isSystem: true },
   { key: 'org.branch.update', name: 'Update branch', scope: 'org', module: 'organization', actions: ['update'], isSystem: true },
@@ -132,6 +179,18 @@ const systemPermissions = [
   { key: 'membership.user.history.read', name: 'Read user movement history', scope: 'app', module: 'membership', actions: ['read'], isSystem: true },
   { key: 'records.me.read', name: 'Read own timeline records', scope: 'app', module: 'records', actions: ['read'], isSystem: true },
   { key: 'records.nin.read', name: 'Read timeline records by NIN', scope: 'org', module: 'records', actions: ['read'], isSystem: true },
+  { key: 'encounters.read', name: 'Read encounters', scope: 'org', module: 'encounters', actions: ['read'], isSystem: true },
+  { key: 'encounters.create', name: 'Create encounter', scope: 'org', module: 'encounters', actions: ['create'], isSystem: true },
+  { key: 'encounters.update', name: 'Update encounter', scope: 'org', module: 'encounters', actions: ['update'], isSystem: true },
+  { key: 'encounters.finalize', name: 'Finalize encounter', scope: 'org', module: 'encounters', actions: ['update'], isSystem: true },
+  { key: 'labs.read', name: 'Read lab workflows', scope: 'org', module: 'labs', actions: ['read'], isSystem: true },
+  { key: 'labs.create', name: 'Create lab request', scope: 'org', module: 'labs', actions: ['create'], isSystem: true },
+  { key: 'labs.update', name: 'Update lab result', scope: 'org', module: 'labs', actions: ['update'], isSystem: true },
+  { key: 'labs.complete', name: 'Complete lab result', scope: 'org', module: 'labs', actions: ['update'], isSystem: true },
+  { key: 'pharmacy.read', name: 'Read pharmacy workflows', scope: 'org', module: 'pharmacy', actions: ['read'], isSystem: true },
+  { key: 'pharmacy.create', name: 'Create prescription', scope: 'org', module: 'pharmacy', actions: ['create'], isSystem: true },
+  { key: 'pharmacy.update', name: 'Update prescription', scope: 'org', module: 'pharmacy', actions: ['update'], isSystem: true },
+  { key: 'pharmacy.dispense', name: 'Dispense prescription', scope: 'org', module: 'pharmacy', actions: ['update'], isSystem: true },
   { key: 'records.symptoms.create', name: 'Create own symptom record', scope: 'app', module: 'records', actions: ['create'], isSystem: true },
   { key: 'records.entry.create', name: 'Create provider timeline entry', scope: 'org', module: 'records', actions: ['create'], isSystem: true },
   { key: 'records.entry.update', name: 'Update timeline entry', scope: 'app', module: 'records', actions: ['update'], isSystem: true },
@@ -178,6 +237,8 @@ for (const permission of orgWorkspacePermissionTemplates) {
     });
   }
 }
+
+const orgScopedSystemPermissionTemplates = systemPermissions.filter((entry) => entry.scope === 'org');
 
 const systemRoles = [
   {
@@ -365,6 +426,67 @@ function parseActiveOrgScopeFromContext(context = {}) {
   };
 }
 
+function normalizeOverrideScope(entry = {}) {
+  const scopeType = String(entry.scopeType || entry.scope || '').trim().toLowerCase();
+  const institutionId = normalizeOrgId(entry.institutionId || entry.institution || null);
+  const branchId = normalizeOrgId(entry.branchId || entry.branch || null);
+
+  if (scopeType === 'branch' && branchId) {
+    return {
+      scopeType: 'branch',
+      institutionId: institutionId || null,
+      branchId,
+    };
+  }
+
+  if (scopeType === 'institution' && institutionId) {
+    return {
+      scopeType: 'institution',
+      institutionId,
+      branchId: null,
+    };
+  }
+
+  if (scopeType === 'organization') {
+    return {
+      scopeType: 'organization',
+      institutionId: null,
+      branchId: null,
+    };
+  }
+
+  return {
+    scopeType: null,
+    institutionId: null,
+    branchId: null,
+  };
+}
+
+function matchesOverrideScope(entry = {}, activeScopeType = 'organization', activeInstitutionId = null, activeBranchId = null) {
+  const normalizedScope = normalizeOverrideScope(entry);
+  const scopeType = String(activeScopeType || 'organization').trim().toLowerCase() || 'organization';
+  const institutionId = normalizeOrgId(activeInstitutionId);
+  const branchId = normalizeOrgId(activeBranchId);
+
+  if (!normalizedScope.scopeType || normalizedScope.scopeType === 'organization') {
+    return true;
+  }
+
+  if (normalizedScope.scopeType === 'institution') {
+    if (!normalizedScope.institutionId) return false;
+    if (scopeType !== 'institution' && scopeType !== 'branch') return false;
+    return normalizedScope.institutionId === institutionId;
+  }
+
+  if (normalizedScope.scopeType === 'branch') {
+    if (!normalizedScope.branchId) return false;
+    if (scopeType !== 'branch') return false;
+    return normalizedScope.branchId === branchId;
+  }
+
+  return false;
+}
+
 function getActiveContextFromRequest(req) {
   return {
     activeContextId: req.headers['x-active-context-id'] || null,
@@ -406,11 +528,22 @@ function filterOverridesByActiveRole(overrides = [], activeRoleName = null) {
   });
 }
 
-function filterOrgOverridesByActiveRole(overrides = [], activeRoleName = null) {
+function filterOrgOverridesByActiveRole(
+  overrides = [],
+  activeRoleName = null,
+  activeScopeType = 'organization',
+  activeInstitutionId = null,
+  activeBranchId = null,
+) {
   const roleName = normalizeRoleAlias(activeRoleName);
-  if (!roleName) return overrides;
+  if (!roleName) {
+    return (Array.isArray(overrides) ? overrides : []).filter((entry) =>
+      entry && typeof entry === 'object' && matchesOverrideScope(entry, activeScopeType, activeInstitutionId, activeBranchId),
+    );
+  }
   return (Array.isArray(overrides) ? overrides : []).filter((entry) => {
     if (!entry || typeof entry !== 'object') return false;
+    if (!matchesOverrideScope(entry, activeScopeType, activeInstitutionId, activeBranchId)) return false;
     const scopedRole = normalizeRoleAlias(entry.roleName || entry.role || entry.contextRole);
     if (!scopedRole) return true;
     if (rolesMatch(scopedRole, roleName)) return true;
@@ -427,9 +560,19 @@ function sanitizeOverrideRules(overrides = []) {
       if (!permissionKey) return null;
       const effect = String(entry.effect || entry.value || '').trim().toLowerCase() === 'deny' ? 'deny' : 'allow';
       const roleName = normalizeRoleAlias(entry.roleName || entry.role || entry.contextRole);
+      const overrideScope = normalizeOverrideScope(entry);
       const rule = { permissionKey, effect };
       if (roleName) {
         rule.roleName = roleName;
+      }
+      if (overrideScope.scopeType) {
+        rule.scopeType = overrideScope.scopeType;
+      }
+      if (overrideScope.institutionId) {
+        rule.institutionId = overrideScope.institutionId;
+      }
+      if (overrideScope.branchId) {
+        rule.branchId = overrideScope.branchId;
       }
       return rule;
     })
@@ -796,6 +939,7 @@ function degradeMongoWritableState(err, logMessage) {
   if (logMessage) {
     fastify.log.warn({ err }, logMessage);
   }
+  void ensureMongoWritableState();
 }
 
 function scheduleMongoReconnect() {
@@ -806,6 +950,19 @@ function scheduleMongoReconnect() {
     mongoReconnectTimer = null;
     void ensureMongoConnection();
   }, mongoReconnectDelayMs);
+}
+
+function createMongoConnectionClient() {
+  return new MongoClient(mongoUri, {
+    connectTimeoutMS: 10000,
+    readPreference: 'secondaryPreferred',
+    serverSelectionTimeoutMS: 15000,
+    serverApi: {
+      version: ServerApiVersion.v1,
+      strict: true,
+      deprecationErrors: true,
+    },
+  });
 }
 
 async function ensureMongoConnection() {
@@ -823,16 +980,7 @@ async function ensureMongoConnection() {
   mongoConnectPromise = (async () => {
     try {
       await closeMongoClientQuietly();
-      mongoClient = new MongoClient(mongoUri, {
-        connectTimeoutMS: 10000,
-        readPreference: 'secondaryPreferred',
-        serverSelectionTimeoutMS: 15000,
-        serverApi: {
-          version: ServerApiVersion.v1,
-          strict: true,
-          deprecationErrors: true,
-        },
-      });
+      mongoClient = createMongoConnectionClient();
       await mongoClient.connect();
       db = mongoClient.db(dbName);
       await db.command({ ping: 1 });
@@ -946,6 +1094,48 @@ async function ensureMongoConnection() {
   })();
 
   return mongoConnectPromise;
+}
+
+async function ensureMongoWritableState() {
+  if (dbWritable) {
+    return true;
+  }
+  if (!mongoUri) {
+    fastify.log.warn('MONGODB_URI missing; RBAC service cannot restore writable mode');
+    return false;
+  }
+  if (mongoWritableRecoveryPromise) {
+    return mongoWritableRecoveryPromise;
+  }
+
+  mongoWritableRecoveryPromise = (async () => {
+    if (mongoConnectPromise) {
+      const connected = await mongoConnectPromise;
+      return Boolean(connected && dbWritable);
+    }
+
+    if (!dbReady) {
+      const connected = await ensureMongoConnection();
+      return Boolean(connected && dbWritable);
+    }
+
+    dbReady = false;
+    dbWritable = false;
+    db = null;
+    outboxRepo = null;
+    await closeMongoClientQuietly();
+
+    const connected = await ensureMongoConnection();
+    if (connected && dbWritable) {
+      fastify.log.info({ dbName }, 'RBAC writable state recovered');
+      return true;
+    }
+    return false;
+  })().finally(() => {
+    mongoWritableRecoveryPromise = null;
+  });
+
+  return mongoWritableRecoveryPromise;
 }
 
 async function flushOutboxOnce() {
@@ -1248,15 +1438,28 @@ async function getUserScopeArtifactsUncached(userId, organizationId, fallbackRol
       }))
       .filter((rule) => rule.permissionKey)
     : [];
+  const scopedCareFoundationRules = activeScopeType !== 'organization' && roleSources.length > 0
+    ? scopedCareFoundationPermissionKeys.map((permissionKey) => ({
+      permissionKey,
+      effect: 'allow',
+    }))
+    : [];
 
   const roleRules = [
     ...appRoles.flatMap((r) => r.permissions || []),
     ...orgRoles.flatMap((r) => r.permissions || []),
+    ...scopedCareFoundationRules,
     ...leadershipOrgPermissionRules,
   ];
 
   const filteredAppOverrides = filterOverridesByActiveRole(appOverridesDoc?.overrides || [], activeAppRoleName);
-  const filteredOrgOverrides = filterOrgOverridesByActiveRole(orgOverridesDoc?.overrides || [], activeOrgRoleName);
+  const filteredOrgOverrides = filterOrgOverridesByActiveRole(
+    orgOverridesDoc?.overrides || [],
+    activeOrgRoleName,
+    activeScopeType,
+    activeInstitutionId,
+    activeBranchId,
+  );
   const overrideRules = [
     ...filteredAppOverrides,
     ...filteredOrgOverrides,
@@ -1405,9 +1608,7 @@ async function ensureDefaultOrgRoles(organizationId) {
   const orgId = normalizeOrgId(organizationId);
   if (!orgId) return [];
 
-  const orgPermissionTemplates = systemPermissions.filter(
-    (entry) => entry.scope === 'org' && orgWorkspacePermissionKeys.includes(entry.key),
-  );
+  const orgPermissionTemplates = orgScopedSystemPermissionTemplates.filter((entry) => orgWorkspacePermissionKeys.includes(entry.key));
   for (const perm of orgPermissionTemplates) {
     await collections.permissions().updateOne(
       { key: perm.key, scope: 'org', organizationId: orgId },
@@ -1490,11 +1691,16 @@ async function auditExistingOrgWorkspaceAccess() {
   await collectOrganizationIds(membershipCollections.orgMemberships(), {});
 
   let audited = 0;
+  let sanitizedRoles = 0;
+  let sanitizedOverrides = 0;
   for (const organizationId of orgIds) {
     await ensureDefaultOrgRoles(organizationId);
+    const sanitized = await sanitizeOrgScopedArtifacts(organizationId);
+    sanitizedRoles += sanitized.rolesUpdated;
+    sanitizedOverrides += sanitized.overridesUpdated;
     audited += 1;
   }
-  return audited;
+  return { auditedOrganizations: audited, sanitizedRoles, sanitizedOverrides };
 }
 
 function arraysEqualAsStrings(left = [], right = []) {
@@ -1505,6 +1711,74 @@ function arraysEqualAsStrings(left = [], right = []) {
     }
   }
   return true;
+}
+
+function permissionRulesEqual(left = [], right = []) {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const leftRule = left[i] || {};
+    const rightRule = right[i] || {};
+    if (String(leftRule.permissionKey || '') !== String(rightRule.permissionKey || '')) return false;
+    if (String(leftRule.effect || '') !== String(rightRule.effect || '')) return false;
+    if (String(leftRule.roleName || '') !== String(rightRule.roleName || '')) return false;
+    if (String(leftRule.scopeType || '') !== String(rightRule.scopeType || '')) return false;
+    if (String(leftRule.institutionId || '') !== String(rightRule.institutionId || '')) return false;
+    if (String(leftRule.branchId || '') !== String(rightRule.branchId || '')) return false;
+  }
+  return true;
+}
+
+async function getOrgPermissionCatalog(organizationId) {
+  const orgId = normalizeOrgId(organizationId);
+  if (!orgId) return [];
+  const customPermissions = await collections.permissions().find({ scope: 'org', organizationId: orgId }).toArray();
+  return buildScopedPermissionCatalog(orgScopedSystemPermissionTemplates, customPermissions, 'org', orgId);
+}
+
+async function sanitizeOrgScopedArtifacts(organizationId) {
+  const orgId = normalizeOrgId(organizationId);
+  if (!orgId) {
+    return { rolesUpdated: 0, overridesUpdated: 0 };
+  }
+
+  const allowedKeys = new Set(
+    (await getOrgPermissionCatalog(orgId))
+      .map((entry) => String(entry?.key || '').trim())
+      .filter(Boolean),
+  );
+
+  let rolesUpdated = 0;
+  let overridesUpdated = 0;
+
+  const roles = await collections.roles().find({ scope: 'org', organizationId: orgId }).toArray();
+  for (const role of roles) {
+    const currentPermissions = normalizePermissionRuleList(role.permissions);
+    const sanitizedPermissions = filterRulesToAllowedKeys(currentPermissions, allowedKeys);
+    if (permissionRulesEqual(currentPermissions, sanitizedPermissions)) {
+      continue;
+    }
+    await collections.roles().updateOne(
+      { _id: role._id, scope: 'org', organizationId: orgId },
+      { $set: { permissions: sanitizedPermissions, updatedAt: new Date() } },
+    );
+    rolesUpdated += 1;
+  }
+
+  const overrideDocs = await collections.userAccess().find({ scope: 'org', organizationId: orgId }).toArray();
+  for (const doc of overrideDocs) {
+    const currentOverrides = sanitizeOverrideRules(doc.overrides || []);
+    const sanitizedOverrides = currentOverrides.filter((rule) => allowedKeys.has(rule.permissionKey));
+    if (permissionRulesEqual(currentOverrides, sanitizedOverrides)) {
+      continue;
+    }
+    await collections.userAccess().updateOne(
+      { _id: doc._id, scope: 'org', organizationId: orgId },
+      { $set: { overrides: sanitizedOverrides, updatedAt: new Date() } },
+    );
+    overridesUpdated += 1;
+  }
+
+  return { rolesUpdated, overridesUpdated };
 }
 
 async function repairOrgLeadershipAssignments() {
@@ -1625,10 +1899,12 @@ function startOrgLeadershipAudit() {
   orgLeadershipAuditStarted = true;
   setImmediate(async () => {
     try {
-      const auditedOrganizations = await auditExistingOrgWorkspaceAccess();
+      const orgWorkspaceAudit = await auditExistingOrgWorkspaceAccess();
       const repairedLeadershipAssignments = await repairOrgLeadershipAssignments();
       fastify.log.info({
-        auditedOrganizations,
+        auditedOrganizations: orgWorkspaceAudit.auditedOrganizations,
+        sanitizedRoles: orgWorkspaceAudit.sanitizedRoles,
+        sanitizedOverrides: orgWorkspaceAudit.sanitizedOverrides,
         repairedLeadershipAssignments: repairedLeadershipAssignments.updatedAssignments,
         repairedOrganizations: repairedLeadershipAssignments.organizations,
       }, 'RBAC org leadership audit completed');
@@ -1655,6 +1931,10 @@ fastify.addHook('preHandler', async (req, reply) => {
     return;
   }
   if (!dbWritable) {
+    const writableReady = await ensureMongoWritableState();
+    if (writableReady) {
+      return;
+    }
     return reply.code(503).send({ message: 'RBAC storage unavailable' });
   }
 });
@@ -2224,7 +2504,7 @@ fastify.get('/rbac/org/:organizationId/permissions', { preHandler: requireAuth }
     return reply.code(403).send({ message: 'Org admin required' });
   }
 
-  const permissions = await collections.permissions().find({ scope: 'org', organizationId }).toArray();
+  const permissions = await getOrgPermissionCatalog(organizationId);
   return reply.send({ permissions });
 });
 
@@ -2251,13 +2531,20 @@ fastify.post('/rbac/org/:organizationId/roles', { preHandler: requireAuth }, asy
     return reply.code(403).send({ message: 'SYSTEM_ROLE_LOCKED' });
   }
 
+  const allowedKeys = new Set(
+    (await getOrgPermissionCatalog(organizationId))
+      .map((entry) => String(entry?.key || '').trim())
+      .filter(Boolean),
+  );
+  const sanitizedPermissions = filterRulesToAllowedKeys(permissions, allowedKeys);
+
   await collections.roles().updateOne(
     { name, scope: 'org', organizationId },
     {
       $set: {
         name,
         description: description || name,
-        permissions: Array.isArray(permissions) ? permissions : [],
+        permissions: sanitizedPermissions,
         scope: 'org',
         organizationId,
         isSystem: false,
@@ -2316,7 +2603,14 @@ fastify.patch('/rbac/org/:organizationId/roles/:roleId', { preHandler: requireAu
   const update = {};
   if (req.body?.name) update.name = req.body.name;
   if (req.body?.description) update.description = req.body.description;
-  if (Array.isArray(req.body?.permissions)) update.permissions = req.body.permissions;
+  if (Array.isArray(req.body?.permissions)) {
+    const allowedKeys = new Set(
+      (await getOrgPermissionCatalog(organizationId))
+        .map((entry) => String(entry?.key || '').trim())
+        .filter(Boolean),
+    );
+    update.permissions = filterRulesToAllowedKeys(req.body.permissions, allowedKeys);
+  }
   update.updatedAt = new Date();
 
   await collections.roles().updateOne(

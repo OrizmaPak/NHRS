@@ -45,6 +45,34 @@ test('explicit deny from check returns 403', () => {
   assert.equal(res.statusCode, 403);
 });
 
+test('deny from any-of rule includes all accepted permissions', () => {
+  const res = evaluateAuthzResponse({
+    rule: {
+      permissionKey: 'global.services.update',
+      permissionAnyOf: ['global.services.update', 'global.services.manage'],
+    },
+    hasBearerToken: true,
+    checkStatus: 200,
+    checkBody: { allowed: false, reason: 'Permission denied', matchedRules: {} },
+  });
+  assert.equal(res.proceed, false);
+  assert.equal(res.statusCode, 403);
+  assert.deepEqual(res.body.requiredPermissions, ['global.services.update', 'global.services.manage']);
+});
+
+test('allow from any-of rule proceeds when fallback permission passes', () => {
+  const res = evaluateAuthzResponse({
+    rule: {
+      permissionKey: 'ui.theme.read',
+      permissionAnyOf: ['ui.theme.read', 'ui.theme.write', 'ui.theme.delete'],
+    },
+    hasBearerToken: true,
+    checkStatus: 200,
+    checkBody: { allowed: true },
+  });
+  assert.equal(res.proceed, true);
+});
+
 test('allow from check proceeds', () => {
   const res = evaluateAuthzResponse({
     rule: { permissionKey: 'nin.profile.read' },

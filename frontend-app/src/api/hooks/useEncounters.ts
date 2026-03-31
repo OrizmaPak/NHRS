@@ -33,10 +33,10 @@ type EncounterResult = {
   total: number;
 };
 
-export function useEncounters(nin: string, params: ProviderRecordParams) {
+export function useEncounters(nin: string, params: ProviderRecordParams, enabled = true) {
   return useQuery({
     queryKey: ['provider', 'encounters', nin, params],
-    enabled: Boolean(nin),
+    enabled: Boolean(nin) && enabled,
     queryFn: async (): Promise<EncounterResult> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.provider.encountersByNin(nin), {
         query: { page: params.page, limit: params.limit, from: params.from, to: params.to },

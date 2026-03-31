@@ -3,9 +3,15 @@ import type { ColumnDef, PaginationState } from '@tanstack/react-table';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { ApiClientError } from '@/api/apiClient';
-import { useCreateGlobalService, useDeleteGlobalService, useGlobalServices, type GlobalServiceRow } from '@/api/hooks/useGlobalServices';
+import {
+  useCreateGlobalService,
+  useDeleteGlobalService,
+  useGlobalServices,
+  useUpdateGlobalService,
+  type GlobalServiceRow,
+} from '@/api/hooks/useGlobalServices';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { FilterBar } from '@/components/data/FilterBar';
@@ -16,6 +22,7 @@ import { FormField } from '@/components/forms/FormField';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { ErrorState } from '@/components/feedback/ErrorState';
+import { usePermissionsStore } from '@/stores/permissionsStore';
 
 const schema = z.object({
   name: z.string().min(2, 'Service name is required'),
@@ -29,9 +36,16 @@ export function GlobalServicesPage() {
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 12 });
   const [modalOpen, setModalOpen] = useState(false);
   const [deletingServiceId, setDeletingServiceId] = useState<string | null>(null);
+  const [editingService, setEditingService] = useState<GlobalServiceRow | null>(null);
 
+  const hasPermission = usePermissionsStore((state) => state.hasPermission);
+  const canManage = hasPermission('global.services.manage');
+  const canCreate = canManage || hasPermission('global.services.create');
+  const canUpdate = canManage || hasPermission('global.services.update');
+  const canDelete = canManage || hasPermission('global.services.delete');
   const globalServicesQuery = useGlobalServices({ q, limit: 500 });
   const createGlobalService = useCreateGlobalService();
+  const updateGlobalService = useUpdateGlobalService();
   const deleteGlobalService = useDeleteGlobalService();
 
   const form = useForm<Values>({
@@ -57,37 +71,68 @@ export function GlobalServicesPage() {
       id: 'actions',
       header: 'Actions',
       cell: ({ row }) => (
-        <Button
-          size="sm"
-          variant="outline"
-          loading={deleteGlobalService.isPending && deletingServiceId === row.original.serviceId}
-          onClick={async () => {
-            const confirmed = window.confirm(
-              `Delete "${row.original.name}" from the global services catalog? This only removes it from future selection.`,
-            );
-            if (!confirmed) return;
-            setDeletingServiceId(row.original.serviceId);
-            try {
-              await deleteGlobalService.mutateAsync(row.original.serviceId);
-            } finally {
-              setDeletingServiceId(null);
-            }
-          }}
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete
-        </Button>
+        <div className="flex gap-2">
+          {canUpdate ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setEditingService(row.original);
+                form.reset({
+                  name: row.original.name,
+                  description: row.original.description,
+                });
+                setModalOpen(true);
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              Edit
+            </Button>
+          ) : null}
+          {canDelete ? (
+            <Button
+              size="sm"
+              variant="outline"
+              loading={deleteGlobalService.isPending && deletingServiceId === row.original.serviceId}
+              onClick={async () => {
+                const confirmed = window.confirm(
+                  `Delete "${row.original.name}" from the global services catalog? This only removes it from future selection.`,
+                );
+                if (!confirmed) return;
+                setDeletingServiceId(row.original.serviceId);
+                try {
+                  await deleteGlobalService.mutateAsync(row.original.serviceId);
+                } finally {
+                  setDeletingServiceId(null);
+                }
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </Button>
+          ) : null}
+          {!canUpdate && !canDelete ? <span className="text-sm text-muted">No actions</span> : null}
+        </div>
       ),
     },
-  ], [deleteGlobalService, deletingServiceId]);
+  ], [canDelete, canUpdate, deleteGlobalService, deletingServiceId, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      await createGlobalService.mutateAsync({
-        name: values.name,
-        description: values.description,
-      });
+      if (editingService) {
+        await updateGlobalService.mutateAsync({
+          serviceId: editingService.serviceId,
+          name: values.name,
+          description: values.description,
+        });
+      } else {
+        await createGlobalService.mutateAsync({
+          name: values.name,
+          description: values.description,
+        });
+      }
       form.reset({ name: '', description: '' });
+      setEditingService(null);
       setModalOpen(false);
     } catch (error) {
       if (
@@ -110,9 +155,10 @@ export function GlobalServicesPage() {
         title="Global Services"
         description="Manage the shared service catalog used by institution and branch additional-service fields across the platform."
         breadcrumbs={[{ label: 'Settings', href: '/app/settings' }, { label: 'Global Services' }]}
-        actions={(
+        actions={canCreate ? (
           <Button
             onClick={() => {
+              setEditingService(null);
               form.reset({ name: '', description: '' });
               setModalOpen(true);
             }}
@@ -120,7 +166,7 @@ export function GlobalServicesPage() {
             <Plus className="h-4 w-4" />
             Create Service
           </Button>
-        )}
+        ) : undefined}
       />
 
       <Card>
@@ -164,7 +210,17 @@ export function GlobalServicesPage() {
         </div>
       </Card>
 
-      <Modal open={modalOpen} onOpenChange={setModalOpen} title="Create Global Service">
+      <Modal
+        open={modalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) {
+            setEditingService(null);
+            form.reset({ name: '', description: '' });
+          }
+        }}
+        title={editingService ? 'Update Global Service' : 'Create Global Service'}
+      >
         <form className="space-y-3" onSubmit={onSubmit}>
           <FormField
             label="Service Name"
@@ -188,8 +244,23 @@ export function GlobalServicesPage() {
             Please ensure you are not creating a duplicate service that already exists. It will reduce visibility.
           </p>
           <ModalFooter>
-            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={createGlobalService.isPending}>Save</Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setEditingService(null);
+                setModalOpen(false);
+                form.reset({ name: '', description: '' });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              loading={createGlobalService.isPending || updateGlobalService.isPending}
+            >
+              {editingService ? 'Save Changes' : 'Save'}
+            </Button>
           </ModalFooter>
         </form>
       </Modal>

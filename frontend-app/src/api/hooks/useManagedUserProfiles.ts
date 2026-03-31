@@ -66,6 +66,11 @@ export type ManagedUserProfileInput = {
   };
 };
 
+export type ManagedUserProfilePatch = Partial<Omit<ManagedUserProfileInput, 'address' | 'preferences'>> & {
+  address?: Partial<ManagedUserProfileInput['address']>;
+  preferences?: Partial<ManagedUserProfileInput['preferences']>;
+};
+
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
@@ -170,7 +175,7 @@ export function useManagedUserProfile(userId?: string, organizationId?: string) 
 export function useUpdateManagedUserProfile() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { userId: string; organizationId?: string; values: ManagedUserProfileInput }) => {
+    mutationFn: async (payload: { userId: string; organizationId?: string; values: ManagedUserProfilePatch }) => {
       const { userId, organizationId, values } = payload;
       return apiClient.patch(endpoints.profile.updateByUserId(userId), values, {
         query: { organizationId: organizationId || undefined },

@@ -131,9 +131,10 @@ export function BranchStaffPage() {
       header: 'Actions',
       cell: ({ row }) => {
         const scopeAssignment = row.original.assignments.find((entry) => String(entry.branchId || '').trim() === branch.branchId);
+        const displayName = memberNameQuery.data?.get(row.original.nin) || row.original.nin;
         const accessHref = scopeAssignment
-          ? `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(branch.branchId)}&institutionId=${encodeURIComponent(branch.institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&assignmentId=${encodeURIComponent(scopeAssignment.assignmentId)}`
-          : `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(branch.branchId)}&institutionId=${encodeURIComponent(branch.institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}`;
+          ? `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(branch.branchId)}&institutionId=${encodeURIComponent(branch.institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&assignmentId=${encodeURIComponent(scopeAssignment.assignmentId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`
+          : `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(branch.branchId)}&institutionId=${encodeURIComponent(branch.institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`;
         return row.original.userId ? (
           <Button asChild size="sm" variant="outline">
             <Link to={accessHref}>Access</Link>
@@ -164,9 +165,10 @@ export function BranchStaffPage() {
       header: 'Actions',
       cell: ({ row }) => {
         const scopeAssignment = row.original.assignments.find((entry) => String(entry.branchId || '').trim() === branch.branchId);
+        const displayName = memberNameQuery.data?.get(row.original.nin) || row.original.nin;
         const accessHref = scopeAssignment
-          ? `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(branch.branchId)}&institutionId=${encodeURIComponent(branch.institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&assignmentId=${encodeURIComponent(scopeAssignment.assignmentId)}`
-          : `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(branch.branchId)}&institutionId=${encodeURIComponent(branch.institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}`;
+          ? `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(branch.branchId)}&institutionId=${encodeURIComponent(branch.institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&assignmentId=${encodeURIComponent(scopeAssignment.assignmentId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`
+          : `/app/org/access/staff/${row.original.userId}?scopeType=branch&scopeId=${encodeURIComponent(branch.branchId)}&institutionId=${encodeURIComponent(branch.institutionId)}&memberId=${encodeURIComponent(row.original.membershipId)}&nin=${encodeURIComponent(row.original.nin)}&displayName=${encodeURIComponent(displayName)}`;
         return row.original.userId ? (
           <Button asChild size="sm" variant="outline">
             <Link to={accessHref}>Access</Link>

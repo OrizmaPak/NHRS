@@ -36,13 +36,27 @@ test('geo lookup routes are not permission-mapped', () => {
 
 test('global services routes resolve expected permissions', () => {
   assert.equal(findPermissionRule('GET', '/global-services')?.permissionKey, 'auth.me.read');
-  assert.equal(findPermissionRule('POST', '/global-services')?.permissionKey, 'global.services.manage');
-  assert.equal(findPermissionRule('DELETE', '/global-services/service-1')?.permissionKey, 'global.services.manage');
+
+  const createRule = findPermissionRule('POST', '/global-services');
+  const updateRule = findPermissionRule('PATCH', '/global-services/service-1');
+  const deleteRule = findPermissionRule('DELETE', '/global-services/service-1');
+
+  assert.equal(createRule?.permissionKey, 'global.services.create');
+  assert.deepEqual(createRule?.permissionAnyOf, ['global.services.create', 'global.services.manage']);
+  assert.equal(updateRule?.permissionKey, 'global.services.update');
+  assert.deepEqual(updateRule?.permissionAnyOf, ['global.services.update', 'global.services.manage']);
+  assert.equal(deleteRule?.permissionKey, 'global.services.delete');
+  assert.deepEqual(deleteRule?.permissionAnyOf, ['global.services.delete', 'global.services.manage']);
 });
 
 test('profile search route resolves permission', () => {
   const rule = findPermissionRule('GET', '/profile/search');
   assert.equal(rule.permissionKey, 'profile.search');
+});
+
+test('care patient registry routes resolve expected permissions', () => {
+  assert.equal(findPermissionRule('GET', '/care/patients')?.permissionKey, 'profile.search');
+  assert.equal(findPermissionRule('POST', '/care/patients')?.permissionKey, 'profile.placeholder.create');
 });
 
 test('profile update-by-user route resolves permission', () => {
@@ -167,6 +181,7 @@ test('ui theme route mappings resolve expected permissions', () => {
   assert.equal(findPermissionRule('GET', '/ui/theme/platform').public, true);
   assert.equal(findPermissionRule('GET', '/ui/theme/effective').public, true);
   assert.equal(findPermissionRule('GET', '/ui/theme').permissionKey, 'ui.theme.read');
+  assert.deepEqual(findPermissionRule('GET', '/ui/theme').permissionAnyOf, ['ui.theme.read', 'ui.theme.write', 'ui.theme.delete']);
   assert.equal(findPermissionRule('POST', '/ui/theme').permissionKey, 'ui.theme.write');
   assert.equal(findPermissionRule('PATCH', '/ui/theme/theme-1').permissionKey, 'ui.theme.write');
   assert.equal(findPermissionRule('POST', '/ui/theme/theme-1/logo').permissionKey, 'ui.theme.write');

@@ -9,6 +9,7 @@ import { navigationItems } from '@/routes/navigation';
 import { useContextStore } from '@/stores/contextStore';
 import { usePermissionsStore } from '@/stores/permissionsStore';
 import { getFirstAllowedNavigationPath, isNavigationItemVisibleInContext } from '@/lib/navigationAccess';
+import { getOrganizationScopeKind, type OrganizationScopeKind } from '@/lib/organizationContext';
 
 const DashboardPage = lazy(async () => ({ default: (await import('@/modules/dashboard/pages/DashboardPage')).DashboardPage }));
 const LoginPage = lazy(async () => ({ default: (await import('@/modules/auth/pages/LoginPage')).LoginPage }));
@@ -19,7 +20,9 @@ const OrganizationPublicDetailsPage = lazy(async () => ({ default: (await import
 const DoctorRegistryPage = lazy(async () => ({ default: (await import('@/modules/public/doctor-registry/DoctorRegistryPage')).DoctorRegistryPage }));
 const DoctorProfilePage = lazy(async () => ({ default: (await import('@/modules/public/doctor-registry/DoctorProfilePage')).DoctorProfilePage }));
 const ProviderDashboardPage = lazy(async () => ({ default: (await import('@/modules/provider/dashboard/ProviderDashboardPage')).ProviderDashboardPage }));
+const PatientCareWorkspacePage = lazy(async () => ({ default: (await import('@/modules/provider/dashboard/PatientCareWorkspacePage')).PatientCareWorkspacePage }));
 const PatientSearchPage = lazy(async () => ({ default: (await import('@/modules/provider/patient-search/PatientSearchPage')).PatientSearchPage }));
+const PatientIntakePage = lazy(async () => ({ default: (await import('@/modules/provider/patient-intake/PatientIntakePage')).PatientIntakePage }));
 const PatientProfilePage = lazy(async () => ({ default: (await import('@/modules/provider/patient-profile/PatientProfilePage')).PatientProfilePage }));
 const EncountersListPage = lazy(async () => ({ default: (await import('@/modules/provider/encounters/EncountersListPage')).EncountersListPage }));
 const EncounterDetailsPage = lazy(async () => ({ default: (await import('@/modules/provider/encounters/EncounterDetailsPage')).EncounterDetailsPage }));
@@ -40,6 +43,7 @@ const EmergencyRequestPage = lazy(async () => ({ default: (await import('@/modul
 const EmergencyCasesListPage = lazy(async () => ({ default: (await import('@/modules/emergency/cases/EmergencyCasesListPage')).EmergencyCasesListPage }));
 const EmergencyCaseDetailsPage = lazy(async () => ({ default: (await import('@/modules/emergency/cases/EmergencyCaseDetailsPage')).EmergencyCaseDetailsPage }));
 const SettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/SettingsPage')).SettingsPage }));
+const MyProfileSettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/MyProfileSettingsPage')).MyProfileSettingsPage }));
 const AppearanceSettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/AppearanceSettingsPage')).AppearanceSettingsPage }));
 const BrandSettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/BrandSettingsPage')).BrandSettingsPage }));
 const AccessibilitySettingsPage = lazy(async () => ({ default: (await import('@/modules/settings/pages/AccessibilitySettingsPage')).AccessibilitySettingsPage }));
@@ -157,9 +161,10 @@ function contextRestricted(
   element: ReactElement,
   permission: string | string[],
   allowedContextTypes: Array<'public' | 'platform' | 'organization' | 'state' | 'taskforce'>,
+  allowedOrganizationScopes?: OrganizationScopeKind[],
 ) {
   return (
-    <ContextTypeGate allowed={allowedContextTypes}>
+    <ContextTypeGate allowed={allowedContextTypes} allowedOrganizationScopes={allowedOrganizationScopes}>
       {restricted(element, permission)}
     </ContextTypeGate>
   );
@@ -167,15 +172,24 @@ function contextRestricted(
 
 function ContextTypeGate({
   allowed,
+  allowedOrganizationScopes,
   children,
 }: {
   allowed: Array<'public' | 'platform' | 'organization' | 'state' | 'taskforce'>;
+  allowedOrganizationScopes?: OrganizationScopeKind[];
   children: ReactElement;
 }) {
   const location = useLocation();
   const activeContext = useContextStore((state) => state.activeContext);
   if (!activeContext || !allowed.includes(activeContext.type)) {
     return <AccessFallback deniedPermission={`Context required: ${allowed.join(' | ')}`} />;
+  }
+
+  if (activeContext.type === 'organization' && allowedOrganizationScopes?.length) {
+    const scopeKind = getOrganizationScopeKind(activeContext);
+    if (!scopeKind || !allowedOrganizationScopes.includes(scopeKind)) {
+      return <AccessFallback deniedPermission={`Scope required: ${allowedOrganizationScopes.join(' | ')}`} />;
+    }
   }
 
   const navEntry = navigationItems.find((item) => item.to === location.pathname);
@@ -204,30 +218,35 @@ export const appRouter = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <AppEntryRoute /> },
-          { path: 'public/timeline', element: restricted(<TimelinePage />, 'records.me.read') },
+          { path: 'public/timeline', element: contextRestricted(<TimelinePage />, 'records.me.read', ['public']) },
           { path: 'public/organizations', element: withSuspense(<OrganizationsDirectoryPage />) },
           { path: 'public/organizations/:orgId', element: withSuspense(<OrganizationPublicDetailsPage />) },
           { path: 'public/doctor-registry', element: restricted(<DoctorRegistryPage />, 'doctor.search') },
           { path: 'public/doctor-registry/:doctorId', element: restricted(<DoctorProfilePage />, 'doctor.read') },
           { path: 'provider', element: <Navigate to="/app/provider/dashboard" replace /> },
-          { path: 'provider/dashboard', element: contextRestricted(<ProviderDashboardPage />, 'profile.search', ['platform']) },
-          { path: 'provider/patients', element: contextRestricted(<PatientSearchPage />, 'profile.search', ['platform']) },
-          { path: 'provider/patient/:nin', element: contextRestricted(<PatientProfilePage />, 'profile.user.read', ['platform']) },
-          { path: 'provider/encounters', element: contextRestricted(<EncountersListPage />, 'encounters.read', ['platform']) },
-          { path: 'provider/encounters/new', element: contextRestricted(<EncounterFormPage />, 'encounters.create', ['platform']) },
-          { path: 'provider/encounters/:id', element: contextRestricted(<EncounterDetailsPage />, 'encounters.read', ['platform']) },
-          { path: 'provider/encounters/:id/edit', element: contextRestricted(<EncounterFormPage />, 'encounters.update', ['platform']) },
-          { path: 'provider/patient/:nin/encounters/new', element: contextRestricted(<EncounterFormPage />, 'encounters.create', ['platform']) },
-          { path: 'provider/labs', element: contextRestricted(<LabsListPage />, 'labs.read', ['platform']) },
-          { path: 'provider/labs/new', element: contextRestricted(<LabRequestFormPage />, 'labs.create', ['platform']) },
-          { path: 'provider/labs/:id', element: contextRestricted(<LabDetailsPage />, 'labs.read', ['platform']) },
-          { path: 'provider/labs/:id/edit', element: contextRestricted(<LabDetailsPage />, 'labs.update', ['platform']) },
-          { path: 'provider/patient/:nin/labs/new', element: contextRestricted(<LabRequestFormPage />, 'labs.create', ['platform']) },
-          { path: 'provider/pharmacy', element: contextRestricted(<PharmacyListPage />, 'pharmacy.read', ['platform']) },
-          { path: 'provider/pharmacy/new', element: contextRestricted(<PrescriptionFormPage />, 'pharmacy.create', ['platform']) },
-          { path: 'provider/pharmacy/:id', element: contextRestricted(<PharmacyDetailsPage />, 'pharmacy.read', ['platform']) },
-          { path: 'provider/pharmacy/:id/edit', element: contextRestricted(<PharmacyDetailsPage />, 'pharmacy.update', ['platform']) },
-          { path: 'provider/patient/:nin/pharmacy/new', element: contextRestricted(<PrescriptionFormPage />, 'pharmacy.create', ['platform']) },
+          { path: 'provider/dashboard', element: contextRestricted(<ProviderDashboardPage />, 'profile.search', ['platform', 'organization']) },
+          { path: 'provider/patients', element: contextRestricted(<PatientSearchPage />, 'profile.search', ['platform', 'organization']) },
+          { path: 'provider/intake', element: contextRestricted(<PatientIntakePage />, 'profile.placeholder.create', ['organization']) },
+          { path: 'provider/patient/:nin', element: contextRestricted(<PatientProfilePage />, 'profile.user.read', ['platform', 'organization']) },
+          { path: 'care', element: contextRestricted(<PatientCareWorkspacePage />, 'care.workspace.read', ['organization']) },
+          { path: 'care/patients', element: contextRestricted(<PatientSearchPage />, 'profile.search', ['organization']) },
+          { path: 'care/intake', element: contextRestricted(<PatientIntakePage />, 'profile.placeholder.create', ['organization']) },
+          { path: 'care/patient/:nin', element: contextRestricted(<PatientProfilePage />, 'profile.user.read', ['organization']) },
+          { path: 'provider/encounters', element: contextRestricted(<EncountersListPage />, 'encounters.read', ['platform', 'organization']) },
+          { path: 'provider/encounters/new', element: contextRestricted(<EncounterFormPage />, 'encounters.create', ['platform', 'organization']) },
+          { path: 'provider/encounters/:id', element: contextRestricted(<EncounterDetailsPage />, 'encounters.read', ['platform', 'organization']) },
+          { path: 'provider/encounters/:id/edit', element: contextRestricted(<EncounterFormPage />, 'encounters.update', ['platform', 'organization']) },
+          { path: 'provider/patient/:nin/encounters/new', element: contextRestricted(<EncounterFormPage />, 'encounters.create', ['platform', 'organization']) },
+          { path: 'provider/labs', element: contextRestricted(<LabsListPage />, 'labs.read', ['platform', 'organization']) },
+          { path: 'provider/labs/new', element: contextRestricted(<LabRequestFormPage />, 'labs.create', ['platform', 'organization']) },
+          { path: 'provider/labs/:id', element: contextRestricted(<LabDetailsPage />, 'labs.read', ['platform', 'organization']) },
+          { path: 'provider/labs/:id/edit', element: contextRestricted(<LabDetailsPage />, 'labs.update', ['platform', 'organization']) },
+          { path: 'provider/patient/:nin/labs/new', element: contextRestricted(<LabRequestFormPage />, 'labs.create', ['platform', 'organization']) },
+          { path: 'provider/pharmacy', element: contextRestricted(<PharmacyListPage />, 'pharmacy.read', ['platform', 'organization']) },
+          { path: 'provider/pharmacy/new', element: contextRestricted(<PrescriptionFormPage />, 'pharmacy.create', ['platform', 'organization']) },
+          { path: 'provider/pharmacy/:id', element: contextRestricted(<PharmacyDetailsPage />, 'pharmacy.read', ['platform', 'organization']) },
+          { path: 'provider/pharmacy/:id/edit', element: contextRestricted(<PharmacyDetailsPage />, 'pharmacy.update', ['platform', 'organization']) },
+          { path: 'provider/patient/:nin/pharmacy/new', element: contextRestricted(<PrescriptionFormPage />, 'pharmacy.create', ['platform', 'organization']) },
           { path: 'taskforce', element: <Navigate to="/app/taskforce/dashboard" replace /> },
           { path: 'taskforce/dashboard', element: restricted(<TaskforceDashboardPage />, 'governance.case.read') },
           { path: 'taskforce/complaints', element: restricted(<ComplaintsListPage />, 'governance.case.read') },
@@ -253,7 +272,7 @@ export const appRouter = createBrowserRouter([
           { path: 'integrations/api-keys', element: restricted(<ApiKeysPage />, 'api.keys.manage') },
           { path: 'integrations/sync', element: restricted(<SyncMonitorPage />, 'sync.monitor.view') },
           { path: 'institution/dashboard', element: restricted(<InstitutionDashboardPage />, 'institution.dashboard.view') },
-          { path: 'organizations', element: contextRestricted(<OrganizationsPage />, 'org.list', ['platform', 'organization']) },
+          { path: 'organizations', element: contextRestricted(<OrganizationsPage />, ['org.list', 'org.read'], ['platform', 'organization']) },
           { path: 'organizations/approvals', element: contextRestricted(<OrganizationApprovalsPage />, 'org.update', ['platform']) },
           { path: 'organizations/deleted', element: contextRestricted(<DeletedOrganizationsPage />, 'org.deleted.read', ['platform']) },
           { path: 'organizations/:orgId', element: restricted(<OrganizationDetailsPage />, ['org.read', 'org.list']) },
@@ -270,7 +289,7 @@ export const appRouter = createBrowserRouter([
           { path: 'system/observability', element: contextRestricted(<SystemObservabilityPage />, 'system.observability.view', ['platform']) },
           { path: 'system/health', element: contextRestricted(<SystemHealthPage />, 'system.health.view', ['platform']) },
           { path: 'dev-tools', element: contextRestricted(<DevToolsPage />, 'dev.tools.view', ['platform']) },
-          { path: 'admin/access/app-permissions', element: restricted(<AppPermissionsPage />, 'superadmin.only') },
+          { path: 'admin/access/app-permissions', element: restricted(<AppPermissionsPage />, ['rbac.app.manage', 'superadmin.only']) },
           { path: 'admin/access/app-roles', element: restricted(<AppRolesPage />, 'rbac.app.manage') },
           { path: 'admin/access/users/:userId', element: restricted(<AppUserAccessPage />, 'rbac.app.manage') },
           { path: 'admin/geo-mapping', element: restricted(<GeoMappingPage />, 'geo.manage') },
@@ -279,11 +298,12 @@ export const appRouter = createBrowserRouter([
           { path: 'org/access/roles', element: contextRestricted(<OrgRolesPage />, 'rbac.org.manage', ['organization']) },
           { path: 'org/access/staff/:userId', element: contextRestricted(<OrgStaffAccessPage />, 'rbac.org.manage', ['organization']) },
           { path: 'settings', element: restricted(<SettingsPage />, 'auth.me.read') },
+          { path: 'settings/my-profile', element: restricted(<MyProfileSettingsPage />, 'auth.me.read') },
           { path: 'settings/appearance', element: contextRestricted(<AppearanceSettingsPage />, 'auth.me.read', ['platform']) },
           { path: 'settings/brand', element: contextRestricted(<BrandSettingsPage />, brandAdminPermissions, ['organization']) },
           { path: 'settings/accessibility', element: contextRestricted(<AccessibilitySettingsPage />, 'auth.me.read', ['platform', 'organization']) },
-          { path: 'settings/users', element: contextRestricted(<UserSettingsPage />, 'profile.user.update', ['platform']) },
-          { path: 'settings/global-services', element: contextRestricted(<GlobalServicesPage />, 'global.services.manage', ['platform', 'organization']) },
+          { path: 'settings/users', element: contextRestricted(<UserSettingsPage />, 'profile.user.update', ['platform', 'organization'], ['organization']) },
+          { path: 'settings/global-services', element: contextRestricted(<GlobalServicesPage />, ['global.services.manage', 'global.services.create', 'global.services.update', 'global.services.delete'], ['platform', 'organization']) },
           { path: 'unauthorized', element: withSuspense(<UnauthorizedPage />) },
         ],
       },

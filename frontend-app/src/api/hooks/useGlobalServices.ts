@@ -57,9 +57,11 @@ function mapGlobalServiceRow(raw: unknown): GlobalServiceRow | null {
   };
 }
 
-export function useGlobalServices(params?: { q?: string; limit?: number }) {
+export function useGlobalServices(params?: { q?: string; limit?: number; enabled?: boolean }) {
   return useQuery({
     queryKey: ['catalog', 'global-services', params?.q || '', params?.limit || 200],
+    enabled: params?.enabled ?? true,
+    staleTime: 5 * 60_000,
     queryFn: async (): Promise<{ rows: GlobalServiceRow[]; total: number }> => {
       const response = await apiClient.get<Record<string, unknown>>(endpoints.catalog.globalServices, {
         query: {
@@ -82,6 +84,20 @@ export function useCreateGlobalService() {
   return useMutation({
     mutationFn: async (payload: { name: string; description: string }) =>
       apiClient.post<{ service?: unknown }>(endpoints.catalog.globalServices, payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['catalog', 'global-services'] });
+    },
+  });
+}
+
+export function useUpdateGlobalService() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { serviceId: string; name: string; description: string }) =>
+      apiClient.patch<{ service?: unknown }>(endpoints.catalog.globalServiceById(payload.serviceId), {
+        name: payload.name,
+        description: payload.description,
+      }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['catalog', 'global-services'] });
     },

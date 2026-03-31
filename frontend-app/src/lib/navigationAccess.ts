@@ -1,5 +1,6 @@
 import type { NavigationItem } from '@/routes/navigation';
 import type { AppContext } from '@/types/auth';
+import { getOrganizationScopeKind } from '@/lib/organizationContext';
 
 export function isNavigationItemVisibleInContext(
   item: NavigationItem,
@@ -7,7 +8,12 @@ export function isNavigationItemVisibleInContext(
 ): boolean {
   if (!item.contextTypes || item.contextTypes.length === 0) return true;
   if (!activeContext) return false;
-  return item.contextTypes.includes(activeContext.type);
+  if (!item.contextTypes.includes(activeContext.type)) return false;
+  if (activeContext.type !== 'organization' || !item.organizationScopes || item.organizationScopes.length === 0) {
+    return true;
+  }
+  const scopeKind = getOrganizationScopeKind(activeContext);
+  return Boolean(scopeKind && item.organizationScopes.includes(scopeKind));
 }
 
 export function getFirstAllowedNavigationPath(
